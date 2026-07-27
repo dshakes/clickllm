@@ -33,6 +33,9 @@ pub struct Decision {
     pub serve: Backend,
     /// Backend to mirror to. Its response is scored and discarded.
     pub mirror: Option<Backend>,
+    /// Backend to try if `serve` cannot be reached. Never used for a 4xx — a
+    /// bad request is bad at both backends, and retrying it just bills twice.
+    pub fallback: Option<Backend>,
     /// Why this route was chosen, for the request log.
     pub reason: &'static str,
 }
@@ -54,6 +57,23 @@ pub enum Phase {
     },
     /// Everything to the candidate.
     Cut,
+    /// **Steady state, not a migration step.** This cluster is permanently
+    /// assigned to one backend and stays there.
+    ///
+    /// The common shape is local-plus-cloud: a small open model handles
+    /// classification, extraction and summarising, while a frontier model keeps
+    /// the long-context reasoning it is genuinely better at. That is not a
+    /// half-finished migration — it is the destination, and modelling it as
+    /// `Cut` on some clusters and `Off` on others would say "unfinished" about
+    /// a deliberate design.
+    ///
+    /// Split never mirrors: mirroring exists to gather evidence for a decision
+    /// already made here.
+    Split {
+        /// Send this cluster to the candidate (typically local) rather than the
+        /// incumbent (typically the frontier model).
+        to_candidate: bool,
+    },
 }
 
 impl Phase {
@@ -63,7 +83,23 @@ impl Phase {
             Self::Off | Self::Shadow => 0,
             Self::Canary { percent } => (*percent).min(100),
             Self::Cut => 100,
+            Self::Split { to_candidate } => {
+                if *to_candidate {
+                    100
+                } else {
+                    0
+                }
+            }
         }
+    }
+
+    /// Whether this phase is part of a rollout, as opposed to a settled design.
+    ///
+    /// A dashboard should show progress for the first and none for the second —
+    /// reporting "60% migrated" forever, when 60% is the intended end state, is
+    /// how a finished project looks permanently unfinished.
+    pub fn is_transitional(&self) -> bool {
+        matches!(self, Self::Shadow | Self::Canary { .. })
     }
 }
 
@@ -76,6 +112,14 @@ pub struct Route {
     pub candidate: Backend,
     /// Where this route is in its rollout.
     pub phase: Phase,
+    /// Fall back to the other backend when the chosen one cannot be reached.
+    ///
+    /// The reason this exists: a local model is a single machine. When it is
+    /// down, saturated, or mid-restart, "the request fails" is a worse answer
+    /// than "it cost a bit more this time". Off by default — silently sending
+    /// traffic to a paid API is not something to do without being asked.
+    #[serde(default)]
+    pub failover: bool,
 }
 
 /// The full routing table.
@@ -121,37 +165,65 @@ impl Router {
     /// canary comparison is measuring two different things.
     pub fn decide(&self, cluster: Option<&str>, key: &str) -> Decision {
         let route = self.route_for(cluster);
-        match route.phase {
-            Phase::Off => Decision {
-                serve: route.incumbent.clone(),
-                mirror: None,
-                reason: "phase off — incumbent only",
-            },
-            Phase::Shadow => Decision {
-                serve: route.incumbent.clone(),
-                mirror: Some(route.candidate.clone()),
-                reason: "shadow — candidate scored, never served",
-            },
-            Phase::Cut => Decision {
-                serve: route.candidate.clone(),
-                mirror: None,
-                reason: "cut over — candidate only",
-            },
-            Phase::Canary { percent } => {
-                if bucket(key) < u32::from(percent.min(100)) {
-                    Decision {
-                        serve: route.candidate.clone(),
-                        mirror: None,
-                        reason: "canary — in the candidate bucket",
-                    }
+
+        // `serve` is chosen first; the fallback is always the *other* backend,
+        // so failover works in both directions without extra configuration.
+        let (serve, mirror, reason) = match route.phase {
+            Phase::Off => (route.incumbent.clone(), None, "phase off — incumbent only"),
+            Phase::Shadow => (
+                route.incumbent.clone(),
+                Some(route.candidate.clone()),
+                "shadow — candidate scored, never served",
+            ),
+            Phase::Cut => (route.candidate.clone(), None, "cut over — candidate only"),
+            Phase::Split { to_candidate } => {
+                if to_candidate {
+                    (
+                        route.candidate.clone(),
+                        None,
+                        "split — this cluster is assigned to the candidate",
+                    )
                 } else {
-                    Decision {
-                        serve: route.incumbent.clone(),
-                        mirror: Some(route.candidate.clone()),
-                        reason: "canary — incumbent, still mirroring for comparison",
-                    }
+                    (
+                        route.incumbent.clone(),
+                        None,
+                        "split — this cluster is assigned to the incumbent",
+                    )
                 }
             }
+            Phase::Canary { percent } => {
+                if bucket(key) < u32::from(percent.min(100)) {
+                    (
+                        route.candidate.clone(),
+                        None,
+                        "canary — in the candidate bucket",
+                    )
+                } else {
+                    (
+                        route.incumbent.clone(),
+                        Some(route.candidate.clone()),
+                        "canary — incumbent, still mirroring for comparison",
+                    )
+                }
+            }
+        };
+
+        let fallback = if route.failover {
+            let other = if serve.name == route.candidate.name {
+                route.incumbent.clone()
+            } else {
+                route.candidate.clone()
+            };
+            Some(other)
+        } else {
+            None
+        };
+
+        Decision {
+            serve,
+            mirror,
+            fallback,
+            reason,
         }
     }
 }
@@ -190,6 +262,14 @@ mod tests {
             incumbent: be("gpt-5"),
             candidate: be("glm-5.2"),
             phase,
+            failover: false,
+        }
+    }
+
+    fn route_with_failover(phase: Phase) -> Route {
+        Route {
+            failover: true,
+            ..route(phase)
         }
     }
 
@@ -314,12 +394,104 @@ mod tests {
     }
 
     #[test]
+    fn split_is_a_destination_not_a_rollout_step() {
+        // Local-plus-cloud is a design, not a half-finished migration. A
+        // dashboard reporting "60% migrated" forever, when 60% is the intended
+        // end state, makes a finished project look permanently unfinished.
+        for to_candidate in [true, false] {
+            let p = Phase::Split { to_candidate };
+            assert!(!p.is_transitional());
+        }
+        assert!(Phase::Shadow.is_transitional());
+        assert!(Phase::Canary { percent: 5 }.is_transitional());
+        assert!(!Phase::Cut.is_transitional());
+    }
+
+    #[test]
+    fn split_assigns_a_cluster_permanently_and_never_mirrors() {
+        let local = Router::new(route(Phase::Split { to_candidate: true }));
+        let cloud = Router::new(route(Phase::Split {
+            to_candidate: false,
+        }));
+        for i in 0..200 {
+            let k = format!("r{i}");
+            let d = local.decide(None, &k);
+            assert_eq!(d.serve.name, "glm-5.2");
+            assert!(
+                d.mirror.is_none(),
+                "split gathers no evidence; the decision is made"
+            );
+            assert_eq!(cloud.decide(None, &k).serve.name, "gpt-5");
+        }
+    }
+
+    #[test]
+    fn a_local_plus_cloud_split_routes_each_cluster_to_its_own_backend() {
+        // The shape people actually want: cheap local for the easy work, the
+        // frontier model for what it is genuinely better at.
+        let r = Router::new(route(Phase::Split { to_candidate: true })).with_cluster(
+            "long-ctx-reasoning",
+            route(Phase::Split {
+                to_candidate: false,
+            }),
+        );
+        assert_eq!(r.decide(Some("classify"), "k").serve.name, "glm-5.2");
+        assert_eq!(r.decide(Some("summarise"), "k").serve.name, "glm-5.2");
+        assert_eq!(
+            r.decide(Some("long-ctx-reasoning"), "k").serve.name,
+            "gpt-5"
+        );
+    }
+
+    #[test]
+    fn failover_is_off_unless_asked_for() {
+        // Silently sending traffic to a paid API is not a default.
+        assert!(
+            Router::new(route(Phase::Cut))
+                .decide(None, "k")
+                .fallback
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn failover_names_the_other_backend_in_both_directions() {
+        let to_local = Router::new(route_with_failover(Phase::Split { to_candidate: true }));
+        let d = to_local.decide(None, "k");
+        assert_eq!(d.serve.name, "glm-5.2");
+        assert_eq!(d.fallback.as_ref().unwrap().name, "gpt-5");
+
+        let to_cloud = Router::new(route_with_failover(Phase::Split {
+            to_candidate: false,
+        }));
+        let d2 = to_cloud.decide(None, "k");
+        assert_eq!(d2.serve.name, "gpt-5");
+        assert_eq!(d2.fallback.as_ref().unwrap().name, "glm-5.2");
+    }
+
+    #[test]
+    fn split_percentages_read_as_all_or_nothing() {
+        assert_eq!(Phase::Split { to_candidate: true }.candidate_percent(), 100);
+        assert_eq!(
+            Phase::Split {
+                to_candidate: false
+            }
+            .candidate_percent(),
+            0
+        );
+    }
+
+    #[test]
     fn every_decision_carries_a_reason() {
         let phases = [
             Phase::Off,
             Phase::Shadow,
             Phase::Cut,
             Phase::Canary { percent: 50 },
+            Phase::Split { to_candidate: true },
+            Phase::Split {
+                to_candidate: false,
+            },
         ];
         for p in phases {
             let d = Router::new(route(p)).decide(None, "k");

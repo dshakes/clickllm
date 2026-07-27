@@ -45,6 +45,9 @@ pub struct AppState {
 pub struct Record {
     /// Backend that served the response.
     pub backend: String,
+    /// True when the primary was unreachable and the fallback answered. Surfaced
+    /// so a quietly-degraded deployment is visible rather than merely working.
+    pub failed_over: bool,
     /// Backend the request was mirrored to, if any.
     pub mirrored_to: Option<String>,
     /// Why the router chose this path.
@@ -157,6 +160,9 @@ fn dispatch_mirror(
         let decision = Decision {
             serve: backend.clone(),
             mirror: None,
+            // A mirror is evidence-gathering, not service. If the candidate is
+            // unreachable that IS the finding; falling back would hide it.
+            fallback: None,
             reason: "mirror",
         };
         let mut rec = MirrorRecord {
@@ -168,7 +174,7 @@ fn dispatch_mirror(
             error: None,
         };
 
-        match send(&st, &decision, &parsed, &headers, &body).await {
+        match send(&st, &decision.serve, &parsed, &headers, &body).await {
             Ok(resp) => {
                 rec.status = Some(resp.status().as_u16());
                 let mut meter = Meter::new();
@@ -315,7 +321,27 @@ async fn chat_completions(
         );
     }
 
-    let upstream = send(&st, &decision, &parsed, &headers, &body).await?;
+    let mut served_by = decision.serve.name.clone();
+    let mut failed_over = false;
+    let upstream = match send(&st, &decision.serve, &parsed, &headers, &body).await {
+        Ok(r) => r,
+        Err(primary_err) => match &decision.fallback {
+            // Only a transport failure falls over. A 4xx is bad at both backends,
+            // and retrying it just bills the request twice.
+            Some(alt) => {
+                tracing::warn!(
+                    primary = %decision.serve.name,
+                    fallback = %alt.name,
+                    error = %primary_err,
+                    "primary unreachable, falling over"
+                );
+                failed_over = true;
+                served_by = alt.name.clone();
+                send(&st, alt, &parsed, &headers, &body).await?
+            }
+            None => return Err(primary_err),
+        },
+    };
     let status = upstream.status();
 
     let mut out_headers = HeaderMap::new();
@@ -329,12 +355,12 @@ async fn chat_completions(
     }
     out_headers.insert(
         "x-clickllm-backend",
-        HeaderValue::from_str(&decision.serve.name)
-            .unwrap_or_else(|_| HeaderValue::from_static("unknown")),
+        HeaderValue::from_str(&served_by).unwrap_or_else(|_| HeaderValue::from_static("unknown")),
     );
 
     let base = Record {
-        backend: decision.serve.name.clone(),
+        backend: served_by.clone(),
+        failed_over,
         mirrored_to: decision.mirror.as_ref().map(|m| m.name.clone()),
         reason: decision.reason,
         model,
@@ -431,13 +457,13 @@ fn elapsed_ms(started: Instant) -> u64 {
 
 async fn send(
     st: &AppState,
-    decision: &Decision,
+    backend: &crate::router::Backend,
     parsed: &serde_json::Value,
     headers: &HeaderMap,
     body: &Bytes,
 ) -> Result<reqwest::Response, ProxyError> {
     // Rewrite the model only when the backend names a different one.
-    let payload = match &decision.serve.model {
+    let payload = match &backend.model {
         Some(m) => {
             let mut v = parsed.clone();
             if let Some(obj) = v.as_object_mut() {
@@ -452,7 +478,7 @@ async fn send(
         .client
         .post(format!(
             "{}/chat/completions",
-            decision.serve.base_url.trim_end_matches('/')
+            backend.base_url.trim_end_matches('/')
         ))
         .header(header::CONTENT_TYPE, "application/json")
         .body(payload);
@@ -464,7 +490,7 @@ async fn send(
     }
 
     req.send().await.map_err(|e| ProxyError::Upstream {
-        backend: decision.serve.name.clone(),
+        backend: backend.name.clone(),
         source: e,
     })
 }
