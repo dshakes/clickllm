@@ -149,7 +149,7 @@ fn bytes_from(params_b: f64, bits: f64) -> u64 {
 /// The traffic shape a deployment must serve. Sourced from observed traffic
 /// (stage ②) rather than from a model's advertised maximum — nobody actually
 /// sends 1M tokens, and sizing for it wastes the machine.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Workload {
     /// 95th-percentile prompt+completion length actually observed.
     pub p95_context: u32,
