@@ -24,11 +24,14 @@ pub enum Event {
 #[derive(Debug, Default)]
 pub struct Decoder {
     buf: BytesMut,
+    /// Sticky once a retained partial frame has ever exceeded [`MAX_FRAME_BYTES`].
+    overflowed: bool,
 }
 
 /// Cap on a single retained frame. A server that never sends a frame terminator
 /// must not be able to grow this buffer without bound — a proxy that OOMs under a
-/// hostile upstream is worse than one that gives up on the stream.
+/// hostile upstream is worse than one that gives up on the stream. Enforced in
+/// [`Decoder::push`], which drops the buffered partial frame once it is exceeded.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 impl Decoder {
@@ -42,15 +45,24 @@ impl Decoder {
         self.buf.len()
     }
 
-    /// True once the retained partial frame has exceeded [`MAX_FRAME_BYTES`].
+    /// True once a retained partial frame has ever exceeded [`MAX_FRAME_BYTES`].
+    ///
+    /// Sticky for the life of the decoder: the offending bytes are dropped as soon
+    /// as the cap is hit (see [`Decoder::push`]), so `pending()` alone can't be
+    /// used to detect this after the fact.
     pub fn overflowed(&self) -> bool {
-        self.buf.len() > MAX_FRAME_BYTES
+        self.overflowed
     }
 
     /// Push received bytes and drain every complete event.
     ///
     /// Frames are separated by a blank line (`\n\n`, or `\r\n\r\n`). Comment lines
     /// (`:`) and non-`data:` fields are skipped — we care only about payloads.
+    ///
+    /// If no terminator shows up before the retained partial frame exceeds
+    /// [`MAX_FRAME_BYTES`], the buffered bytes are dropped so the decoder's memory
+    /// use stays capped regardless of how long the misbehaving upstream keeps
+    /// withholding a terminator.
     pub fn push(&mut self, chunk: &[u8]) -> Vec<Event> {
         self.buf.extend_from_slice(chunk);
         let mut out = Vec::new();
@@ -62,6 +74,12 @@ impl Decoder {
                 out.push(ev);
             }
         }
+
+        if self.buf.len() > MAX_FRAME_BYTES {
+            self.overflowed = true;
+            self.buf.clear();
+        }
+
         out
     }
 }
@@ -235,6 +253,38 @@ mod tests {
             d.overflowed(),
             "a frame with no terminator must be detectable"
         );
+    }
+
+    #[test]
+    fn overflow_is_enforced_the_buffer_is_capped_not_just_flagged() {
+        let mut d = Decoder::new();
+        d.push(&vec![b'x'; MAX_FRAME_BYTES + 1]);
+        assert!(
+            d.pending() <= MAX_FRAME_BYTES,
+            "the offending frame must be dropped, not merely detected, once it \
+             exceeds the cap"
+        );
+
+        // A hostile upstream that keeps withholding a terminator forever must not
+        // be able to grow the buffer chunk after chunk either.
+        for _ in 0..8 {
+            d.push(&vec![b'x'; MAX_FRAME_BYTES]);
+            assert!(
+                d.pending() <= MAX_FRAME_BYTES,
+                "buffer grew unbounded across repeated pushes from a stalled upstream"
+            );
+        }
+        assert!(d.overflowed());
+    }
+
+    #[test]
+    fn a_terminator_after_an_overflow_resumes_normal_decoding() {
+        let mut d = Decoder::new();
+        d.push(&vec![b'x'; MAX_FRAME_BYTES + 1]);
+        assert!(d.overflowed());
+        // The dropped bytes leave no dangling frame behind; decoding resumes as
+        // normal for whatever the upstream sends next.
+        assert_eq!(d.push(b"data: ok\n\n"), vec![Event::Data("ok".into())]);
     }
 
     #[test]

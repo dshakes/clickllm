@@ -230,6 +230,9 @@ async fn chat_completions(
     let meter = Arc::new(Mutex::new(Meter::new()));
     let meter_for_stream = Arc::clone(&meter);
     let mut decoder = Decoder::new();
+    // `Decoder::overflowed` is sticky, so track whether we've already logged this
+    // stream's overflow to avoid warning on every remaining chunk.
+    let mut overflow_logged = false;
     let stream = upstream.bytes_stream().map(move |chunk| match chunk {
         Ok(bytes) => {
             let events = decoder.push(&bytes);
@@ -239,9 +242,11 @@ async fn chat_completions(
                     m.observe(ev);
                 }
             }
-            if decoder.overflowed() {
-                // A frame with no terminator would otherwise grow without bound.
-                tracing::warn!("upstream frame exceeded the cap; stopping metering");
+            if decoder.overflowed() && !overflow_logged {
+                // The decoder caps and drops the oversized frame itself; this is
+                // just a heads-up that some of the stream's tokens went unmetered.
+                tracing::warn!("upstream frame exceeded the cap; metering may be incomplete");
+                overflow_logged = true;
             }
             Ok(bytes)
         }
