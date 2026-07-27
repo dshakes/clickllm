@@ -107,7 +107,7 @@ Seven stages. Each is an **agent with tools** — conversational, resumable, and
 | ② | **Distill** | Cluster prompts by task shape. Sample representatively. Your recorded closed-model outputs become the *incumbent baseline*. **← moat** | planned |
 | ③ | **Fit** | What runs on your silicon, at the context and concurrency stage ② observed you actually use. | **works** |
 | ④ | **Prove** | Grade candidates against your eval set: assertions → task graders → position-swapped pairwise judge. **← the hero** | planned |
-| ⑤ | **Deploy** | Emit **native** config — real `vllm serve`, real `InferencePool`. Runs with clickllm uninstalled. | planned |
+| ⑤ | **Deploy** | **Zero-config.** Name a model and a target; every knob — quantization, spec-decode, caching, parallelism, batch limits — is auto-tuned from your hardware and traffic, then *measured* and reverted if it doesn't help. The native config it writes is a receipt, not a form to fill in. | planned |
 | ⑥ | **Cut over** | Shadow → canary → cut, gated on **quality**, auto-rollback in <10s. **← moat** | planned |
 | ⑦ | **Guard** | New model ships → re-run *your* evals → propose a promotion with the cost/quality delta. **← moat** | planned |
 
@@ -150,6 +150,31 @@ Columns are **traffic-weighted** — a cluster that's 38% of your load matters 5
 | Drift watch + promotion proposals | KServe · BentoML — k8s serving targets |
 
 We do **not** build: an inference engine, a production load balancer, a chat UI, a RAG framework, fine-tuning, or hosted inference. Every one has a well-funded incumbent, and none is the gap.
+
+### Inference in a box
+
+```bash
+clickllm pack --model glm-5.2 --out triage.box     # tuned, benchmarked, portable
+clickllm push ghcr.io/acme/triage:v3               # standard OCI — any registry, signable
+clickllm run  ghcr.io/acme/triage:v3               # OpenAI-compatible endpoint, any hardware
+```
+
+**One OCI artifact, one registry, one command, one endpoint.** It runs *as* a container on Linux, Windows/WSL2, and Kubernetes. On macOS the same artifact is pulled and a native MLX engine is supervised against it — because [no mechanism exists to reach the Apple GPU from a Linux container](docs/adr/0005-inference-in-a-box.md): the GPU is on-die behind unified memory, Metal has no Linux driver, and Apple ships no compute passthrough. One platform, one binding difference, invisible unless you ask.
+
+The box is a tuned starting point **plus the evidence behind it** — not a frozen command line. On arrival it re-profiles the host, re-solves if the hardware differs from where it was packed, re-benchmarks, reverts what doesn't help, and tells you what it changed. A box packed on an A100 that lands on a 24 GB L40S re-quantizes instead of OOM-ing.
+
+**We own every knob.** Composing the engines doesn't mean exposing them. You never write a `vllm serve` line or pick a `num_speculative_tokens`:
+
+| Auto-tuned | Derived from |
+|---|---|
+| quantization | memory solve, re-validated against your evals |
+| speculative decoding + draft length | observed concurrency — **disabled** past the acceptance cliff, where it makes you *slower* |
+| prefix / radix caching | measured prefix-sharing rate in your traffic |
+| tensor + pipeline parallelism | device count and topology |
+| `max_model_len`, `max_num_seqs`, chunked prefill | your p95 context — not the model's advertised max |
+| KV dtype, memory utilization | headroom after the solve |
+
+Each choice is benchmarked against your workload and **reverted if it doesn't actually help on your hardware**. Estimates pick the candidates; measurement ratifies them.
 
 ---
 
@@ -200,6 +225,7 @@ Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` a
 4. **Never a number without its confidence.** `?` beats a fabricated score.
 5. **Local-first, zero telemetry.** Your production prompts are the most sensitive data you have. Nothing leaves the machine without an explicit command.
 6. **No lock-in, by construction.** Eval sets export. Configs run standalone. *A product about escaping lock-in cannot create lock-in.*
+7. **Never ask for a knob we can derive.** No tuning flag is mandatory. If we set it, we can `--explain` it — and we measured it rather than assuming it.
 
 ---
 
@@ -218,6 +244,8 @@ Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` a
 | [ADR-0001](docs/adr/0001-migration-not-platform.md) | Build the migration, not the platform. |
 | [ADR-0002](docs/adr/0002-runtime-abstraction.md) | Runtime abstraction; emit native config. |
 | [ADR-0003](docs/adr/0003-dont-build-fit-adopt-llmfit.md) | Don't build the fit layer. Adopt llmfit. |
+| [ADR-0004](docs/adr/0004-zero-config-deployment.md) | Deployment is zero-config; the generated file is a receipt, not an interface. |
+| [ADR-0005](docs/adr/0005-inference-in-a-box.md) | "Inference in a box" is a contract, not a container image. |
 
 ---
 

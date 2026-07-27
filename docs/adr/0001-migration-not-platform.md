@@ -14,6 +14,8 @@ The blocker for that pivot is not deployment. Ollama solved deployment. The bloc
 
 Build the **migration**, not the platform. Deployment becomes a generated output on the far side of a proven decision, not the product.
 
+> **Amended by [ADR-0004](0004-zero-config-deployment.md):** this is a decision about *strategy* (we do not build an orchestrator), not about *user experience*. Deployment is zero-config — clickllm owns every tuning knob and the user is never asked for one.
+
 The moat is four stages nobody owns: **distill** (traffic → private eval set), **prove** (equivalence matrix + regret), **cut over** (quality-gated canary), **guard** (drift watch). Everything else is composed from existing tools.
 
 ## Consequences

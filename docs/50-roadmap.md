@@ -60,9 +60,9 @@ Sequenced so each phase ships something **independently useful** — no phase is
 
 ---
 
-## Phase 4 — Deploy (weeks 19–23)
+## Phase 4 — Deploy / "inference in a box" (weeks 19–25)
 
-**Ships:** native config generation for every target.
+**Ships:** `clickllm pack` + `clickllm run` — a portable box that serves an OpenAI-compatible endpoint on any hardware, plus native config generation for every target.
 
 - Local: vllm-mlx, llama.cpp Metal, MLC-LLM, mlx-lm
 - GPU: vLLM + EAGLE-3/P-EAGLE, SGLang + RadixAttention
@@ -70,7 +70,14 @@ Sequenced so each phase ships something **independently useful** — no phase is
 - Spec-decode and quantization tuned from Phase 0's solve and Phase 3's proof
 - CI that runs generated configs against real engines per release
 
+- **Zero-config by default** — every knob auto-tuned from ③ hardware and ② observed traffic; no tuning flag is ever required ([ADR-0004](adr/0004-zero-config-deployment.md))
+- **Benchmark-and-revert** — start the engine, run the observed workload shape, and drop any optimization that doesn't help on this hardware
+- **The box** — one command, one endpoint, two delivery mechanisms: container on Linux/CUDA/ROCm/k8s, supervised native on macOS/Metal ([ADR-0005](adr/0005-inference-in-a-box.md))
+- **Re-tune on arrival** — a box tuned on an A100 must re-solve when it lands on an L40S or a Mac, not apply stale settings
+
 **Constraint:** generated artifacts must run with clickllm uninstalled (NFR-4). Test that explicitly.
+
+**Risk:** a wrong auto-tune is worse than no auto-tune — an untuned `num_speculative_tokens` at high concurrency makes users *slower* and they never learn why. Roofline estimates pick candidate settings; **measurement ratifies them**. Never ship a computed optimization unmeasured.
 
 ---
 

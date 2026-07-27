@@ -9,7 +9,7 @@
 
 > **clickllm proves which open model can replace your closed one — on your traffic, your hardware, your budget — then moves you there without a risky cutover.**
 
-Working name. Alternatives: **Defect** (you're defecting from closed models), **Offboard**, **Sovereign**. `clickllm` is fine and the domain story is clean; not worth churning on now.
+Working name. Superseded by [70-naming.md](70-naming.md), which recommends renaming to **Parity** — motto *"Prove it, then move it."*
 
 ---
 
@@ -24,6 +24,10 @@ Working name. Alternatives: **Defect** (you're defecting from closed models), **
 **G4.** The generated deployment is **yours** — native vLLM/SGLang/llm-d/MLX config you can read, fork, and run without us. No lock-in, by construction.
 
 **G5.** Staying current is automatic: when a new open model ships, your eval set re-runs and you get a *proposal*, not a newsletter.
+
+**G6a.** **Inference in a box.** `clickllm run ./model.box` serves an OpenAI-compatible endpoint on any hardware — container on Linux/NVIDIA/AMD/k8s, supervised native runtime on macOS/Metal, same command and same endpoint either way. The box re-profiles and re-tunes on the host it lands on. ([ADR-0005](adr/0005-inference-in-a-box.md))
+
+**G6.** **Deploying is zero-config.** Name a model and a target; clickllm chooses quantization, speculative decoding, caching, parallelism, and batch limits from your hardware and your observed traffic. No LLM-infra expertise required, and no tuning flag is ever mandatory. ([ADR-0004](adr/0004-zero-config-deployment.md))
 
 ### Non-goals (v1)
 
@@ -111,7 +115,14 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 | FR-10 | Equivalence matrix with per-cluster scores and confidence intervals | 4 |
 | FR-11 | Regret analysis: named clusters where open loses | 4 |
 | FR-12 | Generate native config: vllm-mlx, llama.cpp, vLLM, SGLang, KServe, llm-d + GAIE | 5 |
-| FR-13 | Auto-configure speculative decoding (EAGLE-3/P-EAGLE/mlx spec) tuned to observed concurrency | 5 |
+| FR-13 | Auto-configure speculative decoding (EAGLE-3/P-EAGLE/mlx spec) tuned to observed concurrency; disable it when observed batch exceeds the acceptance cliff | 5 |
+| FR-13a | Auto-tune quantization, prefix/radix caching, tensor+pipeline parallelism, `max_model_len`, `max_num_seqs`, chunked prefill, KV dtype, and memory utilization — none of them prompted | 5 |
+| FR-13b | **Measure, don't just compute:** benchmark each generated config against the observed workload and automatically revert any optimization that fails to help on this hardware | 5 |
+| FR-13c | `--explain` every auto-tuned knob; emit the choices and the ratifying measurement as a header comment in the artifact | 5 |
+| FR-20 | `clickllm pack` produces a portable **box**: manifest, weights lock, per-target bindings, bench evidence, human-readable README | 5 |
+| FR-21 | `clickllm run <box>` serves an OpenAI-compatible endpoint on Linux (container), macOS (supervised native — Docker cannot reach the Apple GPU), and CPU | 5 |
+| FR-22 | On arrival, re-profile the host, re-solve if it differs from the pack-time class, re-benchmark, revert unhelpful optimizations, and report every change | 5 |
+| FR-23 | Published, CI-tested support matrix (architecture × runtime × platform); unsupported architectures fail with a clear message, never a crash | 5 |
 | FR-14 | Shadow mode: mirror traffic, score, never serve | 6 |
 | FR-15 | Quality-gated canary with auto-rollback on eval regression | 6 |
 | FR-16 | Hybrid routing: per-cluster policy (open for these, closed for regret set) | 6 |
@@ -126,7 +137,7 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 | NFR-1 | Proxy overhead **< 15 ms p95** added latency (LiteLLM's baseline is 10–20 ms; we must not double it) |
 | NFR-2 | **Local-first.** No traffic, prompt, or eval leaves the machine unless explicitly exported. Default: zero telemetry. |
 | NFR-3 | Captured traffic encrypted at rest; redaction runs before persistence, never after |
-| NFR-4 | Generated artifacts are readable, idiomatic, and runnable **without clickllm installed** |
+| NFR-4 | Generated artifacts are readable, idiomatic, and runnable **without clickllm installed** — a receipt, not an interface. Reading or editing it is never a prerequisite. |
 | NFR-5 | Cutover rollback completes in **< 10 s** |
 | NFR-6 | Loop is resumable — kill it at any stage, resume from disk state |
 | NFR-7 | Runs fully offline after model download (air-gapped enterprise) |
