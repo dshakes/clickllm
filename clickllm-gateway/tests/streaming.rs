@@ -269,3 +269,62 @@ async fn healthz_and_metrics_endpoints_answer() {
         .unwrap();
     assert!(m.is_array(), "metrics must be a JSON array");
 }
+
+#[tokio::test]
+async fn the_console_is_served_and_reflects_real_recorded_traffic() {
+    let up = spawn(AxumRouter::new().route("/v1/chat/completions", post(unary))).await;
+    let st = state_pointing_at(up, Phase::Off);
+    let gw = spawn(app(Arc::clone(&st))).await;
+    let c = reqwest::Client::new();
+
+    let page = c.get(format!("http://{gw}/")).send().await.unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let ct = page.headers()[axum::http::header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(ct.starts_with("text/html"), "got {ct}");
+    let html = page.text().await.unwrap();
+    // Self-contained: no external fetches, so it works air-gapped.
+    assert!(
+        !html.contains("http://") && !html.contains("https://"),
+        "console must not load remote assets"
+    );
+    assert!(
+        html.contains("metrics/requests"),
+        "console must read the real endpoint"
+    );
+
+    // The endpoint it reads must carry what the console renders.
+    c.post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "gpt-5"}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+
+    let rows: serde_json::Value = c
+        .get(format!("http://{gw}/metrics/requests"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let row = &rows[0];
+    for field in [
+        "backend",
+        "model",
+        "reason",
+        "status",
+        "duration_ms",
+        "metered",
+    ] {
+        assert!(!row[field].is_null(), "console needs {field}");
+    }
+    // The honesty contract: metered is a tagged union, so "no usage reported"
+    // can never be rendered as zero.
+    assert!(row["metered"]["kind"].is_string());
+}

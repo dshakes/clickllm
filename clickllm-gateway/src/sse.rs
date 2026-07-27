@@ -24,12 +24,25 @@ pub enum Event {
 #[derive(Debug, Default)]
 pub struct Decoder {
     buf: BytesMut,
+    /// Set after an oversized partial frame is discarded. The next complete frame
+    /// is dropped rather than emitted, because its leading bytes went with it and
+    /// parsing the remainder would surface a corrupt payload as if it were real.
+    desynced: bool,
+    dropped_frames: u64,
 }
 
 /// Cap on a single retained frame. A server that never sends a frame terminator
 /// must not be able to grow this buffer without bound — a proxy that OOMs under a
 /// hostile upstream is worse than one that gives up on the stream.
+///
+/// This is **enforced**, not merely observed: [`Decoder::push`] discards the
+/// partial frame once the cap is passed. Detection alone would leave the
+/// invariant documented but untrue.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+
+/// Bytes retained across a discard so a terminator straddling the cut is still
+/// found. The longest terminator is `\n\r\n`, so two trailing bytes suffice.
+const RESYNC_TAIL: usize = 2;
 
 impl Decoder {
     /// New decoder with an empty buffer.
@@ -42,9 +55,17 @@ impl Decoder {
         self.buf.len()
     }
 
-    /// True once the retained partial frame has exceeded [`MAX_FRAME_BYTES`].
-    pub fn overflowed(&self) -> bool {
-        self.buf.len() > MAX_FRAME_BYTES
+    /// Number of frames discarded because they exceeded [`MAX_FRAME_BYTES`].
+    ///
+    /// Non-zero means this stream lost metering data — the client's bytes are
+    /// unaffected, since the proxy forwards them independently of decoding.
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames
+    }
+
+    /// True while resynchronising after a discard.
+    pub fn desynced(&self) -> bool {
+        self.desynced
     }
 
     /// Push received bytes and drain every complete event.
@@ -57,10 +78,31 @@ impl Decoder {
 
         while let Some(end) = find_frame_end(&self.buf) {
             let frame = self.buf.split_to(end.frame_len);
+            if self.desynced {
+                // The head of this frame was discarded with the oversized one.
+                // Emitting the tail would present a truncated payload as whole.
+                self.desynced = false;
+                continue;
+            }
             let body = frame.get(..end.content_len).unwrap_or_default();
             if let Some(ev) = parse_frame(body) {
                 out.push(ev);
             }
+        }
+
+        // Enforce the cap. Everything left here is a partial frame with no
+        // terminator; past the cap it is not a legitimate SSE frame, so drop it
+        // and keep only enough tail to spot a terminator spanning the cut.
+        if self.buf.len() > MAX_FRAME_BYTES {
+            let keep = self.buf.len().saturating_sub(RESYNC_TAIL);
+            let _ = self.buf.split_to(keep);
+            self.desynced = true;
+            self.dropped_frames = self.dropped_frames.saturating_add(1);
+            tracing::warn!(
+                cap = MAX_FRAME_BYTES,
+                dropped_frames = self.dropped_frames,
+                "discarded an oversized SSE frame; metering will miss it"
+            );
         }
         out
     }
@@ -227,14 +269,49 @@ mod tests {
     }
 
     #[test]
-    fn overflow_is_detectable_so_a_hostile_upstream_cannot_grow_us_without_bound() {
+    fn an_upstream_that_never_terminates_a_frame_cannot_grow_the_buffer() {
+        // The invariant the module documents. Detection alone left it documented
+        // but untrue — which is exactly what code review caught.
         let mut d = Decoder::new();
-        assert!(!d.overflowed());
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..200 {
+            assert!(d.push(&chunk).is_empty());
+            assert!(
+                d.pending() <= MAX_FRAME_BYTES,
+                "buffer reached {} bytes, past the {MAX_FRAME_BYTES} cap",
+                d.pending()
+            );
+        }
+        // 12.5 MiB pushed at a 1 MiB cap; memory stayed bounded throughout.
+        assert!(d.dropped_frames() > 0);
+    }
+
+    #[test]
+    fn the_decoder_resynchronises_after_discarding_an_oversized_frame() {
+        let mut d = Decoder::new();
         d.push(&vec![b'x'; MAX_FRAME_BYTES + 1]);
+        assert!(d.desynced());
+
+        // The remainder of the bad frame is dropped, not emitted as if whole.
+        assert!(d.push(b"tail-of-the-bad-frame\n\n").is_empty());
         assert!(
-            d.overflowed(),
-            "a frame with no terminator must be detectable"
+            !d.desynced(),
+            "should have resynchronised at the terminator"
         );
+
+        // ...and the next real frame decodes normally.
+        assert_eq!(d.push(b"data: good\n\n"), vec![Event::Data("good".into())]);
+    }
+
+    #[test]
+    fn a_discard_never_emits_a_truncated_payload_as_if_it_were_whole() {
+        let mut d = Decoder::new();
+        let mut big = b"data: ".to_vec();
+        big.extend(std::iter::repeat_n(b'x', MAX_FRAME_BYTES));
+        d.push(&big);
+        // The tail of the oversized frame must not surface as an Event.
+        let evs = d.push(b"trailing-garbage\n\ndata: clean\n\n");
+        assert_eq!(evs, vec![Event::Data("clean".into())]);
     }
 
     #[test]

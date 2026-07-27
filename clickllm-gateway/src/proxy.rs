@@ -94,13 +94,27 @@ impl AppState {
     }
 }
 
+/// The local console, embedded in the binary so there is no asset to deploy and
+/// nothing to fetch from a network. It renders only what this gateway actually
+/// recorded — request volume, routing decisions, and reported token usage.
+const CONSOLE_HTML: &str = include_str!("console.html");
+
 /// Build the router. Kept separate from `serve` so tests can drive it directly.
 pub fn app(state: Arc<AppState>) -> AxumRouter {
     AxumRouter::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics/requests", get(records))
+        .route("/", get(console))
         .with_state(state)
+}
+
+/// Serve the console.
+async fn console() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        CONSOLE_HTML,
+    )
 }
 
 async fn records(State(st): State<Arc<AppState>>) -> Json<Vec<Record>> {
@@ -239,10 +253,9 @@ async fn chat_completions(
                     m.observe(ev);
                 }
             }
-            if decoder.overflowed() {
-                // A frame with no terminator would otherwise grow without bound.
-                tracing::warn!("upstream frame exceeded the cap; stopping metering");
-            }
+            // The decoder enforces its own cap and logs what it discarded; the
+            // client's bytes are forwarded regardless, so an oversized frame
+            // costs metering accuracy and nothing else.
             Ok(bytes)
         }
         Err(e) => {
