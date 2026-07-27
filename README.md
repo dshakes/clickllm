@@ -241,6 +241,7 @@ Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` a
 | [50 — Roadmap](docs/50-roadmap.md) | Phased, each phase independently useful. |
 | [60 — Pitch](docs/60-pitch.md) | YC-style. |
 | [70 — Naming](docs/70-naming.md) | Name, motto, voice. Recommends renaming to **Parity**. |
+| [80 — Implementation plan](docs/80-implementation-plan.md) | Module map, protocols, M1–M10 milestones, risk gates, traceability. |
 | [ADR-0001](docs/adr/0001-migration-not-platform.md) | Build the migration, not the platform. |
 | [ADR-0002](docs/adr/0002-runtime-abstraction.md) | Runtime abstraction; emit native config. |
 | [ADR-0003](docs/adr/0003-dont-build-fit-adopt-llmfit.md) | Don't build the fit layer. Adopt llmfit. |
