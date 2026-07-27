@@ -24,12 +24,14 @@
 #![doc(html_root_url = "https://docs.rs/clickllm-gateway")]
 
 pub mod capture;
+pub mod control;
 pub mod meter;
 pub mod proxy;
 pub mod router;
 pub mod sse;
 
 pub use capture::{Capture, CaptureStore, Report as RedactionReport, redact};
+pub use control::{PhaseChange, Transition};
 pub use meter::{Meter, Metered, Usage};
 pub use proxy::{AppState, Record, app};
 pub use router::{Backend, Decision, Phase, Route, Router};

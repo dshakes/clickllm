@@ -112,12 +112,16 @@ pub struct Route {
     pub candidate: Backend,
     /// Where this route is in its rollout.
     pub phase: Phase,
-    /// Fall back to the other backend when the chosen one cannot be reached.
+    /// Fall back **to the incumbent** when the candidate cannot be reached.
     ///
     /// The reason this exists: a local model is a single machine. When it is
     /// down, saturated, or mid-restart, "the request fails" is a worse answer
     /// than "it cost a bit more this time". Off by default — silently sending
     /// traffic to a paid API is not something to do without being asked.
+    ///
+    /// One direction only. A request already on the incumbent has no fallback,
+    /// because the candidate is the thing under test, not a safety net — see
+    /// the note in [`Router::decide`].
     #[serde(default)]
     pub failover: bool,
 }
@@ -150,6 +154,37 @@ impl Router {
         self
     }
 
+    /// Change the phase of one route, returning the phase it replaced.
+    ///
+    /// `None` targets the default route. A cluster with no override inherits the
+    /// default, so setting a phase on it creates one — moving a single cluster
+    /// must never silently move everything else with it.
+    pub fn set_phase(&mut self, cluster: Option<&str>, phase: Phase) -> Phase {
+        let route = match cluster {
+            None => &mut self.default,
+            Some(c) => self
+                .by_cluster
+                .entry(c.to_owned())
+                .or_insert_with(|| self.default.clone()),
+        };
+        std::mem::replace(&mut route.phase, phase)
+    }
+
+    /// Every route, default first, as `(cluster, phase)`.
+    ///
+    /// The default is `None`. Ordering is deterministic so two reads of an
+    /// unchanged router produce identical output — a control surface that
+    /// reshuffles itself cannot be diffed.
+    pub fn phases(&self) -> Vec<(Option<String>, Phase)> {
+        let mut out = vec![(None, self.default.phase.clone())];
+        out.extend(
+            self.by_cluster
+                .iter()
+                .map(|(k, r)| (Some(k.clone()), r.phase.clone())),
+        );
+        out
+    }
+
     /// The route that applies to `cluster`.
     pub fn route_for(&self, cluster: Option<&str>) -> &Route {
         cluster
@@ -166,8 +201,6 @@ impl Router {
     pub fn decide(&self, cluster: Option<&str>, key: &str) -> Decision {
         let route = self.route_for(cluster);
 
-        // `serve` is chosen first; the fallback is always the *other* backend,
-        // so failover works in both directions without extra configuration.
         let (serve, mirror, reason) = match route.phase {
             Phase::Off => (route.incumbent.clone(), None, "phase off — incumbent only"),
             Phase::Shadow => (
@@ -208,13 +241,21 @@ impl Router {
             }
         };
 
-        let fallback = if route.failover {
-            let other = if serve.name == route.candidate.name {
-                route.incumbent.clone()
-            } else {
-                route.candidate.clone()
-            };
-            Some(other)
+        // Failover is one-directional: **only ever back to the incumbent.**
+        //
+        // The argument for failover runs in exactly one direction. A local model
+        // is a single machine, and when it is down "the request fails" is a worse
+        // answer than "it cost a bit more this time". Falling back the other way
+        // is a different act entirely: it serves *unproven* output to a real user
+        // because the proven backend hiccupped, which inverts the product's whole
+        // thesis of proving before moving.
+        //
+        // The version of this that treated the fallback as "the other backend"
+        // meant `Phase::Shadow` — whose contract is literally "scored, never
+        // served" — would serve the candidate on any transport blip. A phase
+        // cannot promise something the failover path quietly takes back.
+        let fallback = if route.failover && serve.name == route.candidate.name {
+            Some(route.incumbent.clone())
         } else {
             None
         };
@@ -455,18 +496,58 @@ mod tests {
     }
 
     #[test]
-    fn failover_names_the_other_backend_in_both_directions() {
+    fn failover_rescues_the_candidate_and_only_the_candidate() {
+        // Serving on the candidate: the incumbent is the safety net. This is the
+        // case failover exists for.
         let to_local = Router::new(route_with_failover(Phase::Split { to_candidate: true }));
         let d = to_local.decide(None, "k");
         assert_eq!(d.serve.name, "glm-5.2");
-        assert_eq!(d.fallback.as_ref().unwrap().name, "gpt-5");
+        assert_eq!(d.fallback.as_ref().map(|b| b.name.as_str()), Some("gpt-5"));
 
+        // Already serving on the incumbent: there is nothing safer to fall back
+        // to. The candidate is not a safety net, it is the thing being tested.
         let to_cloud = Router::new(route_with_failover(Phase::Split {
             to_candidate: false,
         }));
         let d2 = to_cloud.decide(None, "k");
         assert_eq!(d2.serve.name, "gpt-5");
-        assert_eq!(d2.fallback.as_ref().unwrap().name, "glm-5.2");
+        assert!(d2.fallback.is_none(), "must not fall back to the candidate");
+    }
+
+    #[test]
+    fn shadow_never_serves_the_candidate_even_when_the_incumbent_is_down() {
+        // The bug this guards is subtle and was live: `serve` is the incumbent in
+        // shadow, so a fallback computed as "the other backend" resolved to the
+        // candidate. One transport blip and shadow mode — whose entire contract
+        // is "scored, never served" — would have served unproven output to a real
+        // user. Invariant 8: nothing authorises a cutover except shadow mode.
+        for phase in [Phase::Off, Phase::Shadow] {
+            let d = Router::new(route_with_failover(phase.clone())).decide(None, "k");
+            assert_eq!(d.serve.name, "gpt-5");
+            assert!(
+                d.fallback.is_none(),
+                "{phase:?} offered the candidate as a fallback"
+            );
+        }
+        // Shadow still mirrors — the evidence-gathering is untouched.
+        let d = Router::new(route_with_failover(Phase::Shadow)).decide(None, "k");
+        assert_eq!(d.mirror.as_ref().map(|b| b.name.as_str()), Some("glm-5.2"));
+    }
+
+    #[test]
+    fn a_canary_falls_back_only_for_the_bucket_actually_on_the_candidate() {
+        let r = Router::new(route_with_failover(Phase::Canary { percent: 50 }));
+        let mut rescued = 0;
+        let mut exposed = 0;
+        for i in 0..200 {
+            let d = r.decide(None, &format!("req-{i}"));
+            match (d.serve.name.as_str(), d.fallback.as_ref()) {
+                ("glm-5.2", Some(f)) if f.name == "gpt-5" => rescued += 1,
+                ("gpt-5", None) => exposed += 1,
+                other => panic!("candidate offered as a fallback: {other:?}"),
+            }
+        }
+        assert!(rescued > 0 && exposed > 0, "{rescued} / {exposed}");
     }
 
     #[test]

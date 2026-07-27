@@ -29,7 +29,12 @@ use crate::sse::Decoder;
 /// Shared server state.
 pub struct AppState {
     /// Routing policy.
-    pub router: Router,
+    ///
+    /// Behind a lock because M9 changes it on a *running* gateway — a rollback
+    /// that needed a restart would not be a rollback. Reads dominate by many
+    /// orders of magnitude and an uncontended `parking_lot` read is tens of
+    /// nanoseconds, which is nothing against the 15ms budget.
+    pub router: parking_lot::RwLock<Router>,
     /// Upstream HTTP client. Cloning is cheap and shares the connection pool —
     /// building one per request would dominate the latency budget.
     pub client: reqwest::Client,
@@ -39,6 +44,11 @@ pub struct AppState {
     mirrors: Mutex<Vec<MirrorRecord>>,
     /// Cap on retained records before the oldest are dropped.
     pub max_records: usize,
+    /// Every phase change applied to this process, oldest first.
+    transitions: Mutex<Vec<crate::control::Transition>>,
+    /// Shared secret for the control surface, resolved once at startup. `None`
+    /// leaves it open — see [`crate::control`] for why that is stated loudly.
+    pub admin_token: Option<String>,
     /// Where captured traffic is persisted. `None` — the default — means nothing
     /// is written. Recording a customer's production prompts is a decision
     /// someone makes, never something that happens because they started a proxy.
@@ -93,11 +103,13 @@ impl AppState {
     /// New state with a default record cap.
     pub fn new(router: Router, client: reqwest::Client) -> Self {
         Self {
-            router,
+            router: parking_lot::RwLock::new(router),
             client,
             records: Mutex::new(Vec::new()),
             mirrors: Mutex::new(Vec::new()),
             max_records: 10_000,
+            transitions: Mutex::new(Vec::new()),
+            admin_token: crate::control::token_from_env(),
             capture: None,
         }
     }
@@ -179,6 +191,18 @@ impl AppState {
     pub fn mirrors(&self) -> Vec<MirrorRecord> {
         self.mirrors.lock().clone()
     }
+
+    /// Record an applied phase change. Unbounded on purpose: these are rare, and
+    /// dropping the oldest would discard exactly the entry an incident review
+    /// needs — the first change, made before anyone was watching.
+    pub fn record_transition(&self, t: crate::control::Transition) {
+        self.transitions.lock().push(t);
+    }
+
+    /// Every phase change applied to this process, oldest first.
+    pub fn transitions(&self) -> Vec<crate::control::Transition> {
+        self.transitions.lock().clone()
+    }
 }
 
 /// Dispatch a copy of the request to the candidate backend.
@@ -257,6 +281,11 @@ pub fn app(state: Arc<AppState>) -> AxumRouter {
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics/requests", get(records))
         .route("/metrics/mirrors", get(mirrors))
+        .route(
+            "/control/phase",
+            get(crate::control::get_phase).post(crate::control::set_phase),
+        )
+        .route("/control/history", get(crate::control::history))
         .route("/", get(console))
         .with_state(state)
 }
@@ -339,7 +368,9 @@ async fn chat_completions(
         .and_then(|v| v.to_str().ok())
         .unwrap_or(&model);
 
-    let decision = st.router.decide(cluster, key);
+    // Cloned out immediately: holding a routing lock across an upstream await
+    // would let one slow backend stall every phase change on the gateway.
+    let decision = st.router.read().decide(cluster, key);
     let span = tracing::info_span!(
         "chat_completions",
         backend = %decision.serve.name,
