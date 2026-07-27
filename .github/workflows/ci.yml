@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # clickllm must be honest on hardware it does not have: macOS exercises the
+        # Apple Silicon path, Linux the CPU/NVIDIA-absent path. Both must pass.
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv run --with pytest pytest -q
+      - name: module self-checks
+        run: |
+          uv run python -c "from clickllm import hardware, catalog, fit; \
+            hardware.demo(); catalog.demo(); fit.demo()"
+        env:
+          PYTHONPATH: src
+      - name: cli smoke
+        run: |
+          uv run python -m clickllm.cli fit --json > /dev/null
+          uv run python -m clickllm.cli models > /dev/null
+      - name: mcp stdio round-trip
+        run: |
+          uv run python - <<'PY'
+          import json, subprocess, sys
+          msgs = [{"jsonrpc":"2.0","id":1,"method":"initialize"},
+                  {"jsonrpc":"2.0","id":2,"method":"tools/list"}]
+          payload = b"".join(b"Content-Length: %d\r\n\r\n%s" % (len(b), b)
+                             for b in (json.dumps(m).encode() for m in msgs))
+          p = subprocess.run([sys.executable, "-m", "clickllm.mcp"],
+                             input=payload, capture_output=True)
+          assert p.stdout.count(b"Content-Length:") == 2, p.stderr[:500]
+          print("mcp stdio ok")
+          PY
+        env:
+          PYTHONPATH: src
+
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The datapath must build on both, for the same reason the Python matrix does:
+        # development is Metal, production is CUDA-on-Linux.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all
+      - name: docs must build without warnings
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --with ruff ruff check src tests
+      - run: uv run --with ruff ruff format --check src tests
+
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: diagrams must be valid XML
+        run: |
+          python -c "
+          import glob, xml.etree.ElementTree as ET
+          for f in glob.glob('docs/assets/*.svg'):
+              ET.parse(f); print('ok', f)
+          "
+      - name: no broken relative doc links
+        run: |
+          python - <<'PY'
+          import re, pathlib, sys
+          bad = []
+          for md in pathlib.Path('.').rglob('*.md'):
+              if '.venv' in md.parts: continue
+              for text, link in re.findall(r'\[([^\]]*)\]\(([^)]+)\)', md.read_text()):
+                  if link.startswith(('http', '#', 'mailto:')): continue
+                  target = (md.parent / link.split('#')[0]).resolve()
+                  if not target.exists():
+                      bad.append(f'{md}: {link}')
+          if bad:
+              print('\n'.join(bad)); sys.exit(1)
+          print('all relative links resolve')
+          PY

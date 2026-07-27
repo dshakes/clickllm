@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-label="clickllm architecture: clients hit a thin OpenAI-compatible gateway that routes between closed providers and a locally hosted multi-model fleet; an off-path control plane distills, proves, packs and guards; weights and state stay on local disk.">
+<defs>
+  <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0b0f16"/><stop offset=".55" stop-color="#0d1117"/><stop offset="1" stop-color="#12161f"/>
+  </linearGradient>
+  <radialGradient id="halo" cx=".5" cy=".5" r=".5">
+    <stop offset="0" stop-color="#a855f7" stop-opacity=".14"/><stop offset="1" stop-color="#a855f7" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1b2230"/><stop offset="1" stop-color="#141a24"/>
+  </linearGradient>
+  <linearGradient id="ours" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#2a2140"/><stop offset="1" stop-color="#181528"/>
+  </linearGradient>
+  <linearGradient id="gw" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#241d38"/><stop offset=".5" stop-color="#2c2347"/><stop offset="1" stop-color="#241d38"/>
+  </linearGradient>
+  <filter id="lift" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity=".55"/>
+  </filter>
+  <style>
+    .t   { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif; }
+    .m   { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .kick{ font-size:11.5px; fill:#6e7681; letter-spacing:.20em; font-weight:700; }
+    .h1  { font-size:31px; font-weight:800; fill:#f0f6fc; letter-spacing:-.015em; }
+    .lede{ font-size:13.5px; fill:#8b949e; }
+    .zone{ font-size:10px; font-weight:800; letter-spacing:.16em; fill:#6e7681; }
+    .ttl { font-size:14px; font-weight:700; fill:#e6edf3; }
+    .ttlB{ font-size:16px; font-weight:800; fill:#fff; }
+    .cap { font-size:10.5px; fill:#7d8590; }
+    .url { font-size:10px; fill:#8ec5d6; }
+    .tag { font-size:9px; font-weight:800; letter-spacing:.11em; }
+    .ok  { font-size:10.5px; fill:#7fc79a; }
+  </style>
+</defs>
+
+<rect width="1200" height="660" rx="14" fill="url(#canvas)"/>
+<ellipse cx="600" cy="230" rx="380" ry="150" fill="url(#halo)"/>
+
+<text class="t kick" x="44" y="42">ARCHITECTURE</text>
+<text class="t h1"   x="44" y="78">Own the judgment. Compose the plumbing.</text>
+<text class="t lede" x="44" y="102">A deliberately thin datapath. Everything expensive happens off it.</text>
+
+<!-- ══ clients ══ -->
+<g filter="url(#lift)"><rect x="44" y="124" width="1112" height="42" rx="9" fill="url(#card)" stroke="#2c3442"/></g>
+<text class="t ttl" x="64" y="150">Your apps · SDKs · agents</text>
+<text class="t cap m" x="280" y="150">base_url = http://localhost:4000/v1</text>
+<text class="t cap" x="600" y="150">— the entire integration. Nothing else changes.</text>
+<text class="t cap" x="1136" y="150" text-anchor="end">Python · TypeScript · MCP</text>
+
+<path d="M600 168 V186" stroke="#4b5563" stroke-width="1.5"/><path d="M600 192 l-5 -9 h10 z" fill="#4b5563"/>
+
+<!-- ══ gateway (thin datapath) ══ -->
+<text class="t zone" x="44" y="212">DATAPATH · THIN BY DESIGN · &lt;15ms p95</text>
+<g filter="url(#lift)"><rect x="44" y="222" width="1112" height="62" rx="10" fill="url(#gw)" stroke="#a855f7" stroke-width="1.5"/></g>
+<rect x="64" y="236" width="76" height="16" rx="8" fill="#a855f7"/>
+<text class="t tag" x="102" y="248" text-anchor="middle" fill="#fff">GATEWAY</text>
+<text class="t ttlB" x="64" y="274">clickllm</text>
+<g class="t cap">
+  <text x="180" y="248">route</text>          <text x="180" y="266" fill="#c9d1d9">model → backend</text>
+  <text x="330" y="248">capture</text>        <text x="330" y="266" fill="#c9d1d9">redact before write</text>
+  <text x="500" y="248">shadow</text>         <text x="500" y="266" fill="#c9d1d9">mirror, score, serve none</text>
+  <text x="700" y="248">canary</text>         <text x="700" y="266" fill="#c9d1d9">quality-gated %</text>
+  <text x="860" y="248">balance</text>        <text x="860" y="266" fill="#c9d1d9">KV-aware, via GAIE</text>
+  <text x="1020" y="248">meter</text>         <text x="1020" y="266" fill="#c9d1d9">cost + latency</text>
+</g>
+
+<path d="M300 286 V312" stroke="#4b5563" stroke-width="1.5"/><path d="M300 318 l-5 -9 h10 z" fill="#4b5563"/>
+<path d="M840 286 V312" stroke="#4b5563" stroke-width="1.5"/><path d="M840 318 l-5 -9 h10 z" fill="#4b5563"/>
+
+<!-- ══ closed providers ══ -->
+<g filter="url(#lift)"><rect x="44" y="322" width="512" height="96" rx="10" fill="url(#card)" stroke="#4a2f33"/></g>
+<text class="t ttl" x="64" y="348">Closed providers</text>
+<text class="t cap" x="64" y="366">the incumbent baseline — every score is measured against it</text>
+<g class="t cap">
+  <rect x="64"  y="378" width="86" height="22" rx="6" fill="#241a1c" stroke="#4a2f33"/><text x="107" y="393" text-anchor="middle" fill="#c9d1d9">OpenAI</text>
+  <rect x="158" y="378" width="86" height="22" rx="6" fill="#241a1c" stroke="#4a2f33"/><text x="201" y="393" text-anchor="middle" fill="#c9d1d9">Anthropic</text>
+  <rect x="252" y="378" width="86" height="22" rx="6" fill="#241a1c" stroke="#4a2f33"/><text x="295" y="393" text-anchor="middle" fill="#c9d1d9">Google</text>
+  <rect x="346" y="378" width="86" height="22" rx="6" fill="#241a1c" stroke="#4a2f33"/><text x="389" y="393" text-anchor="middle" fill="#c9d1d9">Bedrock</text>
+  <rect x="440" y="378" width="96" height="22" rx="6" fill="#1a1f28" stroke="#2c3442"/><text x="488" y="393" text-anchor="middle">+100 via LiteLLM</text>
+</g>
+
+<!-- ══ open fleet ══ -->
+<g filter="url(#lift)"><rect x="588" y="322" width="568" height="96" rx="10" fill="url(#card)" stroke="#2a4a34"/></g>
+<text class="t ttl" x="608" y="348">Your model fleet</text>
+<text class="t cap" x="608" y="366">multi-model hosting on one host — each gets a URL, memory budgeted across all</text>
+<g class="t">
+  <rect x="608" y="378" width="168" height="24" rx="6" fill="#13211a" stroke="#2a4a34"/>
+  <circle cx="620" cy="390" r="3.5" fill="#46a758"/><text class="url m" x="630" y="394">/v1 · glm-5.2</text>
+  <rect x="784" y="378" width="168" height="24" rx="6" fill="#13211a" stroke="#2a4a34"/>
+  <circle cx="796" cy="390" r="3.5" fill="#46a758"/><text class="url m" x="806" y="394">/v1 · qwen3-coder</text>
+  <rect x="960" y="378" width="176" height="24" rx="6" fill="#1a1f28" stroke="#2c3442"/>
+  <circle cx="972" cy="390" r="3.5" fill="#6e7681"/><text class="url m" x="982" y="394" fill="#7d8590">/v1 · phi-4 (idle)</text>
+</g>
+<text class="t cap" x="1136" y="348" text-anchor="end">vLLM · SGLang · llm-d · vllm-mlx · llama.cpp</text>
+
+<!-- ══ control plane ══ -->
+<text class="t zone" x="44" y="450">CONTROL PLANE · OFF THE DATAPATH · WHERE THE MOAT LIVES</text>
+<g filter="url(#lift)">
+  <rect x="44"  y="460" width="212" height="88" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+  <rect x="268" y="460" width="212" height="88" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+  <rect x="492" y="460" width="212" height="88" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="716" y="460" width="212" height="88" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+  <rect x="940" y="460" width="216" height="88" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+</g>
+<g class="t">
+  <text class="ttl" x="64" y="486">② Distill</text>
+  <text class="cap" x="64" y="506">cluster traffic by task</text>
+  <text class="cap" x="64" y="522">sample representatively</text>
+  <text class="cap" x="64" y="538" fill="#c9a6f5">→ your private eval set</text>
+
+  <text class="ttl" x="288" y="486">④ Prove</text>
+  <text class="cap" x="288" y="506">assertions → graders</text>
+  <text class="cap" x="288" y="522">→ position-swapped judge</text>
+  <text class="cap" x="288" y="538" fill="#c9a6f5">→ equivalence + regret</text>
+
+  <text class="ttl" x="512" y="486">③ Fit · ⑤ Pack</text>
+  <text class="cap" x="512" y="506">hardware probe + solver</text>
+  <text class="cap" x="512" y="522">auto-tune every knob</text>
+  <text class="cap" x="512" y="538">benchmark, revert if worse</text>
+
+  <text class="ttl" x="736" y="486">⑥ Cut over</text>
+  <text class="cap" x="736" y="506">shadow → canary → cut</text>
+  <text class="cap" x="736" y="522">rollback &lt;10s on quality</text>
+  <text class="cap" x="736" y="538" fill="#c9a6f5">→ then exit the datapath</text>
+
+  <text class="ttl" x="960" y="486">⑦ Guard</text>
+  <text class="cap" x="960" y="506">watch model releases</text>
+  <text class="cap" x="960" y="522">re-prove on your traffic</text>
+  <text class="cap" x="960" y="538" fill="#c9a6f5">→ promotion proposals</text>
+</g>
+
+<!-- ══ storage layer ══ -->
+<g filter="url(#lift)">
+  <rect x="44"  y="568" width="548" height="66" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="608" y="568" width="548" height="66" rx="10" fill="url(#card)" stroke="#2c3442"/>
+</g>
+<text class="t ttl" x="64" y="592">Weight registry</text>
+<text class="t cap" x="64" y="610">HF / S3 / OCI · resumable · checksummed · license-gated</text>
+<text class="t cap" x="64" y="626">quantized and converted once, cached, shared across boxes</text>
+<text class="t ttl" x="628" y="592">Local store</text>
+<text class="t cap" x="628" y="610">SQLite + files — traffic · eval sets · runs · scores · reports</text>
+<text class="t ok"  x="628" y="626">zero telemetry · encrypted at rest · runs fully air-gapped</text>
+</svg>

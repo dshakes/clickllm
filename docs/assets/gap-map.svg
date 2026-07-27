@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-label="Bar chart: number of existing tools that solve each of six steps in switching off a closed model. Deployment has six; hardware fit has one; model choice, proof on your traffic, cutover, and staying current each have zero.">
+<defs>
+  <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0b0f16"/><stop offset=".55" stop-color="#0d1117"/><stop offset="1" stop-color="#12161f"/>
+  </linearGradient>
+  <filter id="lift" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity=".5"/>
+  </filter>
+  <style>
+    .t   { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif; }
+    .m   { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .kick{ font-size:11.5px; fill:#6e7681; letter-spacing:.20em; font-weight:700; }
+    .h1  { font-size:31px; font-weight:800; fill:#f0f6fc; letter-spacing:-.015em; }
+    .lede{ font-size:13.5px; fill:#8b949e; }
+    .axis{ font-size:11px; fill:#6e7681; }
+    .step{ font-size:13.5px; font-weight:700; fill:#e6edf3; }
+    .q   { font-size:10.5px; fill:#7d8590; }
+    .tool{ font-size:10.5px; font-weight:600; fill:#c9d1d9; }
+    .cnt { font-size:22px; font-weight:800; }
+    .gap { font-size:9.5px; font-weight:800; letter-spacing:.11em; fill:#e5484d; }
+    .own { font-size:9.5px; font-weight:800; letter-spacing:.11em; fill:#8b949e; }
+  </style>
+</defs>
+
+<rect width="1200" height="560" rx="14" fill="url(#canvas)"/>
+<text class="t kick" x="44" y="44">WHY THIS EXISTS</text>
+<text class="t h1"   x="44" y="80">Six steps to leave a closed model. Four have no tool at all.</text>
+<text class="t lede" x="44" y="104">Existing tools per step. Everyone builds the one column that was already finished.</text>
+
+<!-- gridlines -->
+<g stroke="#1c2430" stroke-width="1">
+  <line x1="80" y1="430" x2="1140" y2="430"/>
+  <line x1="80" y1="394" x2="1140" y2="394" stroke-dasharray="3 5"/>
+  <line x1="80" y1="322" x2="1140" y2="322" stroke-dasharray="3 5"/>
+  <line x1="80" y1="250" x2="1140" y2="250" stroke-dasharray="3 5"/>
+</g>
+<g class="t axis" text-anchor="end">
+  <text x="70" y="434">0</text><text x="70" y="398">1</text>
+  <text x="70" y="326">3</text><text x="70" y="254">5</text>
+</g>
+<text class="t axis" x="36" y="340" transform="rotate(-90 36 340)" text-anchor="middle">tools that solve it end-to-end</text>
+
+<!-- ══ 1 · model choice — ZERO ══ -->
+<line x1="80" y1="430" x2="200" y2="430" stroke="#e5484d" stroke-width="3" stroke-dasharray="6 4"/>
+<text class="t cnt" x="140" y="422" text-anchor="middle" fill="#e5484d">0</text>
+<text class="t gap" x="140" y="452" text-anchor="middle">NO TOOL</text>
+
+<!-- ══ 2 · hardware fit — ONE ══ -->
+<g filter="url(#lift)"><rect x="268" y="394" width="120" height="34" rx="4" fill="#3d4655"/></g>
+<text class="t tool" x="328" y="415" text-anchor="middle">partial</text>
+<text class="t own" x="328" y="452" text-anchor="middle">PARTIAL</text>
+
+<!-- ══ 3 · proof — ZERO (the hero gap) ══ -->
+<line x1="456" y1="430" x2="576" y2="430" stroke="#e5484d" stroke-width="3" stroke-dasharray="6 4"/>
+<text class="t cnt" x="516" y="422" text-anchor="middle" fill="#e5484d">0</text>
+<g filter="url(#lift)"><rect x="468" y="196" width="96" height="26" rx="13" fill="#2a2140" stroke="#a855f7" stroke-width="1.5"/></g>
+<text class="t" x="516" y="213" text-anchor="middle" font-size="10" font-weight="800" letter-spacing=".1em" fill="#c9a6f5">THE WEDGE</text>
+<path d="M516 226 V384" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4 4" opacity=".65"/>
+<path d="M516 390 l-5 -9 h10 z" fill="#a855f7"/>
+<text class="t gap" x="516" y="452" text-anchor="middle">NO TOOL</text>
+
+<!-- ══ 4 · deployment — SIX ══ -->
+<g filter="url(#lift)">
+  <rect x="644" y="394" width="120" height="34" rx="4"   fill="#3d4655"/>
+  <rect x="644" y="358" width="120" height="34" rx="4"   fill="#414b5b"/>
+  <rect x="644" y="322" width="120" height="34" rx="4"   fill="#455063"/>
+  <rect x="644" y="286" width="120" height="34" rx="4"   fill="#49556a"/>
+  <rect x="644" y="250" width="120" height="34" rx="4"   fill="#4d5a71"/>
+  <rect x="644" y="214" width="120" height="34" rx="4"   fill="#515f78"/>
+</g>
+<g class="t tool" text-anchor="middle">
+  <text x="704" y="415">Ollama</text>
+  <text x="704" y="379">BentoML</text>
+  <text x="704" y="343">KServe</text>
+  <text x="704" y="307">llm-d</text>
+  <text x="704" y="271">SGLang</text>
+  <text x="704" y="235">vLLM</text>
+</g>
+<text class="t cnt" x="704" y="200" text-anchor="middle" fill="#8b949e">6</text>
+<text class="t own" x="704" y="452" text-anchor="middle">SOLVED — SIX TIMES</text>
+
+<!-- ══ 5 · cutover — ZERO ══ -->
+<line x1="832" y1="430" x2="952" y2="430" stroke="#e5484d" stroke-width="3" stroke-dasharray="6 4"/>
+<text class="t cnt" x="892" y="422" text-anchor="middle" fill="#e5484d">0</text>
+<text class="t gap" x="892" y="452" text-anchor="middle">NO TOOL</text>
+
+<!-- ══ 6 · staying current — ZERO ══ -->
+<line x1="1020" y1="430" x2="1140" y2="430" stroke="#e5484d" stroke-width="3" stroke-dasharray="6 4"/>
+<text class="t cnt" x="1080" y="422" text-anchor="middle" fill="#e5484d">0</text>
+<text class="t gap" x="1080" y="452" text-anchor="middle">NO TOOL</text>
+
+<!-- ══ step labels ══ -->
+<g class="t" text-anchor="middle">
+  <text class="step" x="140"  y="482">Model choice</text>
+  <text class="q"    x="140"  y="498">which one for my job?</text>
+  <text class="step" x="328"  y="482">Hardware fit</text>
+  <text class="q"    x="328"  y="498">what runs on my silicon?</text>
+  <text class="step" x="516"  y="482" fill="#e0c9fb">Proof</text>
+  <text class="q"    x="516"  y="498">good enough on MY traffic?</text>
+  <text class="step" x="704"  y="482">Deployment</text>
+  <text class="q"    x="704"  y="498">get it serving</text>
+  <text class="step" x="892"  y="482">Cutover</text>
+  <text class="q"    x="892"  y="498">move traffic safely</text>
+  <text class="step" x="1080" y="482">Staying current</text>
+  <text class="q"    x="1080" y="498">a better model shipped</text>
+</g>
+
+<!-- ══ punchline ══ -->
+<g filter="url(#lift)"><rect x="44" y="518" width="1112" height="1" fill="#1c2430"/></g>
+<text class="t lede" x="44" y="544" fill="#c9d1d9">clickllm builds the four empty columns — and composes the two that are already won.</text>
+<text class="t q"    x="1156" y="544" text-anchor="end">Deployment was finished before the migration was started.</text>
+</svg>

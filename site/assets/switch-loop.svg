@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-label="The Switch Loop: a seven-stage pipeline turning $2,847/mo of closed-model spend into $317/mo of proven open-model inference">
+<defs>
+  <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0"   stop-color="#0b0f16"/>
+    <stop offset=".55" stop-color="#0d1117"/>
+    <stop offset="1"   stop-color="#12161f"/>
+  </linearGradient>
+  <radialGradient id="halo" cx=".5" cy=".5" r=".5">
+    <stop offset="0" stop-color="#a855f7" stop-opacity=".18"/>
+    <stop offset="1" stop-color="#a855f7" stop-opacity="0"/>
+  </radialGradient>
+  <!-- the traffic ribbon: expensive+closed -> cheap+proven.
+       userSpaceOnUse is required — a horizontal path has a zero-height bounding
+       box, which makes an objectBoundingBox gradient degenerate and invisible. -->
+  <linearGradient id="flow" gradientUnits="userSpaceOnUse" x1="123" y1="0" x2="1077" y2="0">
+    <stop offset="0"   stop-color="#e5484d"/>
+    <stop offset=".42" stop-color="#6b7482"/>
+    <stop offset=".58" stop-color="#6b7482"/>
+    <stop offset="1"   stop-color="#46a758"/>
+  </linearGradient>
+  <linearGradient id="cardfill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1b2230"/>
+    <stop offset="1" stop-color="#141a24"/>
+  </linearGradient>
+  <linearGradient id="herofill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#2a2140"/>
+    <stop offset="1" stop-color="#181528"/>
+  </linearGradient>
+  <linearGradient id="beforefill" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#2a1618"/><stop offset="1" stop-color="#1a1216"/>
+  </linearGradient>
+  <linearGradient id="afterfill" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#0f2620"/><stop offset="1" stop-color="#0d1d1a"/>
+  </linearGradient>
+  <filter id="lift" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#000" flood-opacity=".55"/>
+  </filter>
+  <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+    <feGaussianBlur stdDeviation="7" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <style>
+    .t   { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif; }
+    .m   { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .kick{ font-size:11.5px; fill:#6e7681; letter-spacing:.20em; font-weight:700; }
+    .h1  { font-size:31px; font-weight:800; fill:#f0f6fc; letter-spacing:-.015em; }
+    .lede{ font-size:13.5px; fill:#8b949e; }
+    .stg { font-size:14px; font-weight:700; fill:#e6edf3; letter-spacing:-.01em; }
+    .stgH{ font-size:16.5px; font-weight:800; fill:#fff; letter-spacing:-.01em; }
+    .cap { font-size:10.5px; fill:#7d8590; }
+    .num { font-size:15px; font-weight:800; }
+    .nn  { font-size:12px; font-weight:800; fill:#0d1117; }
+    .tag { font-size:9.5px; font-weight:800; letter-spacing:.11em; }
+    .big { font-size:26px; font-weight:800; letter-spacing:-.02em; }
+    .lbl { font-size:11px; fill:#8b949e; }
+  </style>
+</defs>
+
+<rect width="1200" height="560" rx="14" fill="url(#canvas)"/>
+<ellipse cx="600" cy="250" rx="330" ry="190" fill="url(#halo)"/>
+
+<text class="t kick" x="44" y="44">THE SWITCH LOOP</text>
+<text class="t h1"   x="44" y="80">Closed-model bill in. Proven open deployment out.</text>
+<text class="t lede" x="44" y="104">Seven stages. Four of them exist nowhere else. Nothing moves to production until the numbers say it can.</text>
+
+<!-- ══ traffic ribbon ══ -->
+<path d="M123 176 H1077" stroke="url(#flow)" stroke-width="22" stroke-linecap="round" opacity=".13"/>
+<path d="M123 176 H1077" stroke="url(#flow)" stroke-width="4"  stroke-linecap="round"/>
+<g fill="url(#flow)" opacity=".85">
+  <path d="M196 170 l10 6 -10 6 z"/><path d="M355 170 l10 6 -10 6 z"/>
+  <path d="M517 170 l10 6 -10 6 z"/><path d="M676 170 l10 6 -10 6 z"/>
+  <path d="M832 170 l10 6 -10 6 z"/><path d="M991 170 l10 6 -10 6 z"/>
+</g>
+
+<!-- ══ stage nodes ══ -->
+<g class="t">
+  <circle cx="123"  cy="176" r="13" fill="#e5484d"/><text class="nn" x="123"  y="181" text-anchor="middle">1</text>
+  <circle cx="282"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="282"  y="181" text-anchor="middle">2</text>
+  <circle cx="441"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="441"  y="181" text-anchor="middle">3</text>
+  <circle cx="600"  cy="176" r="19" fill="#a855f7" filter="url(#glow)"/><text class="nn" x="600" y="182" text-anchor="middle" font-size="14">4</text>
+  <circle cx="759"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="759"  y="181" text-anchor="middle">5</text>
+  <circle cx="918"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="918"  y="181" text-anchor="middle">6</text>
+  <circle cx="1077" cy="176" r="13" fill="#46a758"/><text class="nn" x="1077" y="181" text-anchor="middle">7</text>
+</g>
+
+<!-- ══ stage cards ══ -->
+<g class="t" filter="url(#lift)">
+  <rect x="53"  y="212" width="140" height="98" rx="10" fill="url(#cardfill)" stroke="#2c3442"/>
+  <rect x="212" y="212" width="140" height="98" rx="10" fill="url(#cardfill)" stroke="#2c3442"/>
+  <rect x="365" y="212" width="130" height="98" rx="10" fill="url(#cardfill)" stroke="#2c3442"/>
+  <rect x="705" y="212" width="130" height="98" rx="10" fill="url(#cardfill)" stroke="#2c3442"/>
+  <rect x="848" y="212" width="140" height="98" rx="10" fill="url(#cardfill)" stroke="#2c3442"/>
+  <rect x="1007" y="212" width="140" height="98" rx="10" fill="url(#cardfill)" stroke="#2a4a34"/>
+</g>
+
+<g class="t">
+  <text class="stg" x="69"   y="238">Observe</text>
+  <text class="cap" x="69"   y="258">swap one base_url</text>
+  <text class="num m" x="69" y="284" fill="#e5484d">14,203</text>
+  <text class="cap" x="69"   y="299">requests captured</text>
+
+  <text class="stg" x="228"  y="238">Distill</text>
+  <text class="cap" x="228"  y="258">traffic → eval set</text>
+  <text class="num m" x="228" y="284" fill="#c9d1d9">5</text>
+  <text class="cap" x="228"  y="299">task clusters found</text>
+
+  <text class="stg" x="379"  y="238">Fit</text>
+  <text class="cap" x="379"  y="258">your silicon, your ctx</text>
+  <text class="num m" x="379" y="284" fill="#c9d1d9">7/41</text>
+  <text class="cap" x="379"  y="299">models even feasible</text>
+
+  <text class="stg" x="719"  y="238">Deploy</text>
+  <text class="cap" x="719"  y="258">zero-config, measured</text>
+  <text class="num m" x="719" y="284" fill="#c9d1d9">0</text>
+  <text class="cap" x="719"  y="299">knobs you set</text>
+
+  <text class="stg" x="864"  y="238">Cut over</text>
+  <text class="cap" x="864"  y="258">shadow → canary → cut</text>
+  <text class="num m" x="864" y="284" fill="#c9d1d9">&lt;10s</text>
+  <text class="cap" x="864"  y="299">rollback, quality-gated</text>
+
+  <text class="stg" x="1023" y="238">Guard</text>
+  <text class="cap" x="1023" y="258">models ship weekly</text>
+  <text class="num m" x="1023" y="284" fill="#46a758">auto</text>
+  <text class="cap" x="1023" y="299">re-prove &amp; propose</text>
+</g>
+
+<!-- ══ HERO: stage 4 ══ -->
+<g filter="url(#lift)">
+  <rect x="512" y="200" width="176" height="124" rx="12" fill="url(#herofill)" stroke="#a855f7" stroke-width="1.6"/>
+</g>
+<g class="t">
+  <rect x="528" y="212" width="52" height="15" rx="7.5" fill="#a855f7"/>
+  <text class="tag" x="554" y="223" text-anchor="middle" fill="#fff">PROVE</text>
+  <text class="stgH" x="528" y="248">Equivalence</text>
+  <text class="cap"  x="528" y="264">vs. your incumbent, per task</text>
+  <!-- mini equivalence matrix -->
+  <g>
+    <rect x="528" y="274" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="548" y="274" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="568" y="274" width="17" height="9" rx="2" fill="#e5a00d"/>
+    <rect x="588" y="274" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="608" y="274" width="17" height="9" rx="2" fill="#46a758"/>
+    <text class="cap m" x="634" y="282" fill="#46a758">96%</text>
+
+    <rect x="528" y="288" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="548" y="288" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="568" y="288" width="17" height="9" rx="2" fill="#e5a00d"/>
+    <rect x="588" y="288" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="608" y="288" width="17" height="9" rx="2" fill="#46a758"/>
+    <text class="cap m" x="634" y="296" fill="#46a758">98%</text>
+
+    <rect x="528" y="302" width="17" height="9" rx="2" fill="#e5a00d"/>
+    <rect x="548" y="302" width="17" height="9" rx="2" fill="#e5484d"/>
+    <rect x="568" y="302" width="17" height="9" rx="2" fill="#e5484d"/>
+    <rect x="588" y="302" width="17" height="9" rx="2" fill="#46a758"/>
+    <rect x="608" y="302" width="17" height="9" rx="2" fill="#e5a00d"/>
+    <text class="cap m" x="634" y="310" fill="#e5a00d">84%</text>
+  </g>
+</g>
+
+<!-- ══ guard feedback arc ══ -->
+<path d="M1077 324 V352 Q1077 362 1067 362 H610 Q600 362 600 352 V332"
+      stroke="#46a758" stroke-width="1.6" fill="none" stroke-dasharray="5 5" opacity=".8"/>
+<path d="M600 336 l-5 9 h10 z" fill="#46a758"/>
+<text class="t cap" x="838" y="357" text-anchor="middle" fill="#46a758">a better model ships → re-proved on your traffic → promotion proposed</text>
+
+<!-- ══ the transformation ══ -->
+<g filter="url(#lift)">
+  <rect x="44"  y="396" width="418" height="82" rx="11" fill="url(#beforefill)" stroke="#5c2b2b"/>
+  <rect x="738" y="396" width="418" height="82" rx="11" fill="url(#afterfill)"  stroke="#1a5c46"/>
+</g>
+<g class="t">
+  <text class="tag"  x="66" y="421" fill="#e5484d">BEFORE</text>
+  <text class="big m" x="66" y="452" fill="#e5484d">$2,847</text>
+  <text class="lbl"  x="164" y="452">/mo · gpt-5 · every request, one vendor</text>
+  <text class="cap"  x="66" y="469" fill="#6e7681">no eval set · no alternative proven · no exit</text>
+
+  <text class="tag"  x="760" y="421" fill="#46a758">AFTER</text>
+  <text class="big m" x="760" y="452" fill="#46a758">$317</text>
+  <text class="lbl"  x="836" y="452">/mo · GLM-5.2 open + gpt-5 on the regret set</text>
+  <text class="cap"  x="760" y="469" fill="#6e7681">89% of traffic moved · zero quality loss · rollback armed</text>
+</g>
+
+<!-- centre delta -->
+<path d="M470 437 H730" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4 4"/>
+<path d="M730 437 l-9 -5 v10 z" fill="#30363d"/>
+<g filter="url(#lift)">
+  <rect x="524" y="418" width="152" height="38" rx="19" fill="#0f2620" stroke="#46a758" stroke-width="1.6"/>
+</g>
+<text class="t big" x="600" y="444" text-anchor="middle" fill="#46a758">−89%</text>
+
+<!-- legend -->
+<g class="t">
+  <circle cx="52" cy="516" r="5" fill="#a855f7"/>
+  <text class="cap" x="66" y="520" fill="#c8b4e8">stages 2 · 4 · 6 · 7 — unowned by any existing tool. This is the product.</text>
+  <circle cx="620" cy="516" r="5" fill="#4a5568"/>
+  <text class="cap" x="634" y="520">stages 1 · 3 · 5 — built on LiteLLM · Inspect AI · vLLM · SGLang · llm-d · MLX</text>
+</g>
+</svg>
