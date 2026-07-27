@@ -48,6 +48,22 @@ async fn slow_stream() -> impl IntoResponse {
     )
 }
 
+/// A misbehaving upstream: one SSE frame with no terminator, well past
+/// `MAX_FRAME_BYTES`, followed by a normal well-formed frame. Exercises the
+/// decoder's cap end to end — the gateway must not grow its metering buffer
+/// without bound, and must keep streaming raw bytes to the client regardless.
+async fn stalled_giant_frame() -> impl IntoResponse {
+    let giant = axum::body::Bytes::from(vec![b'x'; clickllm_gateway::sse::MAX_FRAME_BYTES + 1]);
+    let rest = axum::body::Bytes::from_static(
+        b"\n\ndata: {\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n",
+    );
+    let s = futures_util::stream::iter(vec![giant, rest]).map(Ok::<_, std::io::Error>);
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+        axum::body::Body::from_stream(s),
+    )
+}
+
 async fn unary() -> impl IntoResponse {
     axum::Json(serde_json::json!({
         "choices": [{"message": {"content": "hello"}}],
@@ -142,6 +158,42 @@ async fn streamed_usage_is_metered_without_buffering() {
     let u = r.metered.usage().unwrap();
     assert_eq!(u.prompt_tokens, 11);
     assert_eq!(u.completion_tokens, 3);
+}
+
+#[tokio::test]
+async fn a_stalled_frame_past_the_cap_does_not_break_the_stream() {
+    let up =
+        spawn(AxumRouter::new().route("/v1/chat/completions", post(stalled_giant_frame))).await;
+    let st = state_pointing_at(up, Phase::Off);
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "gpt-5", "stream": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Raw bytes pass through untouched even though the internal frame decoder
+    // gave up on (and dropped) the oversized frame — the cap bounds the
+    // gateway's own buffer, it does not truncate what the client receives.
+    let body = resp.bytes().await.unwrap();
+    assert!(
+        body.len() > clickllm_gateway::sse::MAX_FRAME_BYTES,
+        "the client must still receive the full byte stream: got {} bytes",
+        body.len()
+    );
+
+    for _ in 0..50 {
+        if !st.records().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let records = st.records();
+    assert_eq!(records.len(), 1, "expected exactly one record");
+    assert_eq!(records[0].status, 200);
 }
 
 #[tokio::test]
