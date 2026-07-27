@@ -1,0 +1,14 @@
+__pycache__/
+.clickllm/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.serena/
+.venv/
+*.egg-info/
+*.py[cod]
+*.sqlite
+# local state — captured traffic and eval sets never get committed
+build/
+dist/
+uv.lock

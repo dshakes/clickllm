@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 560" width="1120" height="560" role="img" aria-label="clickllm architecture: thin datapath proxy, off-path control plane, local store, and four surfaces">
+  <defs>
+    <style>
+      .bg    { fill: #0d1117; }
+      .card  { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+      .ours  { fill: #1c1610; stroke: #f0883e; stroke-width: 1.5; }
+      .ext   { fill: #10171f; stroke: #2b5278; stroke-width: 1.5; }
+      .zone  { fill: none; stroke: #30363d; stroke-width: 1; stroke-dasharray: 5 4; }
+      .t     { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      .mono  { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .hdr   { font-size: 19px; font-weight: 700; fill: #e6edf3; }
+      .kick  { font-size: 12px; fill: #6e7681; letter-spacing: .09em; }
+      .ttl   { font-size: 14px; font-weight: 650; fill: #e6edf3; }
+      .sub   { font-size: 11.5px; fill: #8b949e; }
+      .zl    { font-size: 11px; fill: #6e7681; letter-spacing: .08em; font-weight: 600; }
+      .arr   { stroke: #484f58; stroke-width: 1.5; fill: none; }
+      .badge { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
+    </style>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#484f58"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1120" height="560" rx="10"/>
+  <text class="t kick" x="38" y="38">ARCHITECTURE</text>
+  <text class="t hdr"  x="38" y="66">Own the judgment. Compose the plumbing.</text>
+
+  <!-- app -->
+  <rect class="card" x="38" y="86" width="1044" height="44" rx="8"/>
+  <text class="t ttl"  x="56" y="105">Your application</text>
+  <text class="t mono sub" x="56" y="121">unchanged — you swap one base_url</text>
+
+  <path class="arr" d="M560 132 V158" marker-end="url(#b)"/>
+
+  <!-- datapath -->
+  <rect class="zone" x="38" y="162" width="1044" height="104" rx="8"/>
+  <text class="t zl" x="52" y="181">DATAPATH — deliberately thin, &lt;15ms p95</text>
+  <rect class="ours" x="56" y="192" width="596" height="58" rx="7"/>
+  <text class="t ttl" x="74" y="214">clickllm proxy</text>
+  <text class="t sub" x="74" y="234">capture · redact-before-write · shadow · quality-gated canary</text>
+  <rect class="ext" x="668" y="192" width="396" height="58" rx="7"/>
+  <text class="t ttl" x="686" y="214">LiteLLM</text>
+  <text class="t sub" x="686" y="234">provider transport, 100+ backends — we do not rebuild this</text>
+
+  <path class="arr" d="M260 252 V292" marker-end="url(#b)"/>
+  <path class="arr" d="M780 252 V292" marker-end="url(#b)"/>
+
+  <!-- destinations -->
+  <rect class="card" x="56" y="296" width="410" height="52" rx="7"/>
+  <text class="t ttl" x="74" y="317">Closed provider</text>
+  <text class="t sub" x="74" y="335">OpenAI · Anthropic — the incumbent baseline</text>
+
+  <rect class="ext" x="576" y="296" width="488" height="52" rx="7"/>
+  <text class="t ttl" x="594" y="317">Open runtime</text>
+  <text class="t sub" x="594" y="335">vllm-mlx · llama.cpp · MLC · vLLM · SGLang · llm-d + GAIE</text>
+
+  <!-- control plane -->
+  <rect class="zone" x="38" y="368" width="700" height="122" rx="8"/>
+  <text class="t zl" x="52" y="387">CONTROL PLANE — off the datapath, where the moat lives</text>
+
+  <rect class="ours" x="56" y="398" width="152" height="76" rx="7"/>
+  <text class="t ttl" x="72" y="422">② Distill</text>
+  <text class="t sub" x="72" y="441">cluster traffic</text>
+  <text class="t sub" x="72" y="457">→ private evals</text>
+
+  <rect class="ext" x="224" y="398" width="140" height="76" rx="7"/>
+  <text class="t ttl" x="240" y="422">③ Fit</text>
+  <text class="t sub" x="240" y="441">llmfit</text>
+  <text class="t sub" x="240" y="457">+ fleet solver</text>
+
+  <rect class="ours" x="380" y="398" width="152" height="76" rx="7"/>
+  <text class="t ttl" x="396" y="422">④ Prove</text>
+  <text class="t sub" x="396" y="441">grader stack</text>
+  <text class="t sub" x="396" y="457">→ equivalence</text>
+
+  <rect class="ours" x="548" y="398" width="174" height="76" rx="7"/>
+  <text class="t ttl" x="564" y="422">⑤ Generate · ⑦ Guard</text>
+  <text class="t sub" x="564" y="441">native config out</text>
+  <text class="t sub" x="564" y="457">drift watch in</text>
+
+  <!-- store -->
+  <rect class="card" x="762" y="368" width="320" height="122" rx="8"/>
+  <text class="t ttl" x="782" y="392">Local store</text>
+  <text class="t sub" x="782" y="414">SQLite + files on your disk</text>
+  <text class="t sub" x="782" y="432">traffic · eval sets · runs · scores · reports</text>
+  <text class="t sub" x="782" y="456" fill="#3fb950">zero telemetry · encrypted at rest</text>
+  <text class="t sub" x="782" y="474" fill="#3fb950">works fully air-gapped</text>
+
+  <!-- surfaces -->
+  <rect class="card" x="38" y="504" width="1044" height="40" rx="8"/>
+  <text class="t badge" x="56" y="529" fill="#f0883e">SURFACES</text>
+  <text class="t sub"   x="132" y="529">CLI  ·  TUI cockpit  ·  local web console  ·  MCP server  ·  Python + TypeScript SDK  —  every stage scriptable, non-interactive, CI-native</text>
+</svg>
