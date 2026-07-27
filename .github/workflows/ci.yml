@@ -35,6 +35,19 @@ jobs:
         run: |
           uv run python -m clickllm.cli fit --json > /dev/null
           uv run python -m clickllm.cli models > /dev/null
+      - name: mcp stdio round-trip
+        run: |
+          uv run python - <<'PY'
+          import json, subprocess, sys
+          msgs = [{"jsonrpc":"2.0","id":1,"method":"initialize"},
+                  {"jsonrpc":"2.0","id":2,"method":"tools/list"}]
+          payload = b"".join(b"Content-Length: %d\r\n\r\n%s" % (len(b), b)
+                             for b in (json.dumps(m).encode() for m in msgs))
+          p = subprocess.run([sys.executable, "-m", "clickllm.mcp"],
+                             input=payload, capture_output=True)
+          assert p.stdout.count(b"Content-Length:") == 2, p.stderr[:500]
+          print("mcp stdio ok")
+          PY
         env:
           PYTHONPATH: src
 

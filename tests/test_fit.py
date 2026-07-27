@@ -144,3 +144,109 @@ def test_unverified_models_are_flagged():
     assert unverified, "catalog should be honest about what isn't confirmed"
     f = fit.solve(unverified[0], unverified[0].quants[0], _hw(96), 8192, 1)
     assert "unverified" in f.explain()
+
+
+# --------------------------------------------------------------------------- #
+# Surfaces: SDK and MCP
+# --------------------------------------------------------------------------- #
+
+
+def test_sdk_and_mcp_self_checks():
+    from clickllm import mcp, sdk
+
+    sdk.demo()
+    mcp.demo()
+
+
+def test_sdk_labels_every_throughput_figure_as_an_estimate():
+    from clickllm import sdk
+
+    r = sdk.fit(context="8k", concurrency=2, hw=_hw(96))
+    assert r.feasible, "96 GB should fit something"
+    for c in r.feasible:
+        assert c.estimate_basis == sdk.ESTIMATE_BASIS
+        assert "not measured" in c.estimate_basis
+
+
+def test_sdk_rejects_nonsense_inputs_rather_than_guessing():
+    from clickllm import sdk
+
+    for kwargs in ({"concurrency": 0}, {"concurrency": -3}, {"context": "0"}):
+        with pytest.raises(ValueError):
+            sdk.fit(**kwargs)
+
+
+def test_sdk_commercially_clean_requires_licence_and_verified_architecture():
+    from clickllm import sdk
+
+    r = sdk.fit(context="8k", hw=_hw(192))
+    for c in r.commercially_clean():
+        assert c.license_clean_commercial and c.architecture_verified
+    # An unverified-architecture model must never be called clean.
+    assert all(c.architecture_verified for c in r.commercially_clean())
+
+
+def test_sdk_best_prefers_a_fast_candidate_but_still_answers_when_all_are_slow():
+    from clickllm import sdk
+
+    r = sdk.fit(context="8k", hw=_hw(96))
+    b = r.best()
+    assert b is not None and b in r.feasible
+    if any(not c.slow for c in r.feasible):
+        assert not b.slow, "a non-slow candidate existed and was not chosen"
+
+
+def test_sdk_report_serialises():
+    import json
+
+    from clickllm import sdk
+
+    d = sdk.fit(context="8k", hw=_hw(96)).to_dict()
+    json.dumps(d)  # must not raise
+    assert {"hardware", "feasible", "rejected", "runtime"} <= d.keys()
+
+
+def test_mcp_exposes_no_write_tools():
+    """An agent may analyse and recommend; a human moves production traffic."""
+    from clickllm import mcp
+
+    listed = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    names = [t["name"] for t in listed["result"]["tools"]]
+    assert names, "server must expose tools"
+    for forbidden in ("cutover", "apply", "deploy", "promote", "rollback"):
+        assert not any(forbidden in n for n in names), f"{forbidden} must not be a tool"
+
+
+def test_mcp_unknown_tool_and_unknown_model_are_handled_distinctly():
+    from clickllm import mcp
+
+    # An unknown *tool* is a protocol error.
+    bad_tool = mcp.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "nope", "arguments": {}},
+        }
+    )
+    assert bad_tool["error"]["code"] == -32602
+
+    # An unknown *model* is a normal tool outcome the agent can recover from.
+    bad_model = mcp.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "clickllm_explain", "arguments": {"model_id": "no-such"}},
+        }
+    )
+    assert bad_model["result"]["isError"] is True
+    assert "error" in bad_model["result"]["content"][0]["text"]
+
+
+def test_mcp_tool_schemas_are_well_formed():
+    from clickllm import mcp
+
+    for name, (_, schema) in mcp.TOOLS.items():
+        assert schema["description"].strip(), f"{name} needs a description"
+        assert schema["inputSchema"]["type"] == "object", name
