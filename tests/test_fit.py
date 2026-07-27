@@ -446,3 +446,118 @@ def test_where_cli(capsys):
     assert all(p["reason"] for p in payload["placements"] if not p["feasible"])
 
     assert cli.main(["where", "no-such-model"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Catalogue verification and discovery
+# --------------------------------------------------------------------------- #
+
+
+def test_catalog_update_self_check():
+    from clickllm import catalog_update
+
+    catalog_update.demo()
+
+
+def test_config_parsing_never_guesses_a_missing_field():
+    """A guessed geometry produces a confident, wrong memory figure."""
+    from clickllm.catalog_update import ConfigError, parse_config
+
+    for broken in (
+        {},
+        {"num_hidden_layers": 4},
+        {"num_hidden_layers": 4, "num_attention_heads": 8},
+    ):
+        with pytest.raises(ConfigError):
+            parse_config(broken)
+
+
+def test_mla_is_detected_from_its_rank_not_inferred():
+    from clickllm.catalog_update import parse_config
+
+    base = {
+        "num_hidden_layers": 61,
+        "num_attention_heads": 128,
+        "num_key_value_heads": 128,
+        "head_dim": 128,
+        "max_position_embeddings": 131072,
+    }
+    assert parse_config(base).kv_scheme == "mha"
+    assert parse_config({**base, "kv_lora_rank": 512}).kv_scheme == "mla"
+
+
+def test_significant_changes_are_the_ones_that_move_memory():
+    from clickllm.catalog_update import FieldChange
+
+    assert FieldChange("kv_heads", 8, 4).significant
+    assert FieldChange("kv_scheme", "gqa", "mla").significant
+    assert not FieldChange("max_context", 1, 2).significant
+
+
+def test_module_import_opens_no_socket():
+    """Air-gapped installs must be able to import this without reaching out."""
+    import json
+
+    from clickllm import catalog_update as cu
+
+    called = []
+
+    def spy(url):
+        called.append(url)
+        return json.dumps(
+            {
+                "num_hidden_layers": 4,
+                "num_attention_heads": 8,
+                "head_dim": 64,
+                "max_position_embeddings": 128,
+            }
+        )
+
+    spec = catalog.get("qwen3-32b")
+    cu.propose(spec, "a/b", spy)
+    assert called, "the injected fetcher is the only path to the network"
+    assert called[0].startswith("https://")
+
+
+def test_a_fetch_failure_is_data_not_an_exception():
+    from clickllm.catalog_update import propose
+
+    def dead(_):
+        raise OSError("offline")
+
+    p = propose(catalog.get("qwen3-32b"), "a/b", dead)
+    assert p.error and not p.has_changes
+
+
+def test_discovery_excludes_known_repos_and_is_deterministic():
+    import json
+
+    from clickllm.catalog_update import discover
+
+    index = json.dumps(
+        [
+            {"modelId": "org/known", "trendingScore": 9, "downloads": 1},
+            {"modelId": "org/b", "trendingScore": 5, "downloads": 10},
+            {"modelId": "org/a", "trendingScore": 5, "downloads": 99},
+        ]
+    )
+    got = [d.repo for d in discover({"org/known"}, lambda _: index)]
+    assert got == ["org/a", "org/b"]
+    assert discover(set(), lambda _: index) == discover(set(), lambda _: index)
+
+
+def test_catalog_repos_are_absent_rather_than_guessed():
+    """Verifying against the wrong repo is worse than not verifying."""
+    with_repo = [m for m in catalog.load() if m.repo]
+    assert with_repo, "some entries should be verifiable"
+    assert any(m.repo is None for m in catalog.load()), "unknown repos stay unknown"
+    for m in with_repo:
+        assert "/" in m.repo
+
+
+def test_catalog_cli_requires_explicit_network_optin(capsys):
+    assert cli.main(["catalog"]) == 0
+    assert "opt-in" in capsys.readouterr().out
+    assert cli.main(["discover"]) == 0
+    assert "opt-in" in capsys.readouterr().out
+    assert cli.main(["catalog", "--model", "no-such"]) == 2
