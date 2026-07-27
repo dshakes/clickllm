@@ -57,6 +57,9 @@
 
   <div class="grid tiles" id="tiles"></div>
 
+  <h2>Shadow / candidate</h2>
+  <div id="mirrors"></div>
+
   <h2>By backend</h2>
   <div id="backends"></div>
 
@@ -154,11 +157,34 @@ function esc(s) {
 }
 
 let failures = 0;
+function renderMirrors(rows) {
+  if (!rows.length) {
+    $('mirrors').innerHTML = `<div class="empty">No mirrored traffic. In shadow or canary
+      phase, every request is also sent to the candidate — scored, never served.</div>`;
+    return;
+  }
+  const failed = rows.filter(r => r.error).length;
+  const ok = rows.filter(r => r.status === 200).length;
+  const tokens = rows.filter(r => r.metered.kind === 'reported')
+                     .reduce((s, r) => s + r.metered.prompt_tokens + r.metered.completion_tokens, 0);
+  const ms = rows.reduce((s, r) => s + r.duration_ms, 0) / rows.length;
+  $('mirrors').innerHTML = `<div class="grid tiles">
+    ${tile('Mirrored', fmt(rows.length), 'sent to the candidate, never served')}
+    ${tile('Candidate OK', fmt(ok), failed ? `${failed} failed to reach the candidate` : 'all reached', failed > 0)}
+    ${tile('Candidate tokens', tokens ? fmt(tokens) : '—', 'reported by the candidate')}
+    ${tile('Candidate avg', `${Math.round(ms)} ms`, 'off the client hot path')}
+  </div>` + (failed ? `<div class="note warn" style="margin-top:10px">
+      The candidate is failing. Shadow mode is gathering no evidence while this
+      persists — a rollout gated on it would never have data to advance on.</div>` : '');
+}
+
 async function poll() {
   try {
     const res = await fetch('metrics/requests', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     render(await res.json());
+    const mres = await fetch('metrics/mirrors', { cache: 'no-store' });
+    if (mres.ok) renderMirrors(await mres.json());
     failures = 0;
     $('dot').className = 'dot';
     $('livetext').textContent = 'live';

@@ -34,6 +34,8 @@ pub struct AppState {
     pub client: reqwest::Client,
     /// Completed request records. Bounded: the datapath must not become a leak.
     records: Mutex<Vec<Record>>,
+    /// Outcomes of mirrored (shadow) requests.
+    mirrors: Mutex<Vec<MirrorRecord>>,
     /// Cap on retained records before the oldest are dropped.
     pub max_records: usize,
 }
@@ -59,6 +61,26 @@ pub struct Record {
     pub metered: Metered,
 }
 
+/// What a mirrored request did. Written independently of the client's response,
+/// because the mirror must never delay or influence it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MirrorRecord {
+    /// Candidate backend the request was mirrored to.
+    pub backend: String,
+    /// Model the client asked for.
+    pub model: String,
+    /// Status the candidate returned, or `None` if it could not be reached.
+    pub status: Option<u16>,
+    /// How long the candidate took.
+    pub duration_ms: u64,
+    /// Token accounting for the candidate's response.
+    pub metered: Metered,
+    /// Transport failure, if any. A candidate that is down must be visible —
+    /// silently dropping mirror errors would make shadow mode look healthy while
+    /// gathering no evidence at all.
+    pub error: Option<String>,
+}
+
 impl AppState {
     /// New state with a default record cap.
     pub fn new(router: Router, client: reqwest::Client) -> Self {
@@ -66,6 +88,7 @@ impl AppState {
             router,
             client,
             records: Mutex::new(Vec::new()),
+            mirrors: Mutex::new(Vec::new()),
             max_records: 10_000,
         }
     }
@@ -92,6 +115,88 @@ impl AppState {
     pub fn records(&self) -> Vec<Record> {
         self.records.lock().clone()
     }
+
+    /// Record a completed mirror, dropping the oldest once the cap is reached.
+    pub fn record_mirror(&self, m: MirrorRecord) {
+        let mut g = self.mirrors.lock();
+        if g.len() >= self.max_records {
+            g.remove(0);
+        }
+        tracing::info!(
+            backend = %m.backend,
+            status = m.status.unwrap_or(0),
+            duration_ms = m.duration_ms,
+            error = m.error.as_deref().unwrap_or(""),
+            "mirror complete"
+        );
+        g.push(m);
+    }
+
+    /// Snapshot of retained mirror outcomes.
+    pub fn mirrors(&self) -> Vec<MirrorRecord> {
+        self.mirrors.lock().clone()
+    }
+}
+
+/// Dispatch a copy of the request to the candidate backend.
+///
+/// Spawned, never awaited by the request handler: the client's latency must not
+/// depend on the candidate, and the candidate's response must never be served.
+/// This is the mechanism shadow mode *is* — computing a mirror decision and
+/// recording it without sending anything would make the safety story a display.
+fn dispatch_mirror(
+    st: Arc<AppState>,
+    backend: crate::router::Backend,
+    parsed: serde_json::Value,
+    headers: HeaderMap,
+    body: Bytes,
+    model: String,
+) {
+    tokio::spawn(async move {
+        let started = Instant::now();
+        let decision = Decision {
+            serve: backend.clone(),
+            mirror: None,
+            reason: "mirror",
+        };
+        let mut rec = MirrorRecord {
+            backend: backend.name.clone(),
+            model,
+            status: None,
+            duration_ms: 0,
+            metered: Metered::Unreported { deltas: 0 },
+            error: None,
+        };
+
+        match send(&st, &decision, &parsed, &headers, &body).await {
+            Ok(resp) => {
+                rec.status = Some(resp.status().as_u16());
+                let mut meter = Meter::new();
+                let mut decoder = Decoder::new();
+                let mut stream = resp.bytes_stream();
+                // Drain the candidate fully: a partially-read response gives a
+                // partial token count, which would understate the comparison.
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(b) => {
+                            for ev in decoder.push(&b) {
+                                meter.observe(&ev);
+                            }
+                            meter.observe_body(&b);
+                        }
+                        Err(e) => {
+                            rec.error = Some(e.to_string());
+                            break;
+                        }
+                    }
+                }
+                rec.metered = meter.finish();
+            }
+            Err(e) => rec.error = Some(e.to_string()),
+        }
+        rec.duration_ms = elapsed_ms(started);
+        st.record_mirror(rec);
+    });
 }
 
 /// The local console, embedded in the binary so there is no asset to deploy and
@@ -105,6 +210,7 @@ pub fn app(state: Arc<AppState>) -> AxumRouter {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics/requests", get(records))
+        .route("/metrics/mirrors", get(mirrors))
         .route("/", get(console))
         .with_state(state)
 }
@@ -119,6 +225,10 @@ async fn console() -> impl IntoResponse {
 
 async fn records(State(st): State<Arc<AppState>>) -> Json<Vec<Record>> {
     Json(st.records())
+}
+
+async fn mirrors(State(st): State<Arc<AppState>>) -> Json<Vec<MirrorRecord>> {
+    Json(st.mirrors())
 }
 
 /// Errors the datapath can return to a client.
@@ -191,6 +301,19 @@ async fn chat_completions(
         streaming
     );
     let _e = span.enter();
+
+    // Dispatch the mirror BEFORE awaiting the served backend, so shadow traffic is
+    // not serialised behind the client's response.
+    if let Some(candidate) = decision.mirror.clone() {
+        dispatch_mirror(
+            Arc::clone(&st),
+            candidate,
+            parsed.clone(),
+            headers.clone(),
+            body.clone(),
+            model.clone(),
+        );
+    }
 
     let upstream = send(&st, &decision, &parsed, &headers, &body).await?;
     let status = upstream.status();

@@ -380,3 +380,224 @@ async fn the_console_is_served_and_reflects_real_recorded_traffic() {
     // can never be rendered as zero.
     assert!(row["metered"]["kind"].is_string());
 }
+
+// --------------------------------------------------------------------------- //
+// Mirroring must actually dispatch — not merely be recorded and displayed.
+// --------------------------------------------------------------------------- //
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// An upstream that counts the requests it genuinely received.
+fn counting_upstream(hits: Arc<AtomicUsize>) -> AxumRouter {
+    AxumRouter::new().route(
+        "/v1/chat/completions",
+        post(move || {
+            let hits = Arc::clone(&hits);
+            async move {
+                hits.fetch_add(1, Ordering::SeqCst);
+                axum::Json(serde_json::json!({
+                    "choices": [{"message": {"content": "candidate"}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 4}
+                }))
+            }
+        }),
+    )
+}
+
+async fn wait_for(f: impl Fn() -> bool) -> bool {
+    for _ in 0..100 {
+        if f() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn shadow_actually_sends_the_request_to_the_candidate_backend() {
+    // The defect this guards: computing a mirror decision, recording it, and
+    // showing it in the console while never dispatching anything. Shadow mode
+    // would look healthy and gather no evidence at all.
+    let inc_hits = Arc::new(AtomicUsize::new(0));
+    let cand_hits = Arc::new(AtomicUsize::new(0));
+    let incumbent = spawn(counting_upstream(Arc::clone(&inc_hits))).await;
+    let candidate = spawn(counting_upstream(Arc::clone(&cand_hits))).await;
+
+    let st = Arc::new(AppState::new(
+        Router::new(Route {
+            incumbent: Backend {
+                name: "incumbent".into(),
+                base_url: format!("http://{incumbent}/v1"),
+                model: None,
+            },
+            candidate: Backend {
+                name: "candidate".into(),
+                base_url: format!("http://{candidate}/v1"),
+                model: None,
+            },
+            phase: Phase::Shadow,
+        }),
+        reqwest::Client::new(),
+    ));
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    const N: usize = 10;
+    for i in 0..N {
+        let resp = reqwest::Client::new()
+            .post(format!("http://{gw}/v1/chat/completions"))
+            .header("x-request-id", format!("r-{i}"))
+            .json(&serde_json::json!({"model": "gpt-5"}))
+            .send()
+            .await
+            .unwrap();
+        // The candidate's body must never reach the client.
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["choices"][0]["message"]["content"], "candidate");
+    }
+
+    assert_eq!(
+        inc_hits.load(Ordering::SeqCst),
+        N,
+        "incumbent must serve every request"
+    );
+    assert!(
+        wait_for(|| cand_hits.load(Ordering::SeqCst) == N).await,
+        "candidate received {} of {N} mirrored requests — mirroring is not dispatching",
+        cand_hits.load(Ordering::SeqCst)
+    );
+
+    assert!(
+        wait_for(|| st.mirrors().len() == N).await,
+        "mirror outcomes not recorded"
+    );
+    let m = &st.mirrors()[0];
+    assert_eq!(m.backend, "candidate");
+    assert_eq!(m.status, Some(200));
+    assert_eq!(
+        m.metered.usage().unwrap().total(),
+        7,
+        "candidate response must be metered"
+    );
+    assert!(m.error.is_none());
+}
+
+#[tokio::test]
+async fn a_dead_candidate_is_recorded_rather_than_silently_dropped() {
+    // A candidate that is down must be visible: shadow mode looking healthy while
+    // gathering no evidence is the failure this prevents.
+    let inc_hits = Arc::new(AtomicUsize::new(0));
+    let incumbent = spawn(counting_upstream(Arc::clone(&inc_hits))).await;
+
+    let st = Arc::new(AppState::new(
+        Router::new(Route {
+            incumbent: Backend {
+                name: "incumbent".into(),
+                base_url: format!("http://{incumbent}/v1"),
+                model: None,
+            },
+            candidate: Backend {
+                name: "candidate".into(),
+                base_url: "http://127.0.0.1:1/v1".into(), // reserved; nothing listens
+                model: None,
+            },
+            phase: Phase::Shadow,
+        }),
+        reqwest::Client::new(),
+    ));
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "gpt-5"}))
+        .send()
+        .await
+        .unwrap();
+    // The client is unaffected by the candidate being down.
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    assert!(
+        wait_for(|| !st.mirrors().is_empty()).await,
+        "a failed mirror must still be recorded"
+    );
+    assert!(
+        st.mirrors()[0].error.is_some(),
+        "the failure must be visible"
+    );
+    assert!(st.mirrors()[0].status.is_none());
+}
+
+#[tokio::test]
+async fn a_slow_candidate_does_not_delay_the_client() {
+    async fn slow_candidate() -> impl IntoResponse {
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        axum::Json(serde_json::json!({"usage": {"prompt_tokens": 1, "completion_tokens": 1}}))
+    }
+    let incumbent = spawn(AxumRouter::new().route("/v1/chat/completions", post(unary))).await;
+    let candidate =
+        spawn(AxumRouter::new().route("/v1/chat/completions", post(slow_candidate))).await;
+
+    let st = Arc::new(AppState::new(
+        Router::new(Route {
+            incumbent: Backend {
+                name: "incumbent".into(),
+                base_url: format!("http://{incumbent}/v1"),
+                model: None,
+            },
+            candidate: Backend {
+                name: "candidate".into(),
+                base_url: format!("http://{candidate}/v1"),
+                model: None,
+            },
+            phase: Phase::Shadow,
+        }),
+        reqwest::Client::new(),
+    ));
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    let started = Instant::now();
+    reqwest::Client::new()
+        .post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "gpt-5"}))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(400),
+        "client waited {took:?} on an 800ms candidate — the mirror is on the hot path"
+    );
+}
+
+#[tokio::test]
+async fn the_console_can_read_the_mirror_endpoint_it_renders() {
+    let st = state_pointing_at("127.0.0.1:1".parse().unwrap(), Phase::Off);
+    let gw = spawn(app(Arc::clone(&st))).await;
+    let c = reqwest::Client::new();
+
+    let html = c
+        .get(format!("http://{gw}/"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        html.contains("metrics/mirrors"),
+        "console must read the mirror endpoint"
+    );
+
+    let m: serde_json::Value = c
+        .get(format!("http://{gw}/metrics/mirrors"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(m.is_array());
+}
