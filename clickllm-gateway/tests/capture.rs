@@ -16,9 +16,9 @@ use std::time::Duration;
 
 use axum::response::IntoResponse;
 use axum::routing::post;
-use axum::{http::StatusCode, Router as AxumRouter};
+use axum::{Router as AxumRouter, http::StatusCode};
 use clickllm_gateway::capture::CaptureStore;
-use clickllm_gateway::proxy::{app, AppState};
+use clickllm_gateway::proxy::{AppState, app};
 use clickllm_gateway::router::{Backend, Phase, Route, Router};
 use futures_util::StreamExt;
 

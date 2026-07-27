@@ -1,5 +1,5 @@
 [workspace]
-members = ["clickllm-core", "clickllm-gateway", "clickllm-weights"]
+members = ["clickllm-core", "clickllm-gateway", "clickllm-py", "clickllm-weights"]
 resolver = "3"
 
 [workspace.package]

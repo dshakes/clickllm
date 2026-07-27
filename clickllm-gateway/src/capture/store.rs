@@ -120,18 +120,18 @@ pub struct CaptureStore {
 }
 
 impl CaptureStore {
-    /// Open (creating if needed) a log at `path`, using `key`.
+    /// Open a log at `path`, using `key`.
+    ///
+    /// Touches nothing. The directory and the file are created on first
+    /// [`append`](Self::append), so opening a store to *read* it — which is what
+    /// the control plane does — has no side effect on the filesystem.
     ///
     /// # Errors
-    /// [`StoreError::Io`] if the parent directory cannot be created.
+    /// None today; fallible so a future keyring or header check does not become a
+    /// breaking change at every call site.
     pub fn open(path: impl Into<PathBuf>, key: &[u8; 32]) -> Result<Self> {
-        let path = path.into();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| StoreError::io("create capture dir", parent, e))?;
-        }
         Ok(Self {
-            path,
+            path: path.into(),
             cipher: XChaCha20Poly1305::new(Key::from_slice(key)),
             writer: parking_lot::Mutex::new(None),
         })
@@ -183,7 +183,8 @@ impl CaptureStore {
         c.response = response;
         c.redacted = report.clone();
 
-        let plaintext = serde_json::to_vec(&c).map_err(|_| StoreError::Crypto { op: "serialise" })?;
+        let plaintext =
+            serde_json::to_vec(&c).map_err(|_| StoreError::Crypto { op: "serialise" })?;
 
         let mut nonce_bytes = [0u8; NONCE_BYTES];
         OsRng.fill_bytes(&mut nonce_bytes);
@@ -202,6 +203,12 @@ impl CaptureStore {
 
         let mut guard = self.writer.lock();
         if guard.is_none() {
+            if let Some(parent) = self.path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| StoreError::io("create capture dir", parent, e))?;
+            }
             let f = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -525,7 +532,8 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = CaptureStore::open(d.path().join("log"), &key()).unwrap();
         for i in 0..50 {
-            s.append(capture(&format!("q{i}"), &format!("a{i}"))).unwrap();
+            s.append(capture(&format!("q{i}"), &format!("a{i}")))
+                .unwrap();
         }
         let back = s.read_all().unwrap();
         assert_eq!(back.len(), 50);
@@ -577,5 +585,24 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = CaptureStore::open(d.path().join("never-written"), &key()).unwrap();
         assert!(s.is_empty().unwrap());
+    }
+
+    #[test]
+    fn opening_a_store_to_read_it_touches_nothing() {
+        // The control plane opens a store only to read. A constructor that
+        // mkdir'd would leave directories behind on every failed lookup — and
+        // would fail outright on a path the reader cannot write to.
+        let d = tempfile::tempdir().unwrap();
+        let nested = d.path().join("a").join("b").join("log");
+        let s = CaptureStore::open(&nested, &key()).unwrap();
+        assert!(s.read_all().unwrap().is_empty());
+        assert!(
+            !d.path().join("a").exists(),
+            "read must not create anything"
+        );
+
+        // Writing does create the path, because that is when it is needed.
+        s.append(capture("hi", "ok")).unwrap();
+        assert!(nested.exists());
     }
 }

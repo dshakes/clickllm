@@ -10,6 +10,10 @@ clickllm = "clickllm.cli:main"
 clickllm-mcp = "clickllm.mcp:serve"
 
 [project.optional-dependencies]
+# The compiled datapath bindings. Optional on purpose: `uvx clickllm fit` must
+# work on a laptop with nothing installed, and a platform-specific wheel would
+# take that away for a feature most `fit` users never touch. See src/clickllm/core.py.
+core = ["clickllm-core==0.1.0"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
