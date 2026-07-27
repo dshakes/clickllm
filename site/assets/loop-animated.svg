@@ -1,0 +1,218 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-label="Animated: traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning $2,847 a month of closed-model spend into $317 of proven open-model inference.">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#04060c"/><stop offset=".55" stop-color="#070b14"/><stop offset="1" stop-color="#0c1220"/>
+  </linearGradient>
+  <linearGradient id="rail" gradientUnits="userSpaceOnUse" x1="118" y1="0" x2="1082" y2="0">
+    <stop offset="0" stop-color="#fb7185"/><stop offset=".45" stop-color="#64748b"/>
+    <stop offset=".55" stop-color="#64748b"/><stop offset="1" stop-color="#34d399"/>
+  </linearGradient>
+  <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#141b2a"/><stop offset="1" stop-color="#0d1320"/>
+  </linearGradient>
+  <linearGradient id="hero" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#122b33"/><stop offset="1" stop-color="#0b1a20"/>
+  </linearGradient>
+  <filter id="lift" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity=".6"/>
+  </filter>
+  <filter id="glow" x="-90%" y="-90%" width="280%" height="280%">
+    <feGaussianBlur stdDeviation="6" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+
+  <style>
+    .t    { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,sans-serif; }
+    .m    { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .kick { font-size:11px; letter-spacing:.22em; font-weight:700; fill:#22d3ee; }
+    .h1   { font-size:27px; font-weight:800; fill:#eef4ff; letter-spacing:-.025em; }
+    .ttl  { font-size:13.5px; font-weight:700; fill:#eef4ff; }
+    .cap  { font-size:10.5px; fill:#64748b; }
+    .num  { font-size:14px; font-weight:800; }
+    .nn   { font-size:11.5px; font-weight:800; fill:#04060c; }
+    .big  { font-size:24px; font-weight:800; letter-spacing:-.02em; }
+    .tag  { font-size:9px; font-weight:800; letter-spacing:.1em; }
+
+    /* The pulse: one packet of traffic making the whole trip. */
+    .pulse { animation: run 7s cubic-bezier(.5,0,.5,1) infinite; }
+    @keyframes run {
+      0%   { transform: translateX(0);     opacity: 0; }
+      4%   { opacity: 1; }
+      92%  { opacity: 1; }
+      100% { transform: translateX(964px); opacity: 0; }
+    }
+
+    /* Each stage lights as the pulse reaches it. 7s cycle, one stage per ~1s. */
+    .node    { animation: lamp 7s linear infinite; }
+    .node-1  { animation-delay: 0.0s } .node-2 { animation-delay: 1.0s }
+    .node-3  { animation-delay: 2.0s } .node-4 { animation-delay: 3.0s }
+    .node-5  { animation-delay: 4.0s } .node-6 { animation-delay: 5.0s }
+    .node-7  { animation-delay: 6.0s }
+    @keyframes lamp {
+      0%, 8%   { r: 12; opacity: .45 }
+      3%       { r: 17; opacity: 1 }
+      100%     { r: 12; opacity: .45 }
+    }
+
+    .card-in   { animation: lift 7s linear infinite; }
+    .card-1 { animation-delay: 0s } .card-2 { animation-delay: 1s }
+    .card-3 { animation-delay: 2s } .card-4 { animation-delay: 3s }
+    .card-5 { animation-delay: 4s } .card-6 { animation-delay: 5s }
+    .card-7 { animation-delay: 6s }
+    @keyframes lift { 0%,10% { opacity:.55 } 4% { opacity:1 } 100% { opacity:.55 } }
+
+    /* Equivalence cells fill in while stage 4 is active.
+       Base opacity is 1, never 0: a renderer that ignores CSS animation must
+       still show a complete diagram rather than a half-empty one. The keyframes
+       own the hiding; the default state owns visibility. */
+    .cell { opacity: 1; animation: fill 7s linear infinite; }
+    .c1 { animation-delay: 3.05s } .c2 { animation-delay: 3.15s } .c3 { animation-delay: 3.25s }
+    .c4 { animation-delay: 3.35s } .c5 { animation-delay: 3.45s } .c6 { animation-delay: 3.55s }
+    .c7 { animation-delay: 3.65s } .c8 { animation-delay: 3.75s } .c9 { animation-delay: 3.85s }
+    @keyframes fill { 0% { opacity:0 } 3%,88% { opacity:1 } 100% { opacity:0 } }
+
+    /* The saving lands only after the loop has actually proved it. Same rule:
+       visible by default, hidden only by a running animation. */
+    .after { opacity: 1; animation: settle 7s linear infinite; animation-delay: 5.4s; }
+    @keyframes settle { 0% { opacity:0 } 6%,90% { opacity:1 } 100% { opacity:0 } }
+
+    /* Respect the reader. */
+    @media (prefers-reduced-motion: reduce) {
+      .pulse, .node, .card-in, .cell, .after { animation: none; opacity: 1; }
+    }
+  </style>
+</defs>
+
+<rect width="1200" height="420" rx="14" fill="url(#bg)"/>
+<text class="t kick" x="42" y="40">THE SWITCH LOOP</text>
+<text class="t h1"   x="42" y="72">Traffic in. Proof out. Then the migration.</text>
+
+<!-- rail -->
+<path d="M118 128 H1082" stroke="url(#rail)" stroke-width="20" stroke-linecap="round" opacity=".12"/>
+<path d="M118 128 H1082" stroke="url(#rail)" stroke-width="3" stroke-linecap="round"/>
+
+<!-- the travelling pulse -->
+<g class="pulse">
+  <circle cx="118" cy="128" r="7" fill="#22d3ee" filter="url(#glow)"/>
+  <circle cx="118" cy="128" r="3" fill="#eef4ff"/>
+</g>
+
+<!-- nodes -->
+<g class="t">
+  <circle class="node node-1" cx="118"  cy="128" r="12" fill="#fb7185"/>
+  <circle class="node node-2" cx="279"  cy="128" r="12" fill="#94a3b8"/>
+  <circle class="node node-3" cx="440"  cy="128" r="12" fill="#94a3b8"/>
+  <circle class="node node-4" cx="600"  cy="128" r="12" fill="#22d3ee"/>
+  <circle class="node node-5" cx="761"  cy="128" r="12" fill="#94a3b8"/>
+  <circle class="node node-6" cx="922"  cy="128" r="12" fill="#94a3b8"/>
+  <circle class="node node-7" cx="1082" cy="128" r="12" fill="#34d399"/>
+  <text class="nn" x="118"  y="132" text-anchor="middle">1</text>
+  <text class="nn" x="279"  y="132" text-anchor="middle">2</text>
+  <text class="nn" x="440"  y="132" text-anchor="middle">3</text>
+  <text class="nn" x="600"  y="132" text-anchor="middle">4</text>
+  <text class="nn" x="761"  y="132" text-anchor="middle">5</text>
+  <text class="nn" x="922"  y="132" text-anchor="middle">6</text>
+  <text class="nn" x="1082" y="132" text-anchor="middle">7</text>
+</g>
+
+<!-- stage cards -->
+<g filter="url(#lift)">
+  <g class="card-in card-1"><rect x="52"  y="162" width="132" height="86" rx="10" fill="url(#card)" stroke="#243043"/></g>
+  <g class="card-in card-2"><rect x="213" y="162" width="132" height="86" rx="10" fill="url(#card)" stroke="#243043"/></g>
+  <g class="card-in card-3"><rect x="374" y="162" width="126" height="86" rx="10" fill="url(#card)" stroke="#243043"/></g>
+  <g class="card-in card-5"><rect x="700" y="162" width="126" height="86" rx="10" fill="url(#card)" stroke="#243043"/></g>
+  <g class="card-in card-6"><rect x="856" y="162" width="132" height="86" rx="10" fill="url(#card)" stroke="#243043"/></g>
+  <g class="card-in card-7"><rect x="1016" y="162" width="132" height="86" rx="10" fill="url(#card)" stroke="#243043"/></g>
+</g>
+<g class="t">
+  <g class="card-in card-1">
+    <text class="ttl" x="68" y="186">Observe</text>
+    <text class="cap" x="68" y="204">swap one base_url</text>
+    <text class="num m" x="68" y="228" fill="#fb7185">14,203</text>
+    <text class="cap" x="68" y="242">requests captured</text>
+  </g>
+  <g class="card-in card-2">
+    <text class="ttl" x="229" y="186">Distill</text>
+    <text class="cap" x="229" y="204">cluster by task shape</text>
+    <text class="num m" x="229" y="228" fill="#e2e8f0">5</text>
+    <text class="cap" x="229" y="242">clusters found</text>
+  </g>
+  <g class="card-in card-3">
+    <text class="ttl" x="390" y="186">Fit</text>
+    <text class="cap" x="390" y="204">your silicon</text>
+    <text class="num m" x="390" y="228" fill="#e2e8f0">7/41</text>
+    <text class="cap" x="390" y="242">models feasible</text>
+  </g>
+  <g class="card-in card-5">
+    <text class="ttl" x="716" y="186">Deploy</text>
+    <text class="cap" x="716" y="204">zero-config</text>
+    <text class="num m" x="716" y="228" fill="#e2e8f0">0</text>
+    <text class="cap" x="716" y="242">knobs you set</text>
+  </g>
+  <g class="card-in card-6">
+    <text class="ttl" x="872" y="186">Cut over</text>
+    <text class="cap" x="872" y="204">shadow → canary</text>
+    <text class="num m" x="872" y="228" fill="#e2e8f0">&lt;10s</text>
+    <text class="cap" x="872" y="242">rollback</text>
+  </g>
+  <g class="card-in card-7">
+    <text class="ttl" x="1032" y="186">Guard</text>
+    <text class="cap" x="1032" y="204">models ship weekly</text>
+    <text class="num m" x="1032" y="228" fill="#34d399">auto</text>
+    <text class="cap" x="1032" y="242">re-prove</text>
+  </g>
+</g>
+
+<!-- hero: stage 4, with the matrix filling in -->
+<g filter="url(#lift)" class="card-in card-4">
+  <rect x="516" y="152" width="168" height="106" rx="11" fill="url(#hero)" stroke="#22d3ee" stroke-width="1.6"/>
+</g>
+<g class="t">
+  <rect x="532" y="164" width="52" height="15" rx="7.5" fill="#22d3ee"/>
+  <text class="tag" x="558" y="175" text-anchor="middle" fill="#04060c">PROVE</text>
+  <text class="ttl" x="532" y="198" fill="#fff">Equivalence</text>
+  <text class="cap" x="532" y="212">vs. your incumbent</text>
+  <g>
+    <rect class="cell c1" x="532" y="221" width="17" height="8" rx="2" fill="#34d399"/>
+    <rect class="cell c2" x="552" y="221" width="17" height="8" rx="2" fill="#34d399"/>
+    <rect class="cell c3" x="572" y="221" width="17" height="8" rx="2" fill="#fbbf24"/>
+    <text class="cell c3 cap m" x="598" y="229" fill="#34d399">96%</text>
+
+    <rect class="cell c4" x="532" y="233" width="17" height="8" rx="2" fill="#34d399"/>
+    <rect class="cell c5" x="552" y="233" width="17" height="8" rx="2" fill="#34d399"/>
+    <rect class="cell c6" x="572" y="233" width="17" height="8" rx="2" fill="#34d399"/>
+    <text class="cell c6 cap m" x="598" y="241" fill="#34d399">98%</text>
+
+    <rect class="cell c7" x="532" y="245" width="17" height="8" rx="2" fill="#fbbf24"/>
+    <rect class="cell c8" x="552" y="245" width="17" height="8" rx="2" fill="#fb7185"/>
+    <rect class="cell c9" x="572" y="245" width="17" height="8" rx="2" fill="#fbbf24"/>
+    <text class="cell c9 cap m" x="598" y="253" fill="#fbbf24">62%</text>
+  </g>
+</g>
+
+<!-- before / after -->
+<g filter="url(#lift)">
+  <rect x="42"  y="296" width="430" height="76" rx="11" fill="#1a1114" stroke="#4c2b30"/>
+  <rect x="728" y="296" width="430" height="76" rx="11" fill="#0c1f1a" stroke="#1c5245"/>
+</g>
+<g class="t">
+  <text class="tag"  x="64" y="320" fill="#fb7185">BEFORE</text>
+  <text class="big m" x="64" y="350" fill="#fb7185">$2,847</text>
+  <text class="cap"  x="160" y="350">/mo · gpt-5 · every request</text>
+  <text class="cap"  x="64" y="366">no eval set · no alternative proven · no exit</text>
+
+  <g class="after">
+    <text class="tag"  x="750" y="320" fill="#34d399">AFTER</text>
+    <text class="big m" x="750" y="350" fill="#34d399">$317</text>
+    <text class="cap"  x="826" y="350">/mo · open + gpt-5 on the regret set</text>
+    <text class="cap"  x="750" y="366">89% moved · zero measured quality loss · rollback armed</text>
+  </g>
+</g>
+<path d="M486 334 H714" stroke="#243043" stroke-width="1.5" stroke-dasharray="4 4"/>
+<g class="after" filter="url(#lift)">
+  <rect x="524" y="316" width="152" height="36" rx="18" fill="#0c1f1a" stroke="#34d399" stroke-width="1.6"/>
+  <text class="t big" x="600" y="341" text-anchor="middle" fill="#34d399">−89%</text>
+</g>
+
+<text class="t cap" x="42" y="398">Stages 2 · 4 · 6 · 7 exist in no other tool. Nothing reaches production until the numbers say it can.</text>
+</svg>
