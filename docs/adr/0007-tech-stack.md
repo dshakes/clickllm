@@ -1,6 +1,6 @@
 # ADR-0007 — Rust datapath, Python control plane
 
-**Status:** accepted · **Date:** 2026-07-27 · **Supersedes:** the "Technical assumptions" section of [`20-prd.md`](../20-prd.md)
+**Status:** accepted · **Amended by:** [ADR-0008](0008-build-from-scratch.md) (removes the crate-linkage argument; the decision stands on the other two) · **Date:** 2026-07-27 · **Supersedes:** the "Technical assumptions" section of [`20-prd.md`](../20-prd.md)
 
 ## Context
 
@@ -36,7 +36,7 @@ clickllm        (Python)   distill · prove · guard · CLI orchestration
 - **No GC pauses.** NFR-1 is a *p95 tail latency* budget. Go's GC injects exactly the kind of tail that budget measures. This is the deciding argument.
 - **Explicit memory control.** M5 budgets GB-scale memory across a multi-model fleet and evicts under pressure. That requires knowing what is resident, not asking a collector.
 - **Zero-copy streaming.** Token streams pass through as `Bytes` without buffering a response body.
-- **`llmfit-core` is a Rust crate.** A Rust datapath **links it as a library** instead of shelling out to a binary and parsing JSON per call — no process spawn, no serialization, direct access to its hardware/fit/provider types. This was not obvious until the source read ([ADR-0006](0006-llmfit-source-evaluation.md)) and it is a material win.
+- **One static binary.** The datapath ships as a single artifact with no runtime, which is also what [ADR-0005](0005-inference-in-a-box.md)'s macOS native execution binding needs to supervise.
 
 Go remains the better choice for anything we contribute *to* the k8s ecosystem (GAIE, llm-d are Go), but we consume those over the wire rather than extending them.
 
@@ -59,18 +59,17 @@ Rewriting `distill`/`prove` in Rust would cost the embedding, clustering, tokeni
 
 ### The existing Python fit solver
 
-Stays as-is. Per [ADR-0006](0006-llmfit-source-evaluation.md) it shrinks to an adapter plus the serving-side solve, and it runs in microseconds on the control plane. Porting it would be motion, not progress.
+Stays as a control-plane mirror of `spec.rs`: it runs in microseconds, drives `clickllm fit`, and keeps the CLI dependency-free. The authoritative sizing logic is the Rust one, and `tests/` checks the two agree.
 
 ## Consequences
 
 **Good**
 - Efficiency effort lands where the profile says it matters, and nowhere else.
-- Direct `llmfit-core` linkage removes a process boundary from the hottest advisory path.
 - One static binary for the datapath — which is also what [ADR-0005](0005-inference-in-a-box.md)'s macOS native execution binding wants to supervise.
 - Rust's memory model is the honest tool for a component whose job is budgeting memory.
 
 **Bad**
-- **Two languages, one FFI seam.** Real, ongoing cost. Mitigated by keeping the boundary narrow and typed (PyO3, mirroring what `llmfit-python` already does successfully), and by never letting control-plane logic leak into the Rust side.
+- **Two languages, one FFI seam.** Real, ongoing cost. Mitigated by keeping the boundary narrow and typed (PyO3), and by never letting control-plane logic leak into the Rust side.
 - Slower to write than Go or Python. Accepted for the datapath only — which is a small fraction of total LOC.
 - Contributors need Rust. Mitigated: the control plane, where most feature work happens, stays Python.
 

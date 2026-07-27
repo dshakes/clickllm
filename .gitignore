@@ -1,3 +1,4 @@
+
 __pycache__/
 .clickllm/
 .DS_Store
@@ -9,7 +10,9 @@ __pycache__/
 *.py[cod]
 *.sqlite
 # local state — captured traffic and eval sets never get committed
+# Rust
 build/
-temp/
 dist/
+target/
+temp/
 uv.lock

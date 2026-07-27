@@ -1,6 +1,6 @@
 # ADR-0006 — llmfit source evaluation: the overlap is larger than ADR-0003 assumed
 
-**Status:** accepted · **Date:** 2026-07-27 · **Extends:** [ADR-0003](0003-dont-build-fit-adopt-llmfit.md)
+**Status:** superseded by [ADR-0008](0008-build-from-scratch.md) · **Date:** 2026-07-27 · **Extends:** [ADR-0003](0003-adopt-third-party-fit.md)
 **Basis:** read of `AlexsJones/llmfit` v1.1.6 — 45,450 LOC Rust, MIT
 
 ADR-0003 adopted llmfit from its README. Reading the source changes the picture: it covers substantially more of our M1–M3 than assumed, and one module lands adjacent to the stage we called our hero. Correcting the record.

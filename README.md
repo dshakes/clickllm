@@ -105,7 +105,7 @@ Seven stages. Each is an **agent with tools** — conversational, resumable, and
 |---|---|---|---|
 | ① | **Observe** | Swap `base_url`. We proxy to your current provider, capture traffic, redact PII **before** it touches disk. Useful day one as a cost dashboard. | planned |
 | ② | **Distill** | Cluster prompts by task shape. Sample representatively. Your recorded closed-model outputs become the *incumbent baseline*. **← moat** | planned |
-| ③ | **Fit** | What runs on your silicon, at the context and concurrency stage ② observed you actually use. | **works** |
+| ③ | **Fit** | What runs on your silicon, at the context and concurrency stage ② observed you actually use. MoE/GQA/MLA-correct, every number auditable. | **works** |
 | ④ | **Prove** | Grade candidates against your eval set: assertions → task graders → position-swapped pairwise judge. **← the hero** | planned |
 | ⑤ | **Deploy** | **Zero-config.** Name a model and a target; every knob — quantization, spec-decode, caching, parallelism, batch limits — is auto-tuned from your hardware and traffic, then *measured* and reverted if it doesn't help. The native config it writes is a receipt, not a form to fill in. | planned |
 | ⑥ | **Cut over** | Shadow → canary → cut, gated on **quality**, auto-rollback in <10s. **← moat** | planned |
@@ -143,7 +143,7 @@ Columns are **traffic-weighted** — a cluster that's 38% of your load matters 5
 | Build (the moat) | Compose (already won) |
 |---|---|
 | Traffic → eval-set distillation | [LiteLLM](https://github.com/BerriAI/litellm) — provider transport |
-| Grader stack + equivalence matrix | [llmfit](https://github.com/AlexsJones/llmfit) — local hardware fit |
+| Grader stack + equivalence matrix | own hardware detection + catalogue (M0) |
 | Regret analysis + hybrid policy | [Inspect AI](https://inspect.aisi.org.uk) — eval runner |
 | Quality-gated migration router | vLLM · SGLang · llama.cpp · MLX · MLC |
 | Hardware-aware config generation | [llm-d](https://llm-d.ai) + [GAIE](https://github.com/kubernetes-sigs/gateway-api-inference-extension) — production routing |
@@ -244,11 +244,12 @@ Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` a
 | [80 — Implementation plan](docs/80-implementation-plan.md) | Module map, protocols, M1–M10 milestones, risk gates, traceability. |
 | [ADR-0001](docs/adr/0001-migration-not-platform.md) | Build the migration, not the platform. |
 | [ADR-0002](docs/adr/0002-runtime-abstraction.md) | Runtime abstraction; emit native config. |
-| [ADR-0003](docs/adr/0003-dont-build-fit-adopt-llmfit.md) | Don't build the fit layer. Adopt llmfit. |
+| [ADR-0003](docs/adr/0003-adopt-third-party-fit.md) | *(superseded by 0008)* |
 | [ADR-0004](docs/adr/0004-zero-config-deployment.md) | Deployment is zero-config; the generated file is a receipt, not an interface. |
 | [ADR-0005](docs/adr/0005-inference-in-a-box.md) | "Inference in a box" is a contract, not a container image. |
-| [ADR-0006](docs/adr/0006-llmfit-source-evaluation.md) | llmfit source read — the overlap is larger than ADR-0003 assumed. |
+| [ADR-0006](docs/adr/0006-third-party-fit-evaluation.md) | *(superseded by 0008)* |
 | [ADR-0007](docs/adr/0007-tech-stack.md) | Rust datapath, Python control plane. |
+| [ADR-0008](docs/adr/0008-build-from-scratch.md) | **Build the full stack ourselves.** Supersedes 0003 and 0006. |
 
 ---
 
@@ -256,7 +257,7 @@ Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` a
 
 This project exists *because* of the work below, and composes it wherever it can.
 
-**[llmfit](https://github.com/AlexsJones/llmfit)** (30.8k★, MIT) — hardware-aware model fit with *measured*, community-contributed benchmarks. Strictly better than our estimator on local targets; we adopt it rather than compete ([ADR-0003](docs/adr/0003-dont-build-fit-adopt-llmfit.md)). **[LiteLLM](https://github.com/BerriAI/litellm)** — provider transport. **[Inspect AI](https://inspect.aisi.org.uk)** (UK AISI) — eval runner. **[vLLM](https://github.com/vllm-project/vllm)**, **[SGLang](https://github.com/sgl-project/sglang)**, **[llama.cpp](https://github.com/ggerganov/llama.cpp)**, **[MLX](https://github.com/ml-explore/mlx)** — the engines. **[llm-d](https://llm-d.ai)** + **[GAIE](https://github.com/kubernetes-sigs/gateway-api-inference-extension)** — KV-cache-aware production routing. **[Ollama](https://ollama.com)** — the ergonomics bar everyone should be held to.
+**[LiteLLM](https://github.com/BerriAI/litellm)** — provider transport. **[Inspect AI](https://inspect.aisi.org.uk)** (UK AISI) — eval runner. **[vLLM](https://github.com/vllm-project/vllm)**, **[SGLang](https://github.com/sgl-project/sglang)**, **[llama.cpp](https://github.com/ggerganov/llama.cpp)**, **[MLX](https://github.com/ml-explore/mlx)** — the engines. **[llm-d](https://llm-d.ai)** + **[GAIE](https://github.com/kubernetes-sigs/gateway-api-inference-extension)** — KV-cache-aware production routing. **[Ollama](https://ollama.com)** — the ergonomics bar everyone should be held to.
 
 ---
 

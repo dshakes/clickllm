@@ -1,6 +1,6 @@
 # ADR-0003 — Don't build the fit layer. Adopt llmfit.
 
-**Status:** accepted · **Date:** 2026-07-27 · **Supersedes:** Phase 0 of [`50-roadmap.md`](../50-roadmap.md)
+**Status:** superseded by [ADR-0008](0008-build-from-scratch.md) · **Date:** 2026-07-27 · **Supersedes:** Phase 0 of [`50-roadmap.md`](../50-roadmap.md)
 
 ## Context
 

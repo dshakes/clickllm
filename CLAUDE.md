@@ -14,11 +14,12 @@ Full picture: [README](README.md) · [PRD](docs/20-prd.md) · [architecture](doc
 ## Languages & commands
 | Layer | Language | Notes |
 |---|---|---|
-| control plane, solver, evals | Python 3.11+ | the ecosystem is Python; zero runtime deps today |
-| proxy datapath | Python, Go if needed | only move to Go if the <15ms p95 budget (NFR-1) fails under measured load |
+| datapath, weights, runtimes | **Rust** (`clickllm-core/`) | no GC against the <15ms p95 budget; explicit fleet-memory accounting ([ADR-0007](docs/adr/0007-tech-stack.md)) |
+| control plane, solver, evals | **Python 3.11+** (`src/clickllm/`) | the ML ecosystem is Python; zero runtime deps today |
 
 ```bash
-uv run --with pytest --python 3.13 pytest -q          # test  (27 tests)
+cargo test && cargo clippy --all-targets && cargo fmt --check   # Rust gate (61 tests)
+uv run --with pytest --python 3.13 pytest -q          # Python gate (27 tests)
 uv run --with ruff   --python 3.13 ruff check src tests
 uv run --with ruff   --python 3.13 ruff format src tests
 PYTHONPATH=src python3 -m clickllm.cli fit            # run
@@ -26,7 +27,8 @@ PYTHONPATH=src python3 -m clickllm.fit                # module self-check
 ```
 
 ## Repo layout
-- `src/clickllm/` — hardware detection, model catalog, fit solver, CLI
+- `clickllm-core/src/` — Rust: `error` · `model_ref` · `licence` · `spec` · `runtime/{vllm,llmd}`
+- `src/clickllm/` — Python: hardware detection, model catalog, fit solver, CLI
 - `src/clickllm/models.json` — model catalog; `verified` flags confirmed architecture
 - `docs/` — numbered specs (00 verdict → 70 naming); `docs/adr/` for decisions; `docs/assets/` SVGs
 - `tests/` — pytest; also runs each module's `demo()` self-check
@@ -34,13 +36,12 @@ PYTHONPATH=src python3 -m clickllm.fit                # module self-check
 ## Load-bearing invariants (the "what NOT to do")
 > Violating these silently causes incidents. To change one, write an ADR first.
 
-1. **Never build what already won.** No inference engine, no production load
-   balancer, no chat UI, no RAG framework, no hosted inference. Before writing a
-   new capability, search for the *specific feature*, not the market category —
-   [ADR-0003](docs/adr/0003-dont-build-fit-adopt-llmfit.md) is what happens when you don't.
-2. **No engine-specific type crosses the `Runtime` Protocol boundary.** The moment
-   `prove` imports `vllm`, portability is gone and dev-on-Metal stops working.
-   ([ADR-0002](docs/adr/0002-runtime-abstraction.md))
+1. **Never build an inference engine, production load balancer, chat UI, RAG
+   framework, or hosted inference.** Those have incumbents and none is the gap.
+   Everything else in our path we own outright ([ADR-0008](docs/adr/0008-build-from-scratch.md)).
+2. **No engine-specific type escapes the `Runtime` trait** (`clickllm-core/src/runtime/`).
+   The moment one does, portability is gone and dev-on-Metal stops working, because
+   vLLM/SGLang/llm-d are CUDA-only. ([ADR-0002](docs/adr/0002-runtime-abstraction.md))
 3. **Generated config is native and standalone.** Emit a real `vllm serve` or a real
    `InferencePool` that runs with clickllm uninstalled. Never a wrapper. (NFR-4)
 4. **Redaction happens before persistence, and fails closed.** Unredacted prompt
@@ -75,3 +76,12 @@ Any new catalog entry with `kv_scheme: mla` **must** set `kv_lora_rank` — enfo
 - **Hardware constants are calibration knobs**, not truths — `APPLE_BANDWIDTH`,
   `BANDWIDTH_EFFICIENCY`, `OVERHEAD_FRACTION`. Comment the ceiling and the upgrade path.
 - Zero runtime dependencies in `clickllm fit`; it must work under `uvx` with no install.
+
+## Rust conventions
+- `unwrap`/`expect`/`panic!`/slice-indexing are **denied at the lint level** in production
+  code; test modules opt out explicitly. A sizing or licence bug must not be a panic.
+- Sizing arithmetic saturates. An overflowed requirement must read as "too big" and
+  refuse — never wrap to a small number and appear to fit.
+- Every fallible operation runs inside a `tracing` span carrying model/runtime/path.
+- Generated artifacts stamp a provenance header: what was chosen, why, and that they
+  run without clickllm installed.

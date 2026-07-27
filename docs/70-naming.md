@@ -17,8 +17,8 @@ Honest assessment of the working name:
 | | |
 |---|---|
 | ✅ | Short, pronounceable, suggests "easy" |
-| ❌ | **Mis-signals the category.** It sounds like a local model launcher — Ollama, LM Studio, llmfit. That is precisely the category [ADR-0001](adr/0001-migration-not-platform.md) decided *not* to compete in. The name would recruit the wrong users and invite the wrong comparison. |
-| ❌ | `llm`-suffix space is saturated: LiteLLM, OpenLLM, llm-d, llmfit, AnythingLLM, LocalLLM. Zero recall advantage. |
+| ❌ | **Mis-signals the category.** It sounds like a local model launcher. That is precisely the category [ADR-0001](adr/0001-migration-not-platform.md) decided *not* to compete in — the name would recruit the wrong users and invite the wrong comparison. |
+| ❌ | `llm`-suffix space is saturated: LiteLLM, OpenLLM, llm-d, AnythingLLM, LocalLLM. Zero recall advantage. |
 | ❌ | "Click" sells convenience. We sell *evidence*. Convenience is the commodity half. |
 
 The name should carry the thesis. `clickllm` carries the opposite one.

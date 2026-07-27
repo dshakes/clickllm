@@ -148,7 +148,7 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 
 ## 6. Technical assumptions
 
-- **Language:** **Rust** for the datapath and weights path (gateway, router, fleet memory budgeting, download/convert, runtime supervision); **Python 3.13** for the control plane (distill, prove, guard) where the ML ecosystem lives. Bridged with PyO3. See [ADR-0007](adr/0007-tech-stack.md) — Rust wins on p95 tail (no GC), explicit fleet-memory accounting, and direct linkage of `llmfit-core` as a crate.
+- **Language:** **Rust** for the datapath and weights path (gateway, router, fleet memory budgeting, download/convert, runtime supervision); **Python 3.13** for the control plane (distill, prove, guard) where the ML ecosystem lives. Bridged with PyO3. See [ADR-0007](adr/0007-tech-stack.md) — Rust wins on p95 tail (no GC) and explicit fleet-memory accounting.
 - **Depend, don't build:** LiteLLM (transport), Inspect AI (eval runner — primary, given promptfoo is now OpenAI-owned), lm-eval-harness (capability screen), the engines themselves.
 - **Runtime abstraction is non-negotiable** — dev is Metal, prod is CUDA. See [ADR-0002](adr/0002-runtime-abstraction.md).
 - **State on disk, not in a service.** SQLite + files. A migration must survive a laptop reboot and be `git`-inspectable.

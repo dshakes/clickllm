@@ -101,7 +101,6 @@ Nobody is in this lane, and the reason is structural.
 | promptfoo | evals | **acquired by OpenAI** — cannot credibly ship "leave OpenAI" |
 | llm-d, KServe, vLLM | serving | assume you already decided and already believe |
 | Ollama, LM Studio | local runners | answer "can I run this", never "should I" |
-| **llmfit** (30.8k★) | hardware fit | best in class at it — **so we adopt it**, not compete |
 
 The category isn't contested. It's unoccupied.
 

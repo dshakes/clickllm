@@ -8,15 +8,17 @@ Traceability matrix at the bottom — every capability you've named maps to a mi
 
 ## Stack
 
-**Rust** for the datapath and weights path · **Python** for the control plane · PyO3 between them · `llmfit-core` linked as a crate, not shelled out ([ADR-0007](adr/0007-tech-stack.md)).
+**Rust** for the datapath and weights path · **Python** for the control plane · PyO3 between them ([ADR-0007](adr/0007-tech-stack.md)). **No third-party fit dependency** — the whole stack is ours ([ADR-0008](adr/0008-build-from-scratch.md)).
 
 ## Package map
 
 ```
-clickllm-core/          RUST — the datapath. Links llmfit-core as a crate.
+clickllm-core/          RUST — the datapath. No third-party fit dependency.
   src/weights/       M1  acquire · convert · cache · licence     (mmap, io_uring, SIMD hash)
   src/runtimes/      M2  mod.rs (Runtime trait) · vllm · sglang · llmd
                          · vllm_mlx · llamacpp · mlc            (render + launch)
+  src/hw/            M0  detect · bandwidth · backend
+  src/catalog/       M0  specs · quants · licences
   src/tune/          M3  solve · bench · revert
   src/box/           M4  pack · manifest · oci · run · reprofile
   src/gateway/       M5  proxy · router · fleet · providers · meter
@@ -27,7 +29,7 @@ clickllm-core/          RUST — the datapath. Links llmfit-core as a crate.
 src/clickllm/           PYTHON — the control plane. ML ecosystem lives here.
   hardware.py        ✅ accelerator + memory + bandwidth detection
   catalog.py         ✅ model specs, licences, verified-architecture flags
-  fit.py             ✅ MoE/GQA/MLA-correct solve  (→ adapter + serving-side delta, ADR-0006)
+  fit.py             ✅ MoE/GQA/MLA-correct solve (control-plane mirror of spec.rs)
   cli.py             ✅ command surface
   distill/           M7  cluster · sample · evalset
   prove/             M8  graders · judge · equivalence · regret
@@ -66,7 +68,12 @@ If an engine-specific type ever escapes `Runtime`, portability is gone and dogfo
 
 ## Milestones
 
-### M1 · Weights — acquire, convert, cache *(~4 days — resized by [ADR-0006](adr/0006-llmfit-source-evaluation.md))*
+### M0 · Hardware + catalogue *(2 wks — restored by [ADR-0008](adr/0008-build-from-scratch.md))*
+Detection across Apple / NVIDIA / AMD / Intel / CPU: memory, bandwidth, device count, backend. Catalogue with geometry, quant availability, licences. Bandwidth-roofline throughput estimation, **labelled as an estimate until a benchmark replaces it**.
+
+**Done when:** detection is correct on hardware we do not own, or reports *unsupported* rather than guessing. CI exercises the non-Apple paths.
+
+### M1 · Weights — acquire, convert, cache *(2 wks)*
 Nothing downstream can run without local weights.
 
 - Resolve `hf:org/model`, `s3://`, `oci://`, local path → canonical ref
@@ -86,7 +93,7 @@ Nothing downstream can run without local weights.
 
 **Done when:** the same `RuntimePlan` produces a working endpoint on an M4 Max and on a CUDA box, with no branching above the Protocol.
 
-### M3 · Tune — auto-tune, then *prove the tune* *(~1 wk — resized by [ADR-0006](adr/0006-llmfit-source-evaluation.md))* — **ADR-0004**
+### M3 · Tune — auto-tune, then *prove the tune* *(2 wks)* — **ADR-0004**
 - `solve` derives candidate knobs from hardware + workload: quantization, spec-decode method/draft length, prefix/radix caching, TP/PP, `max_model_len`, `max_num_seqs`, chunked prefill, KV dtype, memory utilization
 - `bench` runs the observed workload shape against the candidate and a no-optimization baseline
 - `revert` drops anything that didn't help **on this hardware**, and says so
@@ -184,7 +191,7 @@ The last gate is the one that matters. Everything downstream of it moves product
 | Optimizations abstracted from the user | M3 · ADR-0004 |
 | vLLM · SGLang · llm-d | M2 |
 | Speculative decoding (EAGLE-3 / P-EAGLE / mlx) | M3 |
-| Scan hardware, suggest what fits | ✅ ships · refined M3 |
+| Scan hardware, suggest what fits | ✅ ships · broadened M0 |
 | Deploy seamlessly, zero-config | M3 + M4 |
 | Inference in a box, portable | M4 · ADR-0005 |
 | Agentic proactive suggestions | M4 re-profile · MCP · M10 |
@@ -210,6 +217,6 @@ The last gate is the one that matters. Everything downstream of it moves product
 
 ## Estimate
 
-~28 engineering weeks to M10 for one focused engineer; **M1–M4 is ~7.5 weeks** and is the first thing worth showing anyone.
+~33 engineering weeks to M10 for one focused engineer; **M0–M4 is ~10 weeks** and is the first thing worth showing anyone.
 
 Treat M8 as elastic. It is the only milestone where "done" is a judgement about trustworthiness rather than a passing test, and the only one where shipping early does damage.

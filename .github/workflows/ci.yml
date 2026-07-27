@@ -38,6 +38,28 @@ jobs:
         env:
           PYTHONPATH: src
 
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The datapath must build on both, for the same reason the Python matrix does:
+        # development is Metal, production is CUDA-on-Linux.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all
+      - name: docs must build without warnings
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
   lint:
     runs-on: ubuntu-latest
     steps:
