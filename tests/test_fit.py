@@ -250,3 +250,123 @@ def test_mcp_tool_schemas_are_well_formed():
     for name, (_, schema) in mcp.TOOLS.items():
         assert schema["description"].strip(), f"{name} needs a description"
         assert schema["inputSchema"]["type"] == "object", name
+
+
+# --------------------------------------------------------------------------- #
+# M7 distill / M8 prove
+# --------------------------------------------------------------------------- #
+
+
+def test_distill_and_prove_self_checks():
+    from clickllm.distill import cluster as dcluster
+    from clickllm.distill import shape as dshape
+    from clickllm.prove import equivalence, graders, judge, stats
+
+    dshape.demo()
+    dcluster.demo()
+    stats.demo()
+    graders.demo()
+    judge.demo()
+    equivalence.demo()
+
+
+def test_a_perfect_score_on_few_samples_is_not_certainty():
+    from clickllm.prove.stats import wilson
+
+    i = wilson(8, 8)
+    assert i.point == 1.0
+    assert i.low < 0.75, "8/8 must not read as near-certain"
+    assert not i.clearly_above(0.95), "a 95% gate must not open on 8 samples"
+
+
+def test_ungraded_items_never_count_as_passes():
+    """The single most dangerous failure mode in the grader stack."""
+    from clickllm.prove.graders import EvalItem, grade
+
+    r = grade(EvalItem("i", "c", "prompt", baseline="", candidate=""))
+    assert not r.graded
+    assert not r.passed
+
+
+def test_position_bias_is_flagged_not_averaged():
+    from clickllm.prove.graders import EvalItem
+    from clickllm.prove.judge import Reply, Verdict, judge_item
+
+    item = EvalItem("i", "c", "p", baseline="A", candidate="B")
+    biased = judge_item(item, lambda c: Reply("a"), model="m")
+    assert biased.position_bias
+    assert biased.verdict is Verdict.UNCERTAIN
+    # An ambiguous instrument must not be scored against the candidate.
+    assert not biased.to_score().applicable
+
+
+def test_judge_requires_disclosure():
+    from clickllm.prove.graders import EvalItem
+    from clickllm.prove.judge import Reply, judge_item
+
+    with pytest.raises(ValueError):
+        judge_item(EvalItem("i", "c", "p", "a", "b"), lambda c: Reply("tie"), model="")
+
+
+def test_unmeasured_judge_agreement_is_not_assumed_perfect():
+    from clickllm.prove.judge import Agreement
+
+    a = Agreement(0, 0, "m")
+    assert a.rate is None and not a.trustworthy
+    assert "UNMEASURED" in a.render()
+
+
+def test_regret_excludes_merely_unproven_clusters():
+    """Thin evidence means gather more, not give up — otherwise traffic never moves."""
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore
+    from clickllm.prove.stats import wilson
+
+    regressed = ClusterScore("a", "bad", 0.3, wilson(20, 100), 0)
+    thin = ClusterScore("b", "thin", 0.3, wilson(3, 4), 0)
+    good = ClusterScore("c", "good", 0.4, wilson(98, 100), 0)
+    cand = CandidateReport("m", (regressed, thin, good))
+
+    assert [c.name for c in cand.regret()] == ["bad"]
+    assert "thin" in [c.name for c in cand.unproven()]
+    assert cand.movable_share() == pytest.approx(0.4)
+
+
+def test_no_cost_rate_means_no_fabricated_saving():
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from clickllm.prove.stats import wilson
+
+    c = ClusterScore("a", "x", 1.0, wilson(99, 100), 0)
+    cand = CandidateReport("m", (c,))  # no monthly_cost
+    policy = Matrix([cand], incumbent_cost=1000.0).hybrid_for(cand)
+    assert policy.monthly_saving is None
+
+
+def test_matrix_puts_regret_before_the_table():
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from clickllm.prove.stats import wilson
+
+    bad = ClusterScore("a", "long-ctx", 0.2, wilson(10, 100), 0)
+    ok = ClusterScore("b", "codegen", 0.8, wilson(98, 100), 0)
+    text = Matrix([CandidateReport("m", (bad, ok))]).render()
+    assert text.index("REGRET") < text.index("codegen")
+
+
+def test_clustering_is_deterministic_regardless_of_arrival_order():
+    from clickllm.distill.cluster import cluster
+    from clickllm.distill.shape import Capture
+
+    caps = [
+        Capture(
+            f"r{i}",
+            "gpt-5",
+            ({"role": "system", "content": "s" + str(i % 3)},),
+            response="x" * (i + 1),
+            prompt_tokens=500,
+        )
+        for i in range(30)
+    ]
+    a = [c.key for c in cluster(caps)]
+    b = [c.key for c in cluster(list(reversed(caps)))]
+    assert a == b
+    names = [c.name for c in cluster(caps)]
+    assert len(set(names)) == len(names), "cluster names must be unique"
