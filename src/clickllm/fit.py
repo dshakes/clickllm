@@ -174,6 +174,81 @@ def rank(
     return feasible, rejected
 
 
+@dataclass(frozen=True, slots=True)
+class Placement:
+    """Whether one hardware profile can serve one model, and how well."""
+
+    profile_id: str
+    profile_name: str
+    fit: Fit | None
+    reason: str
+    hourly_usd: float | None
+
+    @property
+    def feasible(self) -> bool:
+        return self.fit is not None
+
+    @property
+    def tokens_per_sec(self) -> float | None:
+        return self.fit.tokens_per_sec if self.fit else None
+
+    @property
+    def cost_per_mtok_usd(self) -> float | None:
+        """Rough USD per million output tokens at full single-stream utilisation.
+
+        A capacity-vs-speed reality check: a cheap card that decodes slowly can
+        cost more per token than an expensive one that decodes fast. Assumes the
+        machine is busy — idle time is not modelled, and real cost is higher.
+        """
+        if self.hourly_usd is None or not self.tokens_per_sec:
+            return None
+        tokens_per_hour = self.tokens_per_sec * 3600
+        return (self.hourly_usd / tokens_per_hour) * 1_000_000
+
+
+def where(model: ModelSpec, context: int, concurrency: int = 1) -> list[Placement]:
+    """Which hardware classes can serve `model`, cheapest capable first.
+
+    The inverse of `rank`: instead of "what runs on my box", this answers "what
+    box do I need". Infeasible profiles are returned too, with the reason — the
+    gap between "needs 2 GB more" and "needs 10x more" is the difference between
+    a config change and a different purchase.
+    """
+    from .hardware_catalog import PROFILES
+
+    out: list[Placement] = []
+    for p in PROFILES:
+        hw = p.to_hardware()
+        f = best_quant(model, hw, context, concurrency)
+        if f:
+            out.append(Placement(p.id, p.name, f, "", p.hourly_usd))
+            continue
+        smallest = min(model.quants, key=lambda q: QUANT_BITS[q])
+        probe = solve(model, smallest, hw, context, concurrency)
+        short_by = probe.total_bytes - hw.usable_bytes
+        if probe.weight_bytes > hw.usable_bytes:
+            why = (
+                f"weights alone need {probe.weight_bytes / GB:,.0f} GB at {smallest}, "
+                f"{hw.usable_gb:,.0f} GB usable"
+            )
+        else:
+            why = (
+                f"short by {short_by / GB:,.0f} GB — weights fit, but KV at "
+                f"{context:,} ctx x{concurrency} does not"
+            )
+        out.append(Placement(p.id, p.name, None, why, p.hourly_usd))
+
+    # Feasible first, then by price where known, then by throughput.
+    out.sort(
+        key=lambda pl: (
+            not pl.feasible,
+            pl.hourly_usd if pl.hourly_usd is not None else float("inf"),
+            -(pl.tokens_per_sec or 0.0),
+        )
+    )
+    return out
+
+
 def recommend_runtime(hw: Hardware, context: int, concurrency: int) -> tuple[str, str]:
     """(runtime, why). Encodes the tradeoffs that aren't obvious from docs."""
     if hw.kind == "apple":
@@ -262,7 +337,25 @@ def demo() -> None:
     assert feasible and rejected
     assert all(x.feasible for x in feasible)
 
+    # Inverse question: which machines run this model at all?
+    placements = where(catalog.get("qwen3-32b"), 32768, 1)
+    ok_pl = [p for p in placements if p.feasible]
+    assert ok_pl, "a 32B model must fit something in the catalogue"
+    assert not placements[-1].feasible, "infeasible profiles sort last"
+    assert all(p.reason for p in placements if not p.feasible), "every rejection needs a reason"
+    # Cheapest capable first among the feasible.
+    priced = [p for p in ok_pl if p.hourly_usd is not None]
+    assert priced == sorted(priced, key=lambda p: p.hourly_usd)
+    # A 2.8T model fits nothing here, and says why rather than silently vanishing.
+    huge = where(catalog.get("kimi-k3"), 8192, 1)
+    assert not any(p.feasible for p in huge)
+    assert all("weights alone" in p.reason for p in huge)
+    # Cost per token rewards bandwidth, not just capacity.
+    with_cost = [p for p in ok_pl if p.cost_per_mtok_usd is not None]
+    assert with_cost and all(p.cost_per_mtok_usd > 0 for p in with_cost)
+
     print(f"96 GB / 32K ctx / c=1  →  {len(feasible)} feasible, {len(rejected)} rejected")
+    print(f"qwen3-32b runs on {len(ok_pl)} of {len(placements)} hardware profiles")
     print(
         f"top: {feasible[0].model.name} @ {feasible[0].quant} "
         f"({feasible[0].total_bytes / GB:.0f} GB, ~{feasible[0].tokens_per_sec:.0f} tok/s)"

@@ -131,6 +131,80 @@ def _wrap(text: str, width: int) -> list[str]:
     return out
 
 
+def cmd_where(args: argparse.Namespace) -> int:
+    """Which hardware classes can serve this model."""
+    m = catalog.get(args.model)
+    ctx, conc = _parse_size(args.context), args.concurrency
+    placements = fit.where(m, ctx, conc)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "model": m.id,
+                    "context": ctx,
+                    "concurrency": conc,
+                    "placements": [
+                        {
+                            "profile": p.profile_id,
+                            "name": p.profile_name,
+                            "feasible": p.feasible,
+                            "quant": p.fit.quant if p.fit else None,
+                            "total_gb": round(p.fit.total_bytes / GB, 1) if p.fit else None,
+                            "tokens_per_sec": (
+                                round(p.tokens_per_sec) if p.tokens_per_sec else None
+                            ),
+                            "hourly_usd": p.hourly_usd,
+                            "usd_per_mtok": (
+                                round(p.cost_per_mtok_usd, 2) if p.cost_per_mtok_usd else None
+                            ),
+                            "reason": p.reason or None,
+                        }
+                        for p in placements
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    ok = [p for p in placements if p.feasible]
+    no = [p for p in placements if not p.feasible]
+
+    print(f"\n  {m.name} · {m.params_b:g}B", end="")
+    if m.is_moe:
+        print(f" ({m.active_b:g}B active, MoE)", end="")
+    print(f" · {_lic(m)}")
+    print(f"  at {ctx:,} context, concurrency {conc}\n")
+
+    if ok:
+        print(f"  {'hardware':<26}{'quant':<7}{'total':>8}{'~tok/s':>8}{'$/hr':>8}{'$/Mtok':>9}")
+        print(f"  {'-' * 66}")
+        for p in ok:
+            f = p.fit
+            tps = f"{p.tokens_per_sec:.0f}" if p.tokens_per_sec else "-"
+            hr = f"{p.hourly_usd:.2f}" if p.hourly_usd is not None else "-"
+            mt = f"{p.cost_per_mtok_usd:.2f}" if p.cost_per_mtok_usd else "-"
+            slow = " slow" if f and f.slow else ""
+            print(
+                f"  {p.profile_name[:24]:<26}{f.quant:<7}"
+                f"{f.total_bytes / GB:>7.1f}G{tps:>8}{hr:>8}{mt:>9}{slow}"
+            )
+    else:
+        print("  Nothing in the hardware catalogue can serve this model at that shape.\n")
+
+    if no and not args.quiet:
+        print("\n  WILL NOT RUN")
+        for p in no:
+            print(f"  {p.profile_name[:24]:<26}{p.reason}")
+
+    print(
+        "\n  $/Mtok assumes the machine is saturated single-stream; real cost is higher."
+        "\n  Throughput figures are roofline estimates, not measurements.\n"
+    )
+    return 0
+
+
 def cmd_models(args: argparse.Namespace) -> int:
     print(f"\n  {'id':<22}{'params':>9}{'active':>9}{'ctx':>10}  license")
     print(f"  {'-' * 66}")
@@ -155,6 +229,14 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--json", action="store_true")
     f.add_argument("--quiet", action="store_true", help="hide the NOT FEASIBLE section")
     f.set_defaults(fn=cmd_fit)
+
+    w = sub.add_parser("where", help="which hardware can run a given model")
+    w.add_argument("model", help="catalogue model id, e.g. glm-5.2")
+    w.add_argument("--context", default="32k", help="context length, e.g. 8k, 32k")
+    w.add_argument("--concurrency", type=int, default=1, help="simultaneous requests")
+    w.add_argument("--json", action="store_true")
+    w.add_argument("--quiet", action="store_true", help="hide the WILL NOT RUN section")
+    w.set_defaults(fn=cmd_where)
 
     m = sub.add_parser("models", help="list the catalog")
     m.set_defaults(fn=cmd_models)

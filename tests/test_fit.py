@@ -370,3 +370,79 @@ def test_clustering_is_deterministic_regardless_of_arrival_order():
     assert a == b
     names = [c.name for c in cluster(caps)]
     assert len(set(names)) == len(names), "cluster names must be unique"
+
+
+# --------------------------------------------------------------------------- #
+# Model -> hardware ("where")
+# --------------------------------------------------------------------------- #
+
+
+def test_hardware_catalog_self_check():
+    from clickllm import hardware_catalog
+
+    hardware_catalog.demo()
+
+
+def test_tensor_parallel_aggregates_bandwidth():
+    """Treating a 4-GPU node as one device understates decode ~3.5x."""
+    from clickllm.hardware_catalog import get
+
+    one, four = get("h100"), get("h100-x4")
+    assert four.effective_bandwidth_gbps > one.bandwidth_gbps * 3
+    assert four.effective_bandwidth_gbps < one.bandwidth_gbps * 4, "all-reduce is not free"
+
+    m = catalog.get("qwen3-32b")
+    p1 = [p for p in fit.where(m, 8192) if p.profile_id == "h100"][0]
+    p4 = [p for p in fit.where(m, 8192) if p.profile_id == "h100-x4"][0]
+    assert p4.tokens_per_sec > p1.tokens_per_sec * 3
+
+
+def test_where_sorts_feasible_first_then_by_price():
+    m = catalog.get("qwen3-32b")
+    places = fit.where(m, 32768)
+    feasible = [p for p in places if p.feasible]
+    assert feasible, "a 32B model must run somewhere"
+    assert not places[-1].feasible, "infeasible must sort last"
+    priced = [p.hourly_usd for p in feasible if p.hourly_usd is not None]
+    assert priced == sorted(priced), "cheapest capable first"
+
+
+def test_where_explains_every_rejection():
+    places = fit.where(catalog.get("kimi-k3"), 8192)
+    assert not any(p.feasible for p in places), "a 2.8T model fits nothing here"
+    for p in places:
+        assert p.reason, f"{p.profile_id} rejected with no reason"
+        assert "weights alone" in p.reason
+
+
+def test_where_distinguishes_weights_too_big_from_kv_too_big():
+    """'Buy a different card' and 'lower your context' are different answers."""
+    m = catalog.get("qwen3-32b")
+    tight = fit.where(m, 131072, concurrency=16)
+    kv_bound = [p for p in tight if not p.feasible and "short by" in p.reason]
+    assert kv_bound, "a huge-context request should be KV-bound somewhere, not weight-bound"
+
+
+def test_cost_per_mtok_rewards_bandwidth_not_just_capacity():
+    m = catalog.get("qwen3-32b")
+    by_id = {p.profile_id: p for p in fit.where(m, 8192)}
+    l4, r5090 = by_id["l4"], by_id["rtx-5090"]
+    if l4.feasible and r5090.feasible:
+        # Same capacity class, 6x the bandwidth — cost per token must reflect it.
+        assert r5090.cost_per_mtok_usd < l4.cost_per_mtok_usd
+
+
+def test_where_cli(capsys):
+    assert cli.main(["where", "qwen3-32b", "--quiet"]) == 0
+    out = capsys.readouterr().out
+    assert "$/Mtok" in out and "roofline estimates" in out
+
+    assert cli.main(["where", "qwen3-32b", "--json"]) == 0
+    import json
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["model"] == "qwen3-32b"
+    assert any(p["feasible"] for p in payload["placements"])
+    assert all(p["reason"] for p in payload["placements"] if not p["feasible"])
+
+    assert cli.main(["where", "no-such-model"]) == 2
