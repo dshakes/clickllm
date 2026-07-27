@@ -108,7 +108,7 @@ Seven stages. Each is an **agent with tools** — conversational, resumable, and
 | ③ | **Fit** | What runs on your silicon, at the context and concurrency stage ② observed you actually use. MoE/GQA/MLA-correct, every number auditable. | **works** |
 | ④ | **Prove** | Grade candidates against your eval set: assertions → task graders → position-swapped pairwise judge. **← the hero** | planned |
 | ⑤ | **Deploy** | **Zero-config.** Name a model and a target; every knob — quantization, spec-decode, caching, parallelism, batch limits — is auto-tuned from your hardware and traffic, then *measured* and reverted if it doesn't help. The native config it writes is a receipt, not a form to fill in. | planned |
-| ⑥ | **Cut over** | Shadow → canary → cut, gated on **quality**, auto-rollback in <10s. **← moat** | planned |
+| ⑥ | **Cut over** | Shadow → canary → cut, gated on **quality**, auto-rollback in <10s. **← moat** | **partial** — router, streaming datapath and token metering ship; the quality gate is next |
 | ⑦ | **Guard** | New model ships → re-run *your* evals → propose a promotion with the cost/quality delta. **← moat** | planned |
 
 ### The output that matters
@@ -204,16 +204,31 @@ clickllm cutover canary --to 5 --gate 'equivalence>=0.95'
 clickllm cutover rollback                 # <10s, always available
 ```
 
-**MCP server** — Claude Code and Cursor drive the loop conversationally:
+**MCP server** — Claude Code and Cursor drive the loop conversationally. Ships today:
 
-```
-clickllm_fit · clickllm_traffic_summary · clickllm_prove
-clickllm_explain · clickllm_generate_deploy · clickllm_cutover_status
+```bash
+clickllm-mcp                       # JSON-RPC 2.0 over stdio, zero dependencies
+# tools: clickllm_fit · clickllm_explain · clickllm_catalog
 ```
 
 Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` are *not* MCP tools. An agent should analyze and recommend a migration; a human pushes the button. That's a trust boundary, not friction.
 
-**SDKs** — Python and TypeScript, wrapping the same control plane the CLI uses.
+**Python SDK** — the same implementation the CLI and MCP server route through:
+
+```python
+from clickllm import sdk
+report = sdk.fit(context="32k", concurrency=8)
+report.best()                 # highest-capability candidate that isn't slow
+report.commercially_clean()   # permissive licence AND verified architecture
+print(sdk.explain("glm-5.2")) # the arithmetic
+```
+
+Every throughput figure carries `estimate_basis`, so a roofline projection cannot
+be reported as a measurement anywhere downstream. A TypeScript SDK is planned.
+
+**Agent skill** — `.claude/skills/clickllm/` teaches an agent the three silent
+sizing errors, that vLLM/SGLang/llm-d don't run on Apple Silicon, and that
+EAGLE-3's headline speedup turns negative past batch 32.
 
 ---
 
@@ -264,12 +279,18 @@ This project exists *because* of the work below, and composes it wherever it can
 ## Development
 
 ```bash
-uv run --with pytest --python 3.13 pytest -q       # 27 tests
-uv run --with ruff  --python 3.13 ruff check src tests
-python3 -m clickllm.fit                            # module self-checks
+cargo test --all                                   # 102 Rust tests
+cargo clippy --all-targets -- -D warnings
+uv run --with pytest --python 3.13 pytest -q       # 36 Python tests
 ```
 
-Zero runtime dependencies — `clickllm fit` is stdlib-only on purpose.
+**138 tests.** The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at
+the lint level — a sizing or licence bug must not be a panic. The gateway's
+streaming tests run over **real TCP** against a **real** upstream, because a test
+that calls the handler directly passes even when the response is buffered.
+
+`clickllm fit` has zero runtime dependencies on purpose: it must work under `uvx`
+with no install.
 
 ## License
 
