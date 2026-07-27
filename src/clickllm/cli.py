@@ -265,6 +265,13 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    """Launch the local workbench."""
+    from . import ui
+
+    return ui.serve(host=args.host, port=args.port, open_browser=not args.no_open)
+
+
 def cmd_models(args: argparse.Namespace) -> int:
     print(f"\n  {'id':<22}{'params':>9}{'active':>9}{'ctx':>10}  license")
     print(f"  {'-' * 66}")
@@ -308,6 +315,12 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--network", action="store_true", help="allow network access (required)")
     d.add_argument("--limit", type=int, default=40)
     d.set_defaults(fn=cmd_discover)
+
+    u = sub.add_parser("ui", help="launch the local workbench")
+    u.add_argument("--host", default="127.0.0.1", help="bind address (loopback by default)")
+    u.add_argument("--port", type=int, default=7171)
+    u.add_argument("--no-open", action="store_true", help="don't open a browser")
+    u.set_defaults(fn=cmd_ui)
 
     m = sub.add_parser("models", help="list the catalog")
     m.set_defaults(fn=cmd_models)

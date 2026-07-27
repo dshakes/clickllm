@@ -561,3 +561,97 @@ def test_catalog_cli_requires_explicit_network_optin(capsys):
     assert cli.main(["discover"]) == 0
     assert "opt-in" in capsys.readouterr().out
     assert cli.main(["catalog", "--model", "no-such"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Workbench
+# --------------------------------------------------------------------------- #
+
+
+def test_workbench_self_check():
+    from clickllm import ui
+
+    ui.demo()
+
+
+def test_workbench_is_read_only():
+    """It shows and explains. Downloading, deploying and moving traffic stay in
+    the CLI, where a human runs them deliberately."""
+    from clickllm import ui
+
+    for verb in ("deploy", "apply", "promote", "cutover", "rollback", "pull", "delete"):
+        assert not any(verb in route for route in ui.ROUTES)
+
+
+def test_workbench_html_only_reads_fields_the_sdk_exposes():
+    """The first render showed '—' for every throughput and 'unverified' for
+    every model, because the HTML read field names the SDK does not have."""
+    import re
+
+    from clickllm import sdk, ui
+
+    html = ui.ASSET.read_text()
+    known = set(sdk.Candidate.__slots__) | {
+        "model_id",
+        "name",
+        "id",
+        "feasible",
+        "quant",
+        "total_gb",
+        "reason",
+        "tokens_per_sec",
+        "hourly_usd",
+        "usd_per_mtok",
+        "placements",
+        "params_b",
+        "active_b",
+        "license",
+        "license_ok",
+        "verified",
+        "model",
+        "arithmetic",
+        "models",
+        "is_moe",
+        "max_context",
+        "repo",
+        "hardware",
+        "context",
+        "concurrency",
+        "rejected",
+        "runtime",
+        "warnings",
+        "usable_gb",
+        "bandwidth_gbps",
+        "note",
+        "why",
+        "headroom_gb",
+        "length",
+        "map",
+        "join",
+        "filter",
+        "sort",
+        "slice",
+        "toLocaleString",
+        "toFixed",
+    }
+    # Field accesses on a candidate row inside the fit table.
+    used = set(re.findall(r"\bc\.([a-z_]+)\b", html))
+    unknown = used - known
+    assert not unknown, f"workbench reads fields the SDK does not expose: {sorted(unknown)}"
+
+
+def test_workbench_routes_all_serialise():
+    import json
+
+    from clickllm import ui
+
+    for path, fn in ui.ROUTES.items():
+        q = {"model": ["qwen3-32b"]} if path.endswith(("where", "explain")) else {}
+        json.dumps(fn(q), default=ui._json_default)
+
+
+def test_workbench_reports_unknown_models_as_data_not_a_crash():
+    from clickllm import ui
+
+    with pytest.raises(KeyError):
+        ui.ROUTES["/api/where"]({"model": ["no-such-model"]})
