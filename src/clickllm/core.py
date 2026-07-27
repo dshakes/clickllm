@@ -42,7 +42,7 @@ __all__ = [
 #: binary format is a far worse failure than one that will not load.
 COMPATIBLE = ("0.1.0",)
 
-INSTALL_HINT = "pip install 'clickllm[core]'"
+INSTALL_HINT = "pip install clickllm-core"
 
 
 class SeamError(RuntimeError):

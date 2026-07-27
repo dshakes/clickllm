@@ -41,7 +41,7 @@ The test for admitting anything new: *would it otherwise be implemented twice?* 
 ### 3. The extension is optional, and its absence is a sentence, not a stack trace
 
 - Distribution `clickllm-core`, import name `_clickllm_core`, built by maturin as an **abi3-py311** wheel — one wheel per platform covers every supported interpreter.
-- Installed via the `clickllm[core]` extra. `clickllm` itself keeps zero runtime dependencies.
+- Installed directly: `pip install clickllm-core`. `clickllm` itself keeps zero runtime dependencies and declares **no `core` extra**. An extra would read better, but `clickllm-core` is not on PyPI yet, and uv resolves every extra before it will run anything — so a forward reference makes the whole package unresolvable for people who never wanted the extension. The extra goes in the day the wheel is published, not before.
 - `src/clickllm/core.py` is the only module that imports it. When it is missing, `core.available()` is `False` and `core.why_unavailable()` returns one line naming what to install *and what still works without it*. Callers that genuinely cannot proceed call `core.require()` and get a `SeamError` with the same text.
 
 ### 4. Version skew is refused, not tolerated
@@ -63,7 +63,8 @@ The `test` job runs **without** the extension — that is the `uvx clickllm fit`
 **Costs, honestly**
 
 - **Two wheels to release.** `clickllm` (pure, universal) and `clickllm-core` (per-platform). The release process gets a matrix build it did not have.
-- **A platform without a prebuilt wheel needs a Rust toolchain.** For anything outside the CI matrix, `pip install clickllm[core]` compiles from source.
+- **A platform without a prebuilt wheel needs a Rust toolchain.** For anything outside the CI matrix, `pip install clickllm-core` compiles from source.
+- **The install is two commands, not one, until publication.** A dependency an extra cannot yet name is a dependency the user has to name themselves.
 - **The extension pulls the gateway crate in**, and with it tokio and reqwest. The wheel is larger than the exposed surface suggests. Acceptable today; if it becomes a problem the capture store moves to its own crate.
 - **Data crosses as dicts, not typed objects.** Deliberate — the Python side reshapes freely without a binding change per field — but it means a renamed field fails at runtime in Python rather than at compile time. The round-trip test in `tests/test_core.py` reads a log written by the real Rust writer, which is what catches that.
 

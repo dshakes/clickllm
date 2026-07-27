@@ -41,7 +41,7 @@ def test_availability_and_reason_are_consistent():
         assert core.why_unavailable() is None
     else:
         reason = core.why_unavailable()
-        assert reason and "clickllm[core]" in reason
+        assert reason and core.INSTALL_HINT in reason
 
 
 @pytest.mark.skipif(HAS_EXT, reason="only meaningful without the extension")
@@ -49,7 +49,7 @@ def test_a_missing_extension_names_what_to_install():
     with pytest.raises(core.SeamError) as e:
         core.redact("anything")
     msg = str(e.value)
-    assert "pip install 'clickllm[core]'" in msg
+    assert "pip install clickllm-core" in msg
     assert "clickllm fit" in msg, "must say what still works without it"
 
 
