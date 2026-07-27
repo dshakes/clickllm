@@ -28,11 +28,19 @@ jobs:
       - run: |
           mkdir -p site/assets
           cp docs/assets/*.svg site/assets/
+      # A heredoc, not `python -c "..."`: YAML folds a multi-line plain scalar onto
+      # one line, which turns the script into a syntax error.
       - name: diagrams must be valid XML
-        run: python -c "
-          import glob, xml.etree.ElementTree as ET
-          [ET.parse(f) for f in glob.glob('site/assets/*.svg')]
-          print('svgs ok')"
+        run: |
+          python - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          files = glob.glob('site/assets/*.svg')
+          if not files:
+              print('no SVGs found — the copy step above did not run'); sys.exit(1)
+          for f in files:
+              ET.parse(f)
+          print(f'{len(files)} svgs ok')
+          PY
       - name: every referenced asset must exist
         run: |
           python - <<'PY'
