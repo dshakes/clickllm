@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" width="1200" height="780" role="img" aria-label="End-to-end system: a request path from client through the gateway to closed providers and the local model fleet, and a control loop that captures traffic, distills evals, proves equivalence, packs a box and guards for drift.">
+<defs>
+  <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0b0f16"/><stop offset=".55" stop-color="#0d1117"/><stop offset="1" stop-color="#12161f"/>
+  </linearGradient>
+  <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1b2230"/><stop offset="1" stop-color="#141a24"/>
+  </linearGradient>
+  <linearGradient id="ours" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#2a2140"/><stop offset="1" stop-color="#181528"/>
+  </linearGradient>
+  <linearGradient id="hot" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#241d38"/><stop offset=".5" stop-color="#2f2550"/><stop offset="1" stop-color="#241d38"/>
+  </linearGradient>
+  <filter id="lift" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity=".55"/>
+  </filter>
+  <marker id="req" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0 0 L10 5 L0 10 z" fill="#a855f7"/>
+  </marker>
+  <marker id="ctl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0 0 L10 5 L0 10 z" fill="#46a758"/>
+  </marker>
+  <marker id="dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0 0 L10 5 L0 10 z" fill="#4b5563"/>
+  </marker>
+  <style>
+    .t   { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif; }
+    .m   { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .kick{ font-size:11.5px; fill:#6e7681; letter-spacing:.20em; font-weight:700; }
+    .h1  { font-size:30px; font-weight:800; fill:#f0f6fc; letter-spacing:-.015em; }
+    .lede{ font-size:13px; fill:#8b949e; }
+    .zone{ font-size:10px; font-weight:800; letter-spacing:.16em; }
+    .ttl { font-size:13.5px; font-weight:700; fill:#e6edf3; }
+    .cap { font-size:10.5px; fill:#7d8590; }
+    .mono{ font-size:10px; fill:#8ec5d6; }
+    .step{ font-size:11px; font-weight:800; fill:#0d1117; }
+    .note{ font-size:10.5px; fill:#a5b0bd; }
+    .ok  { font-size:10.5px; fill:#7fc79a; }
+  </style>
+</defs>
+
+<rect width="1200" height="780" rx="14" fill="url(#canvas)"/>
+<text class="t kick" x="44" y="42">END TO END</text>
+<text class="t h1"   x="44" y="78">One request path. One control loop. Nothing crosses between them.</text>
+<text class="t lede" x="44" y="100">Purple is the live request. Green is the loop that decides what the request is allowed to hit.</text>
+
+<!-- ═══ REQUEST PATH ═══ -->
+<text class="t zone" x="44" y="136" fill="#c9a6f5">REQUEST PATH · SUB-15ms ADDED · RUST</text>
+
+<g filter="url(#lift)"><rect x="44" y="148" width="200" height="72" rx="10" fill="url(#card)" stroke="#2c3442"/></g>
+<text class="t ttl"  x="62" y="174">Client</text>
+<text class="t mono m" x="62" y="192">POST /v1/chat/…</text>
+<text class="t cap"  x="62" y="209">stream: true</text>
+
+<g filter="url(#lift)"><rect x="300" y="140" width="330" height="88" rx="10" fill="url(#hot)" stroke="#a855f7" stroke-width="1.6"/></g>
+<text class="t ttl"  x="318" y="166" fill="#fff">clickllm gateway</text>
+<text class="t cap"  x="318" y="184">① authn → ② route by policy → ③ mirror to shadow</text>
+<text class="t cap"  x="318" y="200">④ stream through → ⑤ meter tokens → ⑥ redact + persist</text>
+<text class="t ok"   x="318" y="218">zero-copy passthrough · backpressure sheds, never buffers</text>
+
+<g filter="url(#lift)"><rect x="686" y="140" width="216" height="88" rx="10" fill="url(#card)" stroke="#4a2f33"/></g>
+<text class="t ttl"  x="704" y="166">Closed provider</text>
+<text class="t cap"  x="704" y="184">the incumbent baseline</text>
+<text class="t mono m" x="704" y="203">openai · anthropic · …</text>
+<text class="t cap"  x="704" y="220">shrinking share of traffic</text>
+
+<g filter="url(#lift)"><rect x="944" y="140" width="212" height="88" rx="10" fill="url(#card)" stroke="#2a4a34"/></g>
+<text class="t ttl"  x="962" y="166">Model fleet</text>
+<text class="t mono m" x="962" y="185">/v1 · glm-5.2</text>
+<text class="t mono m" x="962" y="201">/v1 · qwen3-coder</text>
+<text class="t cap"  x="962" y="220">shared memory budget · LRU evict</text>
+
+<path d="M244 184 H296" stroke="#a855f7" stroke-width="2" marker-end="url(#req)"/>
+<path d="M630 172 H682" stroke="#a855f7" stroke-width="2" marker-end="url(#req)"/>
+<path d="M630 196 H660 V250 H1050 V232" stroke="#a855f7" stroke-width="2" fill="none" marker-end="url(#req)"/>
+<text class="t cap" x="668" y="266" fill="#c9a6f5">canary % — advanced only when the gate holds</text>
+
+<!-- ═══ THE GATE ═══ -->
+<g filter="url(#lift)"><rect x="300" y="288" width="330" height="72" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/></g>
+<text class="t ttl"  x="318" y="312">Quality gate</text>
+<text class="t cap"  x="318" y="330">scores the open response against the closed one, live</text>
+<text class="t cap"  x="318" y="347" fill="#f0a0a0">regression → rollback in &lt;10s, no human in the loop</text>
+<path d="M465 232 V284" stroke="#a855f7" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#req)"/>
+
+<!-- ═══ CONTROL LOOP ═══ -->
+<text class="t zone" x="44" y="404" fill="#7fc79a">CONTROL LOOP · OFF THE REQUEST PATH · PYTHON + RUST</text>
+
+<g filter="url(#lift)">
+  <rect x="44"  y="416" width="176" height="92" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="240" y="416" width="176" height="92" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+  <rect x="436" y="416" width="176" height="92" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+  <rect x="632" y="416" width="176" height="92" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="828" y="416" width="176" height="92" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="1024" y="416" width="132" height="92" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/>
+</g>
+<g class="t">
+  <text class="ttl" x="62" y="440">Capture</text>
+  <text class="cap" x="62" y="459">redact before write</text>
+  <text class="cap" x="62" y="475">cost · latency · tools</text>
+  <text class="ok"  x="62" y="494">fails closed</text>
+
+  <text class="ttl" x="258" y="440">Distill</text>
+  <text class="cap" x="258" y="459">cluster by task shape</text>
+  <text class="cap" x="258" y="475">sample per cluster</text>
+  <text class="cap" x="258" y="494" fill="#c9a6f5">→ private eval set</text>
+
+  <text class="ttl" x="454" y="440">Prove</text>
+  <text class="cap" x="454" y="459">assert → grade → judge</text>
+  <text class="cap" x="454" y="475">vs. incumbent, per task</text>
+  <text class="cap" x="454" y="494" fill="#c9a6f5">→ equivalence + regret</text>
+
+  <text class="ttl" x="650" y="440">Fit + Tune</text>
+  <text class="cap" x="650" y="459">MoE/GQA/MLA sizing</text>
+  <text class="cap" x="650" y="475">derive every knob</text>
+  <text class="cap" x="650" y="494">bench, revert if worse</text>
+
+  <text class="ttl" x="846" y="440">Pack</text>
+  <text class="cap" x="846" y="459">OCI artifact + manifest</text>
+  <text class="cap" x="846" y="475">native config, no wrapper</text>
+  <text class="cap" x="846" y="494">re-tunes on arrival</text>
+
+  <text class="ttl" x="1042" y="440">Guard</text>
+  <text class="cap" x="1042" y="459">watch releases</text>
+  <text class="cap" x="1042" y="475">re-prove</text>
+  <text class="cap" x="1042" y="494" fill="#c9a6f5">→ propose</text>
+</g>
+
+<g stroke="#46a758" stroke-width="2" fill="none">
+  <path d="M220 462 H236" marker-end="url(#ctl)"/>
+  <path d="M416 462 H432" marker-end="url(#ctl)"/>
+  <path d="M612 462 H628" marker-end="url(#ctl)"/>
+  <path d="M808 462 H824" marker-end="url(#ctl)"/>
+  <path d="M1004 462 H1020" marker-end="url(#ctl)"/>
+</g>
+
+<!-- capture tap from the gateway -->
+<path d="M310 232 V262 H264 V378 H132 V412" stroke="#46a758" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#ctl)"/>
+<text class="t note" x="150" y="370">every request, tapped once</text>
+
+<!-- prove feeds the gate -->
+<path d="M524 412 V376 H560 V364" stroke="#46a758" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#ctl)"/>
+<text class="t note" x="574" y="386" fill="#7fc79a">the graders that decide the gate come from here</text>
+
+<!-- pack deploys the fleet -->
+<path d="M916 416 V300 H1050 V236" stroke="#46a758" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#ctl)"/>
+<text class="t note" x="930" y="292" fill="#7fc79a">deploys the fleet</text>
+
+<!-- guard loops back -->
+<path d="M1090 512 V556 Q1090 566 1080 566 H534 Q524 566 524 556 V516"
+      stroke="#46a758" stroke-width="1.8" fill="none" stroke-dasharray="5 5" marker-end="url(#ctl)"/>
+<text class="t note" x="807" y="562" text-anchor="middle" fill="#7fc79a">a better model ships → re-proved on your traffic → promotion proposed</text>
+
+<!-- ═══ FOUNDATION ═══ -->
+<g filter="url(#lift)">
+  <rect x="44"  y="596" width="360" height="72" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="424" y="596" width="360" height="72" rx="10" fill="url(#card)" stroke="#2c3442"/>
+  <rect x="804" y="596" width="352" height="72" rx="10" fill="url(#card)" stroke="#2c3442"/>
+</g>
+<text class="t ttl" x="62"  y="620">Weights</text>
+<text class="t cap" x="62"  y="638">licence gated before bytes move · resumable · checksummed</text>
+<text class="t cap" x="62"  y="655">converted once, mmap'd, page cache shared across models</text>
+<text class="t ttl" x="442" y="620">Runtimes</text>
+<text class="t cap" x="442" y="638">vLLM · SGLang · llm-d · vllm-mlx · llama.cpp · MLC</text>
+<text class="t cap" x="442" y="655">one trait, native config out — runs without clickllm installed</text>
+<text class="t ttl" x="822" y="620">Local store</text>
+<text class="t cap" x="822" y="638">traffic · eval sets · runs · scores · benchmarks</text>
+<text class="t ok"  x="822" y="655">zero telemetry · encrypted at rest · fully air-gappable</text>
+
+<!-- ═══ SURFACES ═══ -->
+<g filter="url(#lift)"><rect x="44" y="692" width="1112" height="46" rx="10" fill="url(#card)" stroke="#2c3442"/></g>
+<text class="t zone" x="64" y="712" fill="#c9a6f5">SURFACES</text>
+<text class="t cap"  x="150" y="712">CLI · TUI cockpit · local web console · MCP server · Python + TypeScript SDK · agent skills</text>
+<text class="t cap"  x="64" y="730" fill="#6e7681">Every stage is scriptable and non-interactive. An agent may analyse and recommend a migration; a human presses the button that moves traffic.</text>
+</svg>
