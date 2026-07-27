@@ -131,7 +131,7 @@ impl FromStr for ModelRef {
 
         // #quant comes off first: a quant label never contains '@'.
         let (rest, quant) = match s.split_once('#') {
-            Some((r, q)) if q.trim().is_empty() => {
+            Some((_, q)) if q.trim().is_empty() => {
                 return Err(Error::ModelRef {
                     input: s.to_owned(),
                     reason: "'#' present but quantisation is empty".into(),
@@ -142,7 +142,7 @@ impl FromStr for ModelRef {
         };
 
         let (rest, revision) = match rest.split_once('@') {
-            Some((r, v)) if v.trim().is_empty() => {
+            Some((_, v)) if v.trim().is_empty() => {
                 return Err(Error::ModelRef {
                     input: s.to_owned(),
                     reason: "'@' present but revision is empty".into(),
