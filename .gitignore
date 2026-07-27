@@ -10,5 +10,6 @@ __pycache__/
 *.sqlite
 # local state — captured traffic and eval sets never get committed
 build/
+temp/
 dist/
 uv.lock

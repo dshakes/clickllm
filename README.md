@@ -247,6 +247,8 @@ Deliberately **read-heavy, write-light**: `cutover_advance` and `deploy_apply` a
 | [ADR-0003](docs/adr/0003-dont-build-fit-adopt-llmfit.md) | Don't build the fit layer. Adopt llmfit. |
 | [ADR-0004](docs/adr/0004-zero-config-deployment.md) | Deployment is zero-config; the generated file is a receipt, not an interface. |
 | [ADR-0005](docs/adr/0005-inference-in-a-box.md) | "Inference in a box" is a contract, not a container image. |
+| [ADR-0006](docs/adr/0006-llmfit-source-evaluation.md) | llmfit source read — the overlap is larger than ADR-0003 assumed. |
+| [ADR-0007](docs/adr/0007-tech-stack.md) | Rust datapath, Python control plane. |
 
 ---
 

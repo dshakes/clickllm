@@ -6,55 +6,67 @@ Traceability matrix at the bottom — every capability you've named maps to a mi
 
 ---
 
+## Stack
+
+**Rust** for the datapath and weights path · **Python** for the control plane · PyO3 between them · `llmfit-core` linked as a crate, not shelled out ([ADR-0007](adr/0007-tech-stack.md)).
+
 ## Package map
 
 ```
-src/clickllm/
+clickllm-core/          RUST — the datapath. Links llmfit-core as a crate.
+  src/weights/       M1  acquire · convert · cache · licence     (mmap, io_uring, SIMD hash)
+  src/runtimes/      M2  mod.rs (Runtime trait) · vllm · sglang · llmd
+                         · vllm_mlx · llamacpp · mlc            (render + launch)
+  src/tune/          M3  solve · bench · revert
+  src/box/           M4  pack · manifest · oci · run · reprofile
+  src/gateway/       M5  proxy · router · fleet · providers · meter
+  src/capture/       M6  record · redact · store                (redact before write)
+  src/cutover/       M9  shadow · canary · gate · rollback
+  src/ffi.rs             PyO3 boundary — narrow and typed
+
+src/clickllm/           PYTHON — the control plane. ML ecosystem lives here.
   hardware.py        ✅ accelerator + memory + bandwidth detection
   catalog.py         ✅ model specs, licences, verified-architecture flags
-  fit.py             ✅ MoE/GQA/MLA-correct memory solve, runtime recommendation
+  fit.py             ✅ MoE/GQA/MLA-correct solve  (→ adapter + serving-side delta, ADR-0006)
   cli.py             ✅ command surface
-
-  weights/           M1  acquire.py · convert.py · cache.py · licence.py
-  runtimes/          M2  base.py (Protocol) · vllm.py · sglang.py · llmd.py
-                         · vllm_mlx.py · llamacpp.py · mlc.py
-  tune/              M3  solve.py (candidate knobs) · bench.py (ratify) · revert.py
-  box/               M4  pack.py · manifest.py · oci.py · run.py · reprofile.py
-  gateway/           M5  proxy.py · router.py · fleet.py · providers.py · meter.py
-  capture/           M6  record.py · redact.py · store.py
-  distill/           M7  cluster.py · sample.py · evalset.py
-  prove/             M8  graders.py · judge.py · equivalence.py · regret.py
-  cutover/           M9  shadow.py · canary.py · gate.py · rollback.py
-  guard/             M10 watch.py · reprove.py · propose.py
-  surfaces/          ‖   tui/ · console/ · mcp/ · sdk_py/ · sdk_ts/
+  distill/           M7  cluster · sample · evalset
+  prove/             M8  graders · judge · equivalence · regret
+  guard/             M10 watch · reprove · propose
+  surfaces/          ‖   tui · console · mcp · sdk_py · sdk_ts
 ```
 
 `✅` ships today. Everything else below.
+
+**Why the split lands here:** capture and cutover sit in Rust because they are *on* the datapath; distill, prove and guard sit in Python because they are off it and I/O-bound. See [ADR-0007](adr/0007-tech-stack.md).
 
 ---
 
 ## The two Protocols everything hangs off
 
+```rust
+// clickllm-core — ADR-0002: no engine-specific type escapes this trait
+pub trait Runtime {
+    fn name(&self) -> &str;
+    fn supports(&self, hw: &Hardware, m: &ModelSpec) -> Feasibility;
+    fn plan(&self, hw: &Hardware, m: &ModelSpec, wl: &Workload) -> RuntimePlan;
+    fn render(&self, plan: &RuntimePlan, target: Target) -> Vec<Artifact>;  // config out
+    fn launch(&self, plan: &RuntimePlan) -> Result<Endpoint>;               // the box runs it
+}
+```
 ```python
-class Runtime(Protocol):                      # ADR-0002 — no engine type escapes this
-    name: str
-    def supports(self, hw: Hardware, m: ModelSpec) -> Feasibility: ...
-    def plan(self, hw: Hardware, m: ModelSpec, wl: Workload) -> RuntimePlan: ...
-    def render(self, plan: RuntimePlan, target: Target) -> list[Artifact]: ...
-    def launch(self, plan: RuntimePlan) -> Endpoint: ...   # M2: the box needs to *run* it
-
-class Grader(Protocol):                       # M8 — the highest-risk component
+# clickllm (Python) — M8, the highest-risk component
+class Grader(Protocol):
     tier: Literal["assert", "task", "judge"]
     def grade(self, item: EvalItem, cand: Response, base: Response) -> Score: ...
 ```
 
-If `prove/` ever imports `vllm`, portability is gone and dogfooding on Metal stops working. That's the single invariant most likely to be violated under deadline pressure — CI enforces it with an import check.
+If an engine-specific type ever escapes `Runtime`, portability is gone and dogfooding on Metal stops working. That's the invariant most likely to be violated under deadline pressure — CI enforces it.
 
 ---
 
 ## Milestones
 
-### M1 · Weights — acquire, convert, cache *(2 wks)*
+### M1 · Weights — acquire, convert, cache *(~4 days — resized by [ADR-0006](adr/0006-llmfit-source-evaluation.md))*
 Nothing downstream can run without local weights.
 
 - Resolve `hf:org/model`, `s3://`, `oci://`, local path → canonical ref
@@ -66,27 +78,27 @@ Nothing downstream can run without local weights.
 **Done when:** `clickllm pull glm-5.2 --quant q4` resumes after `^C`, verifies, and a second box reuses the cache.
 
 ### M2 · Runtimes — the Protocol and six backends *(3 wks)*
-- `base.py` Protocol + `Feasibility`/`RuntimePlan`/`Endpoint` types
+- `Runtime` trait + `Feasibility`/`RuntimePlan`/`Endpoint` types
 - CUDA: **vLLM**, **SGLang**; multi-node: **llm-d** + GAIE `InferencePool`
 - Metal: **vllm-mlx**, **llama.cpp**, **MLC**; CPU fallback
 - Both `render()` (config artifact) and `launch()` (supervised process/container)
-- CI import-guard: no engine module imported outside `runtimes/`
+- CI import-guard: no engine-specific type escapes `runtimes/`
 
 **Done when:** the same `RuntimePlan` produces a working endpoint on an M4 Max and on a CUDA box, with no branching above the Protocol.
 
-### M3 · Tune — auto-tune, then *prove the tune* *(2 wks)* — **ADR-0004**
-- `solve.py` derives candidate knobs from hardware + workload: quantization, spec-decode method/draft length, prefix/radix caching, TP/PP, `max_model_len`, `max_num_seqs`, chunked prefill, KV dtype, memory utilization
-- `bench.py` runs the observed workload shape against the candidate and a no-optimization baseline
-- `revert.py` drops anything that didn't help **on this hardware**, and says so
+### M3 · Tune — auto-tune, then *prove the tune* *(~1 wk — resized by [ADR-0006](adr/0006-llmfit-source-evaluation.md))* — **ADR-0004**
+- `solve` derives candidate knobs from hardware + workload: quantization, spec-decode method/draft length, prefix/radix caching, TP/PP, `max_model_len`, `max_num_seqs`, chunked prefill, KV dtype, memory utilization
+- `bench` runs the observed workload shape against the candidate and a no-optimization baseline
+- `revert` drops anything that didn't help **on this hardware**, and says so
 - Every knob answers `--explain`
 
 **Done when:** on a machine where EAGLE-3 hurts (batch past the acceptance cliff), spec-decode is disabled automatically and the log says why. That negative case is the acceptance test — a tuner that only ever adds optimizations hasn't been tested.
 
 ### M4 · Box — pack, push, run, re-profile *(3 wks)* — **ADR-0005**
-- `pack.py` → OCI artifact: manifest, weights lock, per-target bindings, `bench.json`, human README
+- `pack` → OCI artifact: manifest, weights lock, per-target bindings, `bench.json`, human README
 - `push`/`pull` via any OCI registry; `cosign`-signable; air-gap mirror
-- `run.py`: container on Linux/Windows/k8s; supervised native on macOS
-- `reprofile.py`: on arrival, detect → compare to pack-time class → re-solve → re-bench → revert → **report what changed**
+- `run`: container on Linux/Windows/k8s; supervised native on macOS
+- `reprofile`: on arrival, detect → compare to pack-time class → re-solve → re-bench → revert → **report what changed**
 - Published, CI-tested support matrix (architecture × runtime × platform); unsupported → clear message, never a crash
 
 **Done when:** a box packed on CUDA runs on the M4 Max, re-quantizes itself, and prints the delta. And when a box for an unsupported architecture fails with one readable sentence.
@@ -97,7 +109,7 @@ Nothing downstream can run without local weights.
 - **Router**: model→backend, per-cluster policy, weighted split, failover
 - **Multi-model hosting**: N models on one host with a shared memory budget, on-demand load, LRU eviction of idle models, per-model URLs
 - Post-cutover: hand balancing to GAIE/llm-d and get out of the datapath
-- `meter.py`: cost + latency + tokens per route
+- `meter`: cost + latency + tokens per route
 
 **Done when:** three models serve concurrently from one 128 GB host under a shared budget, an idle one evicts under pressure, and a dead backend fails over without a dropped request.
 
@@ -198,6 +210,6 @@ The last gate is the one that matters. Everything downstream of it moves product
 
 ## Estimate
 
-~31 engineering weeks to M10 for one focused engineer; **M1–M4 is ~10 weeks** and is the first thing worth showing anyone.
+~28 engineering weeks to M10 for one focused engineer; **M1–M4 is ~7.5 weeks** and is the first thing worth showing anyone.
 
 Treat M8 as elastic. It is the only milestone where "done" is a judgement about trustworthiness rather than a passing test, and the only one where shipping early does damage.
