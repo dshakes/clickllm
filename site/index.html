@@ -87,6 +87,71 @@
 
   .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
 
+  /* The terminal prints itself once on load: each line lands on its own beat,
+     so the hero shows the tool *running* rather than a screenshot of it having
+     run. One-shot rather than looping — a hero that keeps replaying is a hero
+     you cannot read. */
+  .term pre .ln{display:block;min-height:1.55em;opacity:0;
+                animation:lnIn .18s ease-out forwards;animation-delay:var(--d)}
+  @keyframes lnIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+  .term pre::after{content:"";display:inline-block;width:8px;height:15px;
+                   background:var(--candidate);vertical-align:-3px;margin-left:2px;
+                   animation:caret 1.05s step-end infinite;animation-delay:2.6s;opacity:0}
+  @keyframes caret{0%,100%{opacity:1}50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){
+    .term pre .ln{opacity:1;animation:none;transform:none}
+    .term pre::after{display:none}
+  }
+
+  /* --- light mode ---------------------------------------------------------
+     Selected, not inverted: the two poles are re-picked for a light surface,
+     because #2fd4c4 on white is a pastel nobody can read. Follows the system
+     by default and can be overridden by the toggle. */
+  :root[data-theme="light"]{
+    --void:#fbfcfd; --deep:#f3f6f8; --panel:#ffffff; --panel2:#f7f9fb;
+    --ink:#0d1620; --ink2:#42586a; --ink3:#6b8296;
+    --line:#dde5ea; --line2:#c9d6de;
+    --incumbent:#b45309; --incumbent-dim:#e0b184;
+    --candidate:#0d7d72; --candidate-dim:#7cc4bc;
+    --proof:#3d5fb8; --alarm:#c02a41;
+  }
+  /* The terminal stays dark in light mode — a terminal is dark, and inverting
+     it would look like a text editor. But its text colours are theme vars, so
+     without pinning them back the commands render dark-on-dark and vanish
+     entirely. Scoped to the terminal only. */
+  :root[data-theme="light"] .term{background:#0d1620}
+  :root[data-theme="light"] .term pre{color:#9fb0c8}
+  :root[data-theme="light"] .term .u{color:#eef4ff}
+  :root[data-theme="light"] .term .c{color:#7d8ea6}
+  :root[data-theme="light"] .term .p,
+  :root[data-theme="light"] .term .k{color:#2fd4c4}
+  :root[data-theme="light"] .term .w{color:#f0a340}
+  :root[data-theme="light"] .term .r{color:#ff6b81}
+  :root[data-theme="light"] .termtitle{color:#7d8ea6}
+  :root[data-theme="light"] .bg::before{opacity:.5}
+  :root[data-theme="light"] .cta{color:#fff}
+
+  .themetoggle{display:inline-flex;align-items:center;justify-content:center;
+    width:32px;height:32px;border-radius:8px;border:1px solid var(--line2);
+    background:transparent;color:var(--ink2);cursor:pointer;font-size:14px;
+    margin-left:14px;line-height:1}
+  .themetoggle:hover{color:var(--ink);border-color:var(--candidate)}
+
+  /* --- the silicon backdrop -----------------------------------------------
+     A single large chip outline turning very slowly behind the hero. It is
+     ambient, but unlike the particle field it has a referent: it is the thing
+     the whole product is about. Low contrast on purpose — it should register
+     as texture, never compete with the headline. */
+  .siliconbg{position:absolute;right:-120px;top:-60px;width:640px;height:640px;
+    pointer-events:none;z-index:-1;opacity:.40;
+    filter:drop-shadow(0 0 26px color-mix(in srgb,var(--candidate) 45%,transparent));
+    animation:spin 70s linear infinite}
+  :root[data-theme="light"] .siliconbg{opacity:.30}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.siliconbg{animation:none}}
+  @media (max-width:900px){.siliconbg{display:none}}
+
+
   /* The hardware argument, moving. This is where the page's motion budget went
      after the particle field was removed: a thing that means something rather
      than a thing that drifts. */
@@ -179,10 +244,13 @@
      and nothing else — a marker used on arbitrary headings stops meaning
      anything within a week. CSS rather than an asset so it inherits
      currentColor and is correct in both poles of the palette. */
-  .chip{display:inline-block;position:relative;width:11px;height:11px;
+  /* Named `silmark`, NOT `chip`: this page already uses `.chip` for its pill
+     badges, and a second rule under that name silently collapsed all three of
+     them into 11px squares. */
+  .silmark{display:inline-block;position:relative;width:11px;height:11px;
         border:1.5px solid currentColor;border-radius:3px;vertical-align:0;
         margin-right:9px;opacity:.8}
-  .chip::before{content:"";position:absolute;left:1px;top:1px;width:2.5px;height:2.5px;
+  .silmark::before{content:"";position:absolute;left:1px;top:1px;width:2.5px;height:2.5px;
         background:currentColor;
         box-shadow:4px 0 0 currentColor,0 4px 0 currentColor,4px 4px 0 currentColor}
   h2{font-size:clamp(26px,3.5vw,40px);line-height:1.11;letter-spacing:-.03em;margin:0;font-weight:750}
@@ -279,11 +347,36 @@
     <a href="#learn">Learn</a>
     <a href="#install">Install</a>
     <a href="docs/">Docs</a>
+    <a href="https://github.com/dshakes/clickllm">GitHub</a>
   </div>
   <a class="cta" href="#install">Install</a>
+  <button class="themetoggle" id="theme" type="button"
+          aria-label="Switch between light and dark">◐</button>
 </div></nav>
 
-<div class="wrap" id="top">
+<div class="wrap" id="top" style="position:relative;overflow:visible">
+<div style="position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1">
+<svg class="siliconbg" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
+  <g fill="none" stroke="currentColor" stroke-width="2" color="var(--candidate)">
+    <rect x="52" y="52" width="96" height="96" rx="16"/>
+    <rect x="72" y="72" width="56" height="56" rx="9"/>
+    <g stroke-linecap="round">
+      <path d="M74 52V36M100 52V32M126 52V36M74 148v16M100 148v20M126 148v16"/>
+      <path d="M52 74H36M52 100H32M52 126H36M148 74h16M148 100h20M148 126h16"/>
+    </g>
+    <g stroke-width="1.5" opacity=".85">
+      <path d="M100 84l-14 8v16l14 8 14-8V92z"/>
+      <path d="M100 84v32M86 92l28 16M114 92l-28 16"/>
+    </g>
+  </g>
+  <g fill="var(--candidate)">
+    <circle cx="100" cy="84" r="3.4"/><circle cx="86" cy="92" r="3.4"/>
+    <circle cx="114" cy="92" r="3.4"/><circle cx="86" cy="108" r="3.4"/>
+    <circle cx="114" cy="108" r="3.4"/><circle cx="100" cy="116" r="3.4"/>
+    <circle cx="100" cy="100" r="4.6"/>
+  </g>
+</svg>
+</div>
 <header>
   <div class="herogrid">
     <div>
@@ -312,26 +405,7 @@
         <i class="tl" style="background:#34d399"></i>
         <span class="termtitle">clickllm — ~/payments-api</span>
       </div>
-<pre><span class="p">$</span> <span class="u">uvx clickllm fit --context 32k --concurrency 8</span>
-
-  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span>
-
-  model                 quant  total   ~tok/s  licence
-  <span class="c">─────────────────────────────────────────────────</span>
-  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">119</span>     Apache-2.0
-  Phi-4 14B             q8     66.3G   <span class="k">27</span>      MIT
-
-  <span class="r">NOT FEASIBLE</span>
-  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —
-                        sparsity cuts compute, not memory</span>
-
-<span class="p">$</span> <span class="u">clickllm guard receipt.json --traffic mix.json</span>
-  <span class="r">RECEIPT VOID</span> · 17cfed178112
-    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name
-    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored
-  <span class="w">→ re-prove now: the model you proved is not the
-    model in production</span>
-</pre>
+<pre><span class="ln" style="--d:0.00s"><span class="p">$</span> <span class="u">uvx clickllm fit --context 32k --concurrency 8</span></span><span class="ln" style="--d:0.10s">&nbsp;</span><span class="ln" style="--d:0.15s">  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span></span><span class="ln" style="--d:0.25s">&nbsp;</span><span class="ln" style="--d:0.30s">  model                 quant  total   ~tok/s  licence</span><span class="ln" style="--d:0.40s">  <span class="c">─────────────────────────────────────────────────</span></span><span class="ln" style="--d:0.50s">  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">119</span>     Apache-2.0</span><span class="ln" style="--d:0.60s">  Phi-4 14B             q8     66.3G   <span class="k">27</span>      MIT</span><span class="ln" style="--d:0.70s">&nbsp;</span><span class="ln" style="--d:0.75s">  <span class="r">NOT FEASIBLE</span></span><span class="ln" style="--d:0.85s">  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —</span><span class="ln" style="--d:0.95s">                        sparsity cuts compute, not memory</span></span><span class="ln" style="--d:1.05s">&nbsp;</span><span class="ln" style="--d:1.10s"><span class="p">$</span> <span class="u">clickllm guard receipt.json --traffic mix.json</span></span><span class="ln" style="--d:1.20s">  <span class="r">RECEIPT VOID</span> · 17cfed178112</span><span class="ln" style="--d:1.30s">    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name</span><span class="ln" style="--d:1.40s">    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored</span><span class="ln" style="--d:1.50s">  <span class="w">→ re-prove now: the model you proved is not the</span><span class="ln" style="--d:1.60s">    model in production</span></span><span class="ln" style="--d:1.70s">&nbsp;</span></pre>
     </div>
   </div>
 
@@ -415,7 +489,7 @@
 </div></section>
 
 <section id="sizing"><div class="wrap rise">
-  <p class="eyebrow"><i class="chip"></i>The auditable core</p>
+  <p class="eyebrow"><i class="silmark"></i>The auditable core</p>
   <h2>Three ways sizing goes wrong.<br>All three are common.</h2>
   <p class="sub">Every number is arithmetic you can check with <code>--explain</code>. Getting
     any of these wrong rejects a model that fits, or accepts one that doesn't.</p>
@@ -665,6 +739,25 @@ addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { p
 </script>
 
 <script>
+</script>
+<script>
+// Theme: follow the system unless the reader has said otherwise, and remember
+// what they said. Set before paint elsewhere would be better; here the page is
+// dark-by-default so only an explicit light preference needs applying.
+(() => {
+  const root = document.documentElement, KEY = 'clickllm-theme';
+  const sysLight = matchMedia('(prefers-color-scheme: light)');
+  const apply = t => root.setAttribute('data-theme', t);
+  const saved = localStorage.getItem(KEY);
+  apply(saved || (sysLight.matches ? 'light' : 'dark'));
+  document.getElementById('theme')?.addEventListener('click', () => {
+    const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    apply(next); localStorage.setItem(KEY, next);
+  });
+  sysLight.addEventListener('change', e => {
+    if (!localStorage.getItem(KEY)) apply(e.matches ? 'light' : 'dark');
+  });
+})();
 </script>
 </body>
 </html>
