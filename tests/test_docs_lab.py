@@ -151,65 +151,63 @@ def silicon_src() -> str:
 
 def silicon_consts() -> dict[str, float]:
     """The hard-coded figures in tools/diagrams.py's silicon()."""
-    block = re.search(r"WEIGHTS, KV, OVER, USABLE, NAMEPLATE = ([\d.,\s]+)\n", silicon_src())
-    assert block, "silicon()'s memory constants moved or vanished"
-    names = ["WEIGHTS", "KV", "OVER", "USABLE", "NAMEPLATE"]
-    return dict(zip(names, [float(v) for v in block.group(1).split(",")], strict=True))
+    src = silicon_src()
+    a = re.search(r"WEIGHTS_GB, SMS, LIT = ([\d.]+), (\d+), (\d+)", src)
+    b = re.search(r"GOOD_BATCH, OVER_BATCH = (\d+), (\d+)", src)
+    c = re.search(r"NEED_GB, HAVE_GB = ([\d.]+), ([\d.]+)", src)
+    assert a and b and c, "silicon()'s constants moved or vanished"
+    return {
+        "weights": float(a.group(1)),
+        "sms": int(a.group(2)),
+        "lit": int(a.group(3)),
+        "good_batch": int(b.group(1)),
+        "over_batch": int(b.group(2)),
+        "need": float(c.group(1)),
+        "have": float(c.group(2)),
+    }
 
 
 def test_the_silicon_diagram_matches_a_real_solve():
-    """The diagram states 30.5 GB of weights and 36.0 of KV as fact. Those came
-    from `fit.solve`, and nothing else reads the picture — so without this they
-    would go stale the first time the catalogue moved, and the teaching artefact
-    would quietly start contradicting the tool it teaches."""
+    """The diagram states 30.5 GB of weights and "19 people will not fit" as
+    fact. Both came from `fit.solve`, and nothing else reads a picture — so
+    without this they go stale the first time the catalogue moves, and the
+    teaching artefact quietly starts contradicting the tool it teaches."""
     from clickllm.fit import solve
     from clickllm.hardware_catalog import get
 
     c = silicon_consts()
     hw = get("h100").to_hardware()
-    assert c["USABLE"] == pytest.approx(hw.usable_bytes / GB, abs=0.5)
-    assert c["NAMEPLATE"] == pytest.approx(hw.total_bytes / GB, abs=0.5)
+    m = catalog.get("qwen3-32b")
 
-    # Qwen3 32B at q8, 8k context, at the batch the diagram calls the wall.
-    f = solve(catalog.get("qwen3-32b"), "q8", hw, 8192, 18)
-    assert c["WEIGHTS"] == pytest.approx(f.weight_bytes / GB, abs=0.1)
-    assert c["KV"] == pytest.approx(f.kv_bytes / GB, abs=0.1)
-    assert c["OVER"] == pytest.approx(f.overhead_bytes / GB, abs=0.1)
-    assert f.feasible, "the diagram shows this configuration fitting"
+    ok = solve(m, "q8", hw, 8192, c["good_batch"])
+    assert c["weights"] == pytest.approx(ok.weight_bytes / GB, abs=0.1)
+    assert ok.feasible, "the diagram shows this batch fitting"
+
+    over = solve(m, "q8", hw, 8192, c["over_batch"])
+    assert not over.feasible, "the diagram shows this batch NOT fitting"
+    assert c["need"] == pytest.approx(over.total_bytes / GB, abs=0.1)
+    assert c["have"] == pytest.approx(hw.usable_bytes / GB, abs=0.5)
 
 
-def test_the_memory_wall_is_where_the_solver_says_it_is():
-    """batch 18 is not a round number someone liked — it is max_concurrency."""
+def test_the_batch_ceiling_is_where_the_solver_says_it_is():
+    """18 is not a round number someone liked — it is max_concurrency, and the
+    19 beside it is the first batch that genuinely does not fit."""
     from clickllm.fit import max_concurrency
     from clickllm.hardware_catalog import get
 
-    wall = int(re.search(r"WALL_BATCH, WALL_PCT = (\d+),", silicon_src()).group(1))
-    assert wall == max_concurrency(catalog.get("qwen3-32b"), "q8", get("h100").to_hardware(), 8192)
+    c = silicon_consts()
+    ceiling = max_concurrency(catalog.get("qwen3-32b"), "q8", get("h100").to_hardware(), 8192)
+    assert c["good_batch"] == ceiling
+    assert c["over_batch"] == ceiling + 1
 
 
-def test_the_roofline_percentages_follow_from_the_ridge_point():
-    """Each bar is batch/295, so a typo in one would be invisible by eye."""
+def test_the_silicon_diagram_speaks_plainly():
+    """It replaced a version that said "arithmetic intensity", "FLOP per byte"
+    and "the ridge point" — all true, none of it informative to the reader this
+    module is written for. This keeps the jargon out."""
     src = silicon_src()
-    ridge = int(re.search(r"RIDGE = (\d+)", src).group(1))
-    # 989.4 TFLOPS / 3.35 TB/s, from the H100 SXM5 datasheet.
-    assert ridge == round(989.4e12 / 3.35e12)
-
-    rows = re.search(r"rows = \[\n(.*?)\n    \]", src, re.S).group(1)
-    # Both columns can be names rather than literals — the wall row is
-    # (WALL_BATCH, WALL_PCT, ...) — so the pattern has to admit those or it
-    # silently skips the one row that matters most.
-    pairs = re.findall(r"\((\d+|WALL_BATCH|RIDGE), ([\d.]+|WALL_PCT),", rows)
-    assert len(pairs) == 6, f"parsed {len(pairs)} roofline rows, so this asserted nothing"
-
-    wall_m = re.search(r"WALL_BATCH, WALL_PCT = (\d+), ([\d.]+)", src)
-    wall, wall_pct = int(wall_m.group(1)), float(wall_m.group(2))
-    seen_wall = False
-    for batch, pct in pairs:
-        b = wall if batch == "WALL_BATCH" else ridge if batch == "RIDGE" else int(batch)
-        v = wall_pct if pct == "WALL_PCT" else float(pct)
-        seen_wall |= batch == "WALL_BATCH"
-        assert v == pytest.approx(min(100.0, 100 * b / ridge), abs=0.1), batch
-    assert seen_wall, "the memory-wall row was not among the rows checked"
+    for word in ("arithmetic intensity", "FLOP/byte", "ridge point", "roofline"):
+        assert word.lower() not in src.lower().split('"""')[2], f"jargon is back: {word}"
 
 
 # --- motion is opt-out-able, and degrades safely -------------------------------

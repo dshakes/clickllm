@@ -97,8 +97,15 @@ def head(w: int, h: int, title: str, desc: str) -> list[str]:
         # them — the difference between "not animated" and "half the diagram is
         # missing" in whatever strips CSS from an <img> next.
         ".pop{animation:clkpop 6s linear infinite both}"
+        # Weights streaming from memory onto the die, and the die lighting as
+        # they land. SVG needs transform-box:fill-box or the transform origin is
+        # the viewport, not the element.
+        "@keyframes clkstream{from{transform:translateX(0)}to{transform:translateX(46px)}}"
+        "@keyframes clklight{0%,12%{opacity:.10}26%,68%{opacity:1}84%,100%{opacity:.10}}"
+        ".stream{transform-box:fill-box;animation:clkstream 1.15s linear infinite}"
+        ".light{animation:clklight 3.45s ease-in-out infinite}"
         "@media (prefers-reduced-motion:reduce){"
-        ".pulse,.flow,.pop{animation:none;opacity:1}}",
+        ".pulse,.flow,.pop,.stream,.light{animation:none;opacity:1;transform:none}}",
         "</style>",
         f'<rect width="{w}" height="{h}" fill="var(--bg)"/>',
         f'<text x="28" y="30" class="t">{title}</text>',
@@ -125,6 +132,109 @@ def bar(x: float, y: float, w: float, h: float, slot: int, r: float = 4) -> str:
         f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{max(h, 0.1):.1f}" '
         f'rx="{r}" fill="var(--s{slot})"/>'
     )
+
+
+def chip(
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    *,
+    pins_per_side: int = 4,
+    accent: int | None = None,
+    net: bool = True,
+    proven: bool = False,
+    anim: bool = False,
+) -> str:
+    """A silicon package with a neural graph on the die.
+
+    The motif for this product in one object: a chip that visibly has a *model*
+    on it. Pins on all four sides and a pin-1 notch are what make a rounded
+    rectangle read as hardware; the node graph on the die is what makes it read
+    as an LLM rather than any old processor.
+
+    ``proven=True`` adds the check badge, which is not decoration — it is the
+    one claim this product exists to make about a piece of silicon: that what
+    runs on it was measured, not assumed.
+    """
+    body = f"var(--s{accent})" if accent is not None else "var(--grid)"
+    out: list[str] = []
+
+    # Contacts on every side, drawn first so the body covers their inner ends.
+    for i in range(1, pins_per_side + 1):
+        fx = x + i * w / (pins_per_side + 1) - 2.5
+        fy = y + i * h / (pins_per_side + 1) - 2.5
+        for px, py, pw, ph in (
+            (fx, y - 8, 5, 11),  # top
+            (fx, y + h - 3, 5, 11),  # bottom
+            (x - 8, fy, 11, 5),  # left
+            (x + w - 3, fy, 11, 5),  # right
+        ):
+            out.append(
+                f'<rect x="{px:.1f}" y="{py:.1f}" width="{pw}" height="{ph}" rx="2" '
+                f'fill="{body}" opacity="0.55"/>'
+            )
+
+    out.append(
+        f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{min(w, h) * 0.17:.0f}" '
+        f'fill="{body}" opacity="0.30"/>'
+    )
+    out.append(
+        f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{min(w, h) * 0.17:.0f}" '
+        f'fill="none" stroke="{body}" stroke-width="1.5" opacity="0.9"/>'
+    )
+
+    # The die: an inset panel, where the model actually sits.
+    inset = min(w, h) * 0.19
+    dx, dy = x + inset, y + inset
+    dw, dh = w - 2 * inset, h - 2 * inset
+    out.append(
+        f'<rect x="{dx:.1f}" y="{dy:.1f}" width="{dw:.1f}" height="{dh:.1f}" '
+        f'rx="{min(dw, dh) * 0.16:.0f}" fill="var(--bg)" opacity="0.55"/>'
+    )
+
+    if net:
+        # Centre node plus a ring of six: enough to read as a network, few
+        # enough to stay legible when this is 40px wide in a heading.
+        cx, cy = dx + dw / 2, dy + dh / 2
+        r = min(dw, dh) * 0.30
+        pts = [
+            (cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)))
+            for a in range(-90, 270, 60)
+        ]
+        nr = max(1.8, min(dw, dh) * 0.055)
+        for i, (px, py) in enumerate(pts):
+            qx, qy = pts[(i + 1) % len(pts)]
+            out.append(
+                f'<path d="M {cx:.1f} {cy:.1f} L {px:.1f} {py:.1f}" '
+                f'stroke="{body}" stroke-width="1.1" opacity="0.75"/>'
+                f'<path d="M {px:.1f} {py:.1f} L {qx:.1f} {qy:.1f}" '
+                f'stroke="{body}" stroke-width="1.1" opacity="0.45"/>'
+            )
+        # Not a decorative graph in one colour. The ring runs through this
+        # product's own two poles — warm for the incumbent you are paying for,
+        # cool for the candidate you are proving — so the die shows a migration
+        # *happening on it* rather than a generic neural-network sticker. The
+        # centre node is the gate the traffic crosses.
+        for i, (px, py) in enumerate(pts):
+            moved = i >= len(pts) // 2
+            paint = "var(--s0)" if moved else "var(--s2)"
+            a = f' class="light" style="animation-delay:{0.9 + i * 0.12:.2f}s"' if anim else ""
+            out.append(f'<circle{a} cx="{px:.1f}" cy="{py:.1f}" r="{nr:.1f}" fill="{paint}"/>')
+        ac = ' class="light" style="animation-delay:1.6s"' if anim else ""
+        out.append(f'<circle{ac} cx="{cx:.1f}" cy="{cy:.1f}" r="{nr * 1.5:.1f}" fill="var(--s0)"/>')
+
+    if proven:
+        bx, by, br = x + w - 4, y + h - 4, min(w, h) * 0.19
+        out.append(
+            f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="{br:.1f}" fill="var(--bg)"/>'
+            f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="{br - 2:.1f}" fill="#2ea567"/>'
+            f'<path d="M {bx - br * 0.42:.1f} {by:.1f} l {br * 0.28:.1f} {br * 0.30:.1f} '
+            f'l {br * 0.58:.1f} {-br * 0.62:.1f}" fill="none" stroke="#fff" '
+            f'stroke-width="{max(1.6, br * 0.17):.1f}" stroke-linecap="round" '
+            f'stroke-linejoin="round"/>'
+        )
+    return "".join(out)
 
 
 def note(parts: list[str], x: int, y: int, text: str, per_line: int = 116) -> None:
@@ -1088,259 +1198,285 @@ def kernels() -> None:
 
 
 def silicon() -> None:
-    """The hardware you bought, and the fraction of it a decode step uses.
+    """How much of the machine you are actually using, in plain words.
 
-    Every other diagram here measures the workload. This one measures the
-    *machine*, because "is this GPU being used well" is the question people
-    think they are asking when they ask about tokens per second — and the honest
-    answer is uncomfortable enough to be worth drawing rather than asserting.
+    The first version of this taught nothing. It had 132 tiny squares, five
+    memory stacks, a bandwidth pipe, a six-row roofline chart and a legend, and
+    it spoke in "arithmetic intensity" and "FLOP per byte" and "the ridge
+    point". All of that is true and none of it is *informative* to someone who
+    has not already met the concept — it was an expert's artefact wearing a
+    teaching diagram's clothes, in a module whose whole brief is to take a
+    non-specialist to competence.
 
-    ## The arithmetic
+    So this is the same fact told as three plain beats, with no jargon and no
+    second chart bolted underneath:
 
-    A decode step reads every weight once and does two FLOPs with each one per
-    sequence in the batch, so its arithmetic intensity is
+        1. The machine has 132 engines. About one of them is busy.
+        2. Why: to write a single word it re-reads all 30.5 GB of the model.
+           The maths it does with those bytes is trivial by comparison.
+        3. The fix and its ceiling: serve 18 people and that same one read
+           produces 18 words. Ask for 19 and the cache has nowhere to live.
 
-        2 * batch / bytes_per_param     FLOP per byte
-
-    which at fp16 is simply `batch`. The machine's own balance point — the
-    intensity at which compute and bandwidth finish together — is
-
-        989.4 TFLOP/s / 3.35 TB/s = 295 FLOP/byte
-
-    So saturating an H100's tensor cores on a decode step needs a batch of ~295.
-    At batch 1 you are using 1/295 of the compute: 0.3%, less than a single SM's
-    worth of work spread across 132 of them.
-
-    ## And the part that makes it a product problem
-
-    Batching buys that compute back — but the KV cache is what pays for it, and
-    on this workload the memory runs out at batch 18 (6.1% of peak). The other
-    94% is not idle because nobody batched hard enough; it is *unreachable*
-    without changing quantisation, context, or attention scheme. That is the
-    whole thesis of the sizing solver in one picture.
-
-    Sources: H100 SXM5 datasheet (132 SMs, 989.4 TFLOPS dense BF16/FP16 tensor
-    core, 3.35 TB/s HBM3, 5 stacks). Memory figures are `clickllm fit`'s, for
-    Qwen3 32B at q8 and 8k context.
+    Every figure is `clickllm fit`'s for Qwen3 32B at q8 and 8k context on an
+    H100 — the 30.5 / 36.0 / 72.5-vs-72 numbers are a real solve, not a
+    illustration, and a test holds them to it.
     """
-    W, H = 900, 852
+    W, H = 900, 690
     p = head(
         W,
         H,
-        "What your silicon is actually doing",
-        "An H100 running a 32B model at 8k context. The compute die is almost "
-        "entirely idle during decode, the memory bandwidth is saturated, and the "
-        "KV cache fills the HBM before batching can recover the idle compute.",
+        "You bought 132 engines. Your memory feeds about one.",
+        "An H100 serving a 32B model. Only one of its 132 compute engines has "
+        "work at any moment, because producing a single word means re-reading "
+        "the entire 30.5 GB model from memory. Serving 18 people at once shares "
+        "that one read across 18 words; a 19th does not fit, because the "
+        "conversation cache has nowhere left to live.",
     )
     p.append(
-        '<text x="28" y="50" class="sub">The compute is idle, the memory is full, '
-        "and the KV cache is the reason you cannot fix it by batching harder</text>"
+        '<text x="28" y="50" class="sub">Why a fast GPU can still feel slow — '
+        "and the one thing that actually fixes it</text>"
     )
 
-    PEAK_TFLOPS, BW_GBS, SMS, STACKS = 989.4, 3350, 132, 5
-    RIDGE = 295  # PEAK / BW, in FLOP per byte — the machine's balance point
-    WALL_BATCH, WALL_PCT = 18, 6.1
-    WEIGHTS, KV, OVER, USABLE, NAMEPLATE = 30.5, 36.0, 3.9, 72.0, 80.0
+    WEIGHTS_GB, SMS, LIT = 30.5, 132, 1
+    GOOD_BATCH, OVER_BATCH = 18, 19
+    NEED_GB, HAVE_GB = 72.5, 72.0
 
-    # --- the die --------------------------------------------------------------
-    dx, dy, dw, dh = 28, 86, 290, 320
-    p.append(
-        f'<rect x="{dx}" y="{dy}" width="{dw}" height="{dh}" rx="12" '
-        f'fill="var(--panel)" stroke="var(--grid)"/>'
-    )
-    p.append(f'<text x="{dx + 18}" y="{dy + 26}" class="lb">GPU die · {SMS} SMs</text>')
-    p.append(f'<text x="{dx + 18}" y="{dy + 43}" class="ax">{PEAK_TFLOPS:,.0f} TFLOPS peak</text>')
-
-    # 132 SMs as a 12x11 grid. One is lit: that is 0.3% of the die, and drawing
-    # it as "less than one square out of 132" lands in a way a percentage does
-    # not. Seven more are tinted — together they are the most batching can ever
-    # reach on this workload.
-    cols, cell, pitch = 12, 17, 19
-    gx, gy = dx + 19, dy + 58
-    reachable = round(SMS * WALL_PCT / 100)
+    # --- beat 1: the machine --------------------------------------------------
+    dx, dy, dw, dh = 28, 84, 336, 322
+    p.append(chip(dx, dy, dw, dh, pins_per_side=6, net=False))
+    p.append(f'<text x="{dx + 20}" y="{dy + 28}" class="lb">the GPU, actual size</text>')
+    # Cells big enough to count at a glance. The first version made them 17px in
+    # a cramped box, which read as texture rather than as 132 separate things.
+    cols, cell, pitch = 12, 22, 24
+    gx, gy = dx + 22, dy + 46
     for i in range(SMS):
         cx, cy = gx + (i % cols) * pitch, gy + (i // cols) * pitch
-        if i == 0:
-            p.append(bar(cx, cy, cell, cell, 2, r=3))
-        elif i < reachable:
-            p.append(
-                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="3" '
-                f'fill="var(--s2)" opacity="0.3"/>'
-            )
+        if i < LIT:
+            p.append(bar(cx, cy, cell, cell, 2, r=4))
         else:
             p.append(
-                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="3" '
+                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="4" '
                 f'fill="none" stroke="var(--grid)"/>'
             )
-    p.append(
-        f'<text x="{dx + 18}" y="{dy + dh - 40}" class="ax" fill="var(--s2)">'
-        f"1 lit = 0.3% in use at batch 1</text>"
-    )
-    p.append(
-        f'<text x="{dx + 18}" y="{dy + dh - 22}" class="ax">'
-        f"{reachable} shaded = {WALL_PCT}%, the most reachable</text>"
-    )
 
-    # --- the pipe -------------------------------------------------------------
-    px, pw, py = 334, 140, 226
-    p.append(bar(px, py, pw, 22, 0, r=6))
-    # Traffic visibly moving through a full pipe, next to a die that does not
-    # move at all. The contrast is the point: the bottleneck is the one that is
-    # busy, and a still picture cannot say which of the two that is.
+    tx = dx + dw + 34
     p.append(
-        f'<path class="flow" d="M {px + 8} {py + 11} H {px + pw - 16}" '
-        f'stroke="var(--bg)" stroke-width="3" stroke-linecap="round" '
-        f'stroke-dasharray="7 7" opacity="0.55"/>'
+        f'<text x="{tx}" y="{dy + 96}" class="t" fill="var(--s2)" font-size="34">1 of {SMS}</text>'
     )
+    p.append(f'<text x="{tx}" y="{dy + 124}" class="lb">engines busy</text>')
+    for i, line in enumerate(
+        [
+            "The other 131 are not working on",
+            "anything. They are waiting for the",
+            "memory to hand them the next piece",
+            "of the model.",
+        ]
+    ):
+        p.append(f'<text x="{tx}" y="{dy + 164 + i * 19}" class="ax">{line}</text>')
     p.append(
-        f'<path d="M {px + pw - 13} {py + 4} l 9 7 l -9 7" fill="none" '
-        f'stroke="var(--bg)" stroke-width="2"/>'
+        f'<text x="{tx}" y="{dy + 258}" class="lb" fill="var(--s0)">'
+        f"So the GPU is not the slow part.</text>"
     )
-    p.append(
-        f'<text x="{px + pw / 2:.0f}" y="{py - 10}" class="ax" text-anchor="middle">'
-        f"{BW_GBS:,} GB/s</text>"
-    )
-    p.append(
-        f'<text x="{px + pw / 2:.0f}" y="{py + 40}" class="ax" text-anchor="middle" '
-        f'fill="var(--s0)">100% saturated</text>'
-    )
-    p.append(
-        f'<text x="{px + pw / 2:.0f}" y="{py + 57}" class="ax" text-anchor="middle">'
-        f"the actual limit</text>"
-    )
+    p.append(f'<text x="{tx}" y="{dy + 278}" class="lb" fill="var(--s0)">The memory is.</text>')
 
-    # --- the HBM stacks -------------------------------------------------------
-    sx, sw, gap, sy, sh = 498, 56, 10, 120, 244
-    per_stack = NAMEPLATE / STACKS
-    # Filled bottom-up across the stacks in order, so the memory reads as a tank
-    # being filled rather than five independent bars. Overhead is grey rather
-    # than a categorical hue: it is not a series anyone compares, and spending a
-    # validated slot on it would cost the legend a colour that carries meaning.
-    fills = [(WEIGHTS, "var(--s1)"), (KV, "var(--s0)"), (OVER, "var(--muted)")]
-    for s in range(STACKS):
-        x = sx + s * (sw + gap)
-        p.append(
-            f'<rect x="{x}" y="{sy}" width="{sw}" height="{sh}" rx="7" '
-            f'fill="var(--panel)" stroke="var(--grid)"/>'
-        )
-        lo, hi = s * per_stack, (s + 1) * per_stack
-        at = 0.0
-        for amount, paint in fills:
-            seg_lo, seg_hi = at, at + amount
-            at = seg_hi
-            # Clip this segment to this stack's GB range.
-            top, bot = max(seg_lo, lo), min(seg_hi, hi)
-            if bot <= top:
-                continue
-            y0 = sy + sh - (bot - lo) / per_stack * sh
-            p.append(
-                f'<rect x="{x + 3}" y="{y0:.1f}" width="{sw - 6}" '
-                f'height="{(bot - top) / per_stack * sh - 2:.1f}" rx="3" '
-                f'fill="{paint}"/>'
-            )
-    p.append(
-        f'<text x="{sx}" y="{sy - 26}" class="lb">HBM3 · {STACKS} stacks · '
-        f"{NAMEPLATE:.0f} GB</text>"
-    )
-    p.append(
-        f'<text x="{sx}" y="{sy - 9}" class="ax">{WEIGHTS + KV + OVER:.1f} GB used of '
-        f"{USABLE:.0f} usable — KV is the biggest term</text>"
-    )
-    # The usable ceiling sits below the nameplate, and saying so is the point.
-    # It is drawn ONLY on the stack the cumulative level actually falls in: the
-    # fill is a tank filling left to right, so a line ruled across every stack
-    # would be mixing a cumulative quantity with a per-stack one, and would read
-    # as "each stack is 90% usable" — which is not what 72 of 80 GB means.
-    ceil_stack = int(USABLE // per_stack)
-    ceil_x = sx + ceil_stack * (sw + gap)
-    yline = sy + sh - (USABLE - ceil_stack * per_stack) / per_stack * sh
-    p.append(
-        f'<path d="M {ceil_x - 6} {yline:.1f} H {ceil_x + sw + 6}" '
-        f'stroke="var(--s3)" stroke-width="1.5" stroke-dasharray="5 4"/>'
-    )
-    p.append(
-        f'<text x="{ceil_x + sw + 10}" y="{yline + 4:.1f}" class="ax" '
-        f'fill="var(--s3)">{USABLE:.0f} GB usable</text>'
-    )
+    # --- beat 2: why ----------------------------------------------------------
+    by = 442
+    p.append(f'<text x="28" y="{by}" class="lb">Because one word costs a whole read</text>')
 
-    # --- the wall -------------------------------------------------------------
-    ry = 448
+    ry, rh2 = by + 18, 46
+    # The widths carry the argument: an enormous read, a sliver of maths, one
+    # word out. Drawn to scale against each other rather than labelled as such.
+    p.append(bar(28, ry, 470, rh2, 1))
     p.append(
-        f'<text x="28" y="{ry}" class="lb">Batching buys the compute back — '
-        f"until it does not</text>"
+        f'<text x="{28 + 235}" y="{ry + 28}" class="lb" text-anchor="middle" '
+        f'fill="var(--bg)">read all {WEIGHTS_GB} GB of the model</text>'
     )
     p.append(
-        f'<text x="28" y="{ry + 19}" class="ax">Share of peak FLOPs at each batch '
-        f"size. Saturating this die needs batch {RIDGE}.</text>"
+        f'<path d="M 508 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
+        f'stroke-width="1.5"/>'
     )
+    p.append(bar(530, ry, 66, rh2, 3))
+    p.append(
+        f'<text x="563" y="{ry + 28}" class="ax" text-anchor="middle" '
+        f'fill="var(--bg)">a little</text>'
+    )
+    p.append(
+        f'<path d="M 606 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
+        f'stroke-width="1.5"/>'
+    )
+    p.append(bar(628, ry, 54, rh2, 2))
+    p.append(
+        f'<text x="655" y="{ry + 28}" class="ax" text-anchor="middle" '
+        f'fill="var(--bg)">1 word</text>'
+    )
+    p.append(f'<text x="700" y="{ry + 21}" class="ax">and then it starts</text>')
+    p.append(f'<text x="700" y="{ry + 38}" class="ax">again for word two.</text>')
+
+    # --- beat 3: the fix, and where it stops ----------------------------------
+    fy = ry + 88
+    p.append(f'<text x="28" y="{fy}" class="lb">Which is why you serve people in batches</text>')
 
     rows = [
-        (1, 0.3, True),
-        (8, 2.7, True),
-        (WALL_BATCH, WALL_PCT, True),
-        (32, 10.8, False),
-        (64, 21.7, False),
-        (RIDGE, 100.0, False),
+        (f"{1} person", f"read {WEIGHTS_GB} GB", "1 word", True, ""),
+        (
+            f"{GOOD_BATCH} people",
+            f"read {WEIGHTS_GB} GB",
+            f"{GOOD_BATCH} words",
+            True,
+            f"the same read, {GOOD_BATCH}x the output",
+        ),
+        (
+            f"{OVER_BATCH} people",
+            "no room left",
+            "—",
+            False,
+            f"needs {NEED_GB} GB, the card has {HAVE_GB:.0f}",
+        ),
     ]
-    lx, bx0, bw2, ry0, rh = 132, 144, 596, ry + 42, 32
-    # Rows below the wall are pushed down so the wall and its label own a band of
-    # their own — at the old spacing the label collided with the next row.
-    wall_gap = 26
-    for i, (batch, pct, reach) in enumerate(rows):
-        y = ry0 + i * rh + (wall_gap if i >= 3 else 0)
-        p.append(f'<text x="{lx}" y="{y + 15}" class="ax" text-anchor="end">batch {batch}</text>')
-        w = max(bw2 * pct / 100, 2)
-        if reach:
-            p.append(bar(bx0, y, w, 20, 2))
-        else:
-            # Unreachable is drawn as an outline, not a fill: it is a quantity
-            # that does not exist on this machine, and a solid bar would read as
-            # something you could go and get.
+    y0, rh3 = fy + 20, 34
+    for i, (who, what, out, ok, why) in enumerate(rows):
+        y = y0 + i * rh3
+        p.append(f'<text x="132" y="{y + 16}" class="ax" text-anchor="end">{who}</text>')
+        if ok:
+            p.append(bar(146, y, 200, 22, 1))
             p.append(
-                f'<rect x="{bx0}" y="{y}" width="{w:.1f}" height="20" rx="4" '
-                f'fill="none" stroke="var(--s3)" stroke-dasharray="5 4"/>'
+                f'<text x="246" y="{y + 16}" class="ax" text-anchor="middle" '
+                f'fill="var(--bg)">{what}</text>'
             )
-        p.append(
-            f'<text x="{bx0 + w + 10:.0f}" y="{y + 14}" class="m"'
-            + (">" if reach else ' fill="var(--muted)">')
-            + f"{pct:.1f}%</text>"
-        )
+            p.append(bar(358, y, 96, 22, 2))
+            p.append(
+                f'<text x="406" y="{y + 16}" class="ax" text-anchor="middle" '
+                f'fill="var(--bg)">{out}</text>'
+            )
+        else:
+            p.append(
+                f'<rect x="146" y="{y}" width="308" height="22" rx="4" fill="none" '
+                f'stroke="var(--s3)" stroke-dasharray="5 4"/>'
+            )
+            p.append(
+                f'<text x="300" y="{y + 16}" class="ax" text-anchor="middle" '
+                f'fill="var(--s3)">{what}</text>'
+            )
+        if why:
+            p.append(f'<text x="470" y="{y + 16}" class="ax">{why}</text>')
 
-    wall_y = ry0 + 3 * rh + 4
-    p.append(
-        f'<path d="M {bx0 - 6} {wall_y} H {bx0 + bw2}" stroke="var(--s3)" stroke-width="1.5"/>'
-    )
-    p.append(
-        f'<text x="{bx0}" y="{wall_y + 15}" class="ax" fill="var(--s3)">'
-        f"memory wall — the KV cache fills the HBM here</text>"
-    )
-
-    ly = ry0 + len(rows) * rh + wall_gap + 40
-    p.append(
-        legend(
-            28,
-            ly,
-            [(2, "compute in use"), (1, "weights"), (0, "KV cache"), (3, "out of reach")],
-        )
-    )
-    # Overhead is greyed rather than given a categorical slot, so it gets its
-    # swatch by hand rather than through legend().
-    p.append(
-        f'<rect x="536" y="{ly - 7}" width="9" height="9" rx="2.5" fill="var(--muted)"/>'
-        f'<text x="550" y="{ly + 1}" class="lb">runtime overhead</text>'
-    )
     note(
         p,
         28,
-        ly + 30,
-        "So the 94% is not idle because nobody batched hard enough — it is "
-        "unreachable until something gives up memory: a smaller quantisation, a "
-        "shorter context, fp8 KV, or an MLA model whose cache is ~50x smaller. "
-        "That is the trade clickllm's solver exists to price. The roofline is "
-        "weights-only and therefore an upper bound; real KV reads push the "
-        "intensity lower still. Estimates, not measurements.",
+        y0 + len(rows) * rh3 + 26,
+        "Batching is the whole game, and the conversation cache is what ends it: every "
+        "extra person needs their own copy, so you run out of memory long before you run "
+        "out of engines. Making that cache smaller — a lighter quantisation, a shorter "
+        "context, an MLA model — is the same thing as buying more of the GPU you already "
+        "own. Figures are a real `clickllm fit` solve, not an illustration.",
     )
     save("edu-silicon.svg", p)
+
+
+# --- 12. weights streaming onto silicon ----------------------------------------
+
+
+def weights_flow() -> None:
+    """The decode loop, animated: weights leave memory, the die lights, one word.
+
+    This one earns its motion. The product's whole argument is that memory —
+    not maths — decides how a deployment feels, and that argument is a *loop*:
+    every single token drags the entire model across the bus again. A still
+    picture can state that; only a moving one shows the "again".
+
+    It replaced a field of drifting particles on the landing page. Those had no
+    referent — they were dots, and dots do not mean anything. These blocks are
+    the weights, the lane is the memory bus, and the grid is the die.
+    """
+    W, H = 900, 254
+    p = head(
+        W,
+        H,
+        "Every token re-reads the whole model",
+        "Animated: blocks of model weights stream out of memory, across the bus, "
+        "onto the compute die, which lights up and emits a single word — then the "
+        "whole read starts again for the next word.",
+    )
+    p.append(
+        '<text x="28" y="50" class="sub">Which is why memory, not maths, decides '
+        "how fast this feels</text>"
+    )
+
+    lane_y, lane_h = 108, 44
+
+    # --- memory ---------------------------------------------------------------
+    p.append(
+        f'<rect x="28" y="{lane_y - 16}" width="118" height="{lane_h + 32}" rx="9" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
+    )
+    for i in range(4):
+        p.append(bar(40, lane_y - 6 + i * 17, 94, 12, 1, r=3))
+    p.append(f'<text x="87" y="{lane_y - 24}" class="ax" text-anchor="middle">memory</text>')
+    p.append(
+        f'<text x="87" y="{lane_y + lane_h + 32}" class="m" text-anchor="middle">30.5 GB</text>'
+    )
+
+    # --- the bus --------------------------------------------------------------
+    bx0, bx1 = 160, 584
+    p.append(
+        f'<rect x="{bx0}" y="{lane_y}" width="{bx1 - bx0}" height="{lane_h}" rx="8" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
+    )
+    p.append(
+        f'<clipPath id="lane"><rect x="{bx0 + 2}" y="{lane_y + 2}" '
+        f'width="{bx1 - bx0 - 4}" height="{lane_h - 4}" rx="7"/></clipPath>'
+    )
+    # One extra block beyond the lane, and a translate of exactly one pitch, so
+    # the loop is seamless rather than visibly snapping back.
+    p.append('<g clip-path="url(#lane)">')
+    pitch = 46
+    for i in range(-1, (bx1 - bx0) // pitch + 2):
+        p.append(
+            f'<g class="stream"><rect x="{bx0 + i * pitch + 6}" y="{lane_y + 11}" '
+            f'width="30" height="22" rx="4" fill="var(--s1)" opacity="0.85"/></g>'
+        )
+    p.append("</g>")
+    p.append(
+        f'<text x="{(bx0 + bx1) / 2:.0f}" y="{lane_y - 24}" class="ax" '
+        f'text-anchor="middle">the memory bus — saturated, every token</text>'
+    )
+
+    # --- the silicon ----------------------------------------------------------
+    # The chip is the centrepiece: pins on every side and a model on the die,
+    # its nodes lighting as the weights land. It is the same object the site
+    # uses as its hardware mark, at a size where the graph is legible.
+    csz = 126
+    dx, dy = 604, lane_y + lane_h / 2 - csz / 2
+    p.append(chip(dx, dy, csz, csz, pins_per_side=4, accent=1, anim=True, proven=True))
+    p.append(
+        f'<text x="{dx + csz / 2:.0f}" y="{dy - 18}" class="ax" '
+        f'text-anchor="middle">the model, on the silicon</text>'
+    )
+
+    # --- one word out ---------------------------------------------------------
+    tx = dx + csz + 26
+    p.append(
+        f'<path d="M {tx - 14} {lane_y + 16} l 9 6 l -9 6" fill="none" '
+        f'stroke="var(--muted)" stroke-width="1.5"/>'
+    )
+    p.append(
+        f'<rect class="light" style="animation-delay:1.6s" x="{tx}" y="{lane_y + 8}" '
+        f'width="52" height="26" rx="5" fill="var(--s2)"/>'
+    )
+    p.append(
+        f'<text x="{tx + 26}" y="{lane_y + 25}" class="ax" text-anchor="middle" '
+        f'fill="var(--bg)">1 word</text>'
+    )
+
+    note(
+        p,
+        28,
+        H - 34,
+        "Then it happens again, from the start, for the next word. That loop is the "
+        "product: the bus is the ceiling, and everything clickllm tunes — batching, "
+        "quantisation, KV layout — is a way of getting more words out of one trip across it.",
+    )
+    save("hero-weights.svg", p)
 
 
 if __name__ == "__main__":
@@ -1356,4 +1492,5 @@ if __name__ == "__main__":
     tpus()
     kernels()
     silicon()
+    weights_flow()
     print("done")

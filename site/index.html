@@ -23,9 +23,10 @@
          are paying for); teal is the candidate (cool, proven, where you are
          going). Every accent on the page is one pole or the other, so colour
          carries the argument instead of just looking nice.
-       · a background that MIGRATES. Particles drift left→right along flow
-         lines and change pole as they cross the midline. It is the product,
-         running, behind the text.
+       · a background that stays out of the way. There WAS a particle field
+         here and it was removed: floating dots do not mean anything, and
+         decoration that has to be explained has already failed. The motion
+         budget belongs in the diagrams, where movement teaches something.
        · the confidence interval as a recurring mark — a bar with whiskers —
          because "never a number without its interval" is the house rule.
 
@@ -59,7 +60,6 @@
   code,kbd{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.92em}
 
   /* --- the migrating background ------------------------------------------- */
-  #flow{position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.62}
   .bg{position:fixed;inset:0;z-index:-1;pointer-events:none}
   /* A slow aurora that drifts along the migration axis. */
   .bg::before{
@@ -86,6 +86,13 @@
   }
 
   .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+
+  /* The hardware argument, moving. This is where the page's motion budget went
+     after the particle field was removed: a thing that means something rather
+     than a thing that drifts. */
+  .hero-anim{margin:8px 0 0;padding:0}
+  .hero-anim img{width:100%;border:1px solid var(--line2);border-radius:14px;
+                 background:var(--panel);display:block}
 
   /* --- nav ---------------------------------------------------------------- */
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px) saturate(1.3);
@@ -234,7 +241,6 @@
     .rise{opacity:1;transform:none;transition:none}
     .bg::before{animation:none}
     .dot{animation:none}
-    #flow{display:none}
     html{scroll-behavior:auto}
   }
 
@@ -262,7 +268,6 @@
 </style>
 </head>
 <body>
-<canvas id="flow"></canvas>
 <div class="bg"></div>
 
 <nav id="nav"><div class="navin">
@@ -337,6 +342,13 @@
     <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>
   </div>
 </header>
+
+<figure class="hero-anim">
+  <img src="assets/hero-weights.svg" loading="eager"
+       alt="Animated: blocks of model weights stream out of memory across the bus onto a
+            silicon package whose die carries a neural graph; the nodes light as the weights
+            land and a single word comes out, then the read starts again">
+</figure>
 </div>
 
 <section id="problem"><div class="wrap rise">
@@ -653,65 +665,6 @@ addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { p
 </script>
 
 <script>
-// The background is the product: requests drifting from the incumbent pole to
-// the candidate pole, changing colour as they cross the gate at the midline.
-// Deliberately cheap — a few dozen particles on one canvas, paused when the tab
-// is hidden and never started at all under prefers-reduced-motion.
-(() => {
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  const cv = document.getElementById('flow');
-  if (!cv || reduce.matches) return;
-  const ctx = cv.getContext('2d');
-  let w = 0, h = 0, dots = [], raf = 0;
-
-  const WARM = '240,163,64', COOL = '47,212,196';
-
-  function size(){
-    const d = Math.min(devicePixelRatio || 1, 2);
-    w = cv.width = innerWidth * d; h = cv.height = innerHeight * d;
-    cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
-    ctx.setTransform(d, 0, 0, d, 0, 0);
-    // Density scales with area, so a phone does not run a desktop's worth.
-    const n = Math.round(Math.min(46, (innerWidth * innerHeight) / 34000));
-    dots = Array.from({length: n}, () => spawn(true));
-  }
-  function spawn(anywhere){
-    return {
-      x: anywhere ? Math.random() * innerWidth : -20,
-      y: Math.random() * innerHeight,
-      v: 0.12 + Math.random() * 0.42,          // px per frame — slow on purpose
-      r: 0.7 + Math.random() * 1.7,
-      a: 0.16 + Math.random() * 0.34,
-      wob: Math.random() * Math.PI * 2,
-    };
-  }
-  function frame(){
-    ctx.clearRect(0, 0, innerWidth, innerHeight);
-    const gate = innerWidth / 2;
-    for (const d of dots){
-      d.x += d.v;
-      d.wob += 0.004;
-      const y = d.y + Math.sin(d.wob) * 14;
-      // Colour is the argument: warm before the gate, cool after it.
-      const t = Math.max(0, Math.min(1, (d.x - gate + 90) / 180));
-      const col = t < .5 ? WARM : COOL;
-      ctx.beginPath();
-      ctx.arc(d.x, y, d.r, 0, 6.284);
-      ctx.fillStyle = `rgba(${col},${d.a * (t < .5 ? 1 : .85 + t * .3)})`;
-      ctx.fill();
-      if (d.x > innerWidth + 20) Object.assign(d, spawn(false));
-    }
-    raf = requestAnimationFrame(frame);
-  }
-  function start(){ if (!raf) raf = requestAnimationFrame(frame); }
-  function stop(){ cancelAnimationFrame(raf); raf = 0; }
-
-  size(); start();
-  addEventListener('resize', size, {passive: true});
-  // A background animation running in a hidden tab is pure battery theft.
-  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
-  reduce.addEventListener?.('change', e => { if (e.matches){ stop(); cv.style.display = 'none'; } });
-})();
 </script>
 </body>
 </html>
