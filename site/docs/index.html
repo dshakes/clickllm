@@ -95,6 +95,26 @@
   figure{margin:22px 0} figure img{width:100%;border-radius:12px;border:1px solid var(--line2)}
   figcaption{font-size:12.5px;color:var(--ink3);margin-top:8px}
 
+  /* --- the silicon mark ----------------------------------------------------
+     A die seen from above: an outlined package with four quadrants, echoing the
+     SM grid in edu-silicon.svg so the symbol and the diagram share a language.
+
+     It means exactly one thing, and the rule is worth keeping because a marker
+     that appears on arbitrary headings reads as decoration within a week:
+     THIS SECTION IS ABOUT THE MACHINE, NOT THE MODEL. Four sections qualify —
+     why a GPU at all, how much of it you actually use, other silicon, and the
+     kernels underneath. Nothing else gets it.
+
+     Drawn in CSS rather than shipped as an image so it inherits currentColor
+     and is correct in both themes without a second asset. */
+  .chip{display:inline-block;position:relative;width:12px;height:12px;
+        border:1.5px solid currentColor;border-radius:3px;vertical-align:1px;
+        margin-right:9px;opacity:.75}
+  .chip::before{content:"";position:absolute;left:1.5px;top:1.5px;width:3px;height:3px;
+        background:currentColor;
+        box-shadow:4.5px 0 0 currentColor,0 4.5px 0 currentColor,4.5px 4.5px 0 currentColor}
+  h2 .chip{color:var(--cyan)}
+
   /* --- the lab: things you can drag ---------------------------------------
      A paragraph saying "KV cache grows with context times concurrency" is true
      and forgettable. Dragging concurrency from 1 to 32 and watching the bar
@@ -290,7 +310,7 @@ language models on hardware you control.</p>
 
 <!-- ══════════ EDUCATION ══════════ -->
 <hr>
-<h2 id="edu-why">Learn: why a GPU at all</h2>
+<h2 id="edu-why"><i class="chip"></i>Learn: why a GPU at all</h2>
 <p>Generating one token means multiplying your input by every weight in the model. A 30-billion
   parameter model at 8 bits is ~30 GB of numbers, and you read <em>all of them</em> to produce
   <em>one</em> token. Do that 50 times a second and you need to move 1.5 TB/s.</p>
@@ -421,7 +441,7 @@ language models on hardware you control.</p>
   <p>clickllm gets all three right, and <code>--explain</code> shows the arithmetic so you can check.</p>
 </div>
 
-<h2 id="edu-batch">Learn: batching and throughput</h2>
+<h2 id="edu-batch"><i class="chip"></i>Learn: batching and throughput</h2>
 <figure>
   <img src="../assets/edu-batching.svg" alt="Static batching idling until the slowest request finishes, against continuous batching refilling each slot" loading="lazy">
   <figcaption>Same tokens, same GPU. The shaded time is what static batching throws away.</figcaption>
@@ -440,6 +460,32 @@ language models on hardware you control.</p>
 </table></div>
 <p>Neither is "better". <code>clickllm fit --concurrency N</code> picks on the number you give it,
   which is why that flag matters more than it looks.</p>
+
+<h4>So how much of the GPU are you actually using?</h4>
+<p>Uncomfortably little, and it is worth seeing the silicon to believe it. A decode step reads every
+  weight once and does two arithmetic operations with each one <em>per sequence in the batch</em>.
+  An H100 finishes compute and memory together at 295 operations per byte — so saturating its tensor
+  cores needs a batch of about 295. At batch 1 you are using <strong>0.3%</strong> of them.</p>
+<figure>
+  <img src="../assets/edu-silicon.svg" loading="lazy"
+       alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks
+            filled with weights and KV cache; and a bar chart showing compute utilisation rising
+            with batch size but stopping at 6.1% where the KV cache exhausts memory">
+  <figcaption>One lit square out of 132. The compute is idle, the memory pipe is saturated, and
+    batching cannot fix it — the KV cache fills the HBM at batch 18.</figcaption>
+</figure>
+<p>The second half is the part that makes it a sizing problem rather than a tuning one. Batching
+  <em>does</em> buy the compute back — but the KV cache is what pays for it, and on this workload
+  memory runs out at batch 18, or 6.1% of peak. The other 94% is not idle because nobody batched
+  hard enough; it is <strong>unreachable</strong> until something gives up memory: a smaller
+  quantisation, a shorter context, fp8 KV, or an <a href="#edu-kv">MLA</a> model whose cache is
+  ~50× smaller.</p>
+<div class="note">
+  <p><b>This is the whole reason the solver exists.</b> "Will it fit" and "will it be fast" are the
+  same question asked twice, because the thing that decides both is how much memory the KV cache
+  leaves you. That is what <code>clickllm fit</code> computes, and what <code>--explain</code>
+  shows the arithmetic for.</p>
+</div>
 
 <h2 id="edu-caching">Learn: caching, and the three things people call "the cache"</h2>
 <p class="lede" style="font-size:15px">Say "the cache" in a room of three engineers and you
@@ -663,7 +709,7 @@ language models on hardware you control.</p>
 <!-- ══════════ USE ══════════ -->
 <hr>
 
-<h2 id="edu-tpu">Learn: TPUs and other silicon</h2>
+<h2 id="edu-tpu"><i class="chip"></i>Learn: TPUs and other silicon</h2>
 <figure>
   <img src="../assets/edu-tpu.svg" loading="lazy"
        alt="Memory per TPU host for v5e, v6e and v5p against an H100 and an 8-way H100 node">
@@ -696,7 +742,7 @@ language models on hardware you control.</p>
   offer them there — emitting a command that cannot start is worse than emitting none.</p>
 
 
-<h2 id="edu-kernels">Learn: kernel-level work</h2>
+<h2 id="edu-kernels"><i class="chip"></i>Learn: kernel-level work</h2>
 <p>Below the engine there is one more layer: the CUDA kernels that actually do the arithmetic.
   clickllm <strong>does not write them</strong> — out-engineering vLLM's kernel authors is not the
   gap, and a custom attention kernel maintained against upstream churn is a permanent tax whose

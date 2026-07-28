@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-658-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-668-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -307,6 +307,19 @@ The docs teach the whole inference stack from first principles — [start here](
 
 And one that costs money in the other direction: **speculative decoding turns negative past batch ~32.** EAGLE-3's headline "2–3×" is a single-stream figure.
 
+### Why any of this matters, on the silicon
+
+<img src="docs/assets/edu-silicon.svg" alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks filled with weights and KV cache; and a bar chart showing compute utilisation stopping at 6.1% where the KV cache exhausts memory" width="100%">
+
+A decode step reads every weight once and does two operations with each, per sequence in the batch.
+An H100 balances compute and memory at 295 operations per byte — so saturating its tensor cores
+needs a batch of ~295. **At batch 1 you are using 0.3% of them: one lit square out of 132.**
+
+Batching buys that back, and then stops: the KV cache fills the HBM at batch 18, or 6.1% of peak.
+The other 94% is not idle because nobody batched hard enough — it is **unreachable** until something
+gives up memory. That is why "will it fit" and "will it be fast" are the same question, and why
+getting the three formulas above wrong costs hardware rather than just accuracy.
+
 ---
 
 ## Architecture
@@ -357,10 +370,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 409 Python
+uv run --with pytest --python 3.13 pytest -q       # 419 Python
 ```
 
-**658 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**668 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-core/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That

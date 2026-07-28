@@ -166,6 +166,18 @@
   section{padding:86px 0;border-top:1px solid var(--line);position:relative}
   .eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.2em;
            text-transform:uppercase;color:var(--candidate);margin:0 0 13px;opacity:.85}
+
+  /* The silicon mark: a die from above, four quadrants, echoing the SM grid in
+     edu-silicon.svg. It marks sections about THE MACHINE rather than the model,
+     and nothing else — a marker used on arbitrary headings stops meaning
+     anything within a week. CSS rather than an asset so it inherits
+     currentColor and is correct in both poles of the palette. */
+  .chip{display:inline-block;position:relative;width:11px;height:11px;
+        border:1.5px solid currentColor;border-radius:3px;vertical-align:0;
+        margin-right:9px;opacity:.8}
+  .chip::before{content:"";position:absolute;left:1px;top:1px;width:2.5px;height:2.5px;
+        background:currentColor;
+        box-shadow:4px 0 0 currentColor,0 4px 0 currentColor,4px 4px 0 currentColor}
   h2{font-size:clamp(26px,3.5vw,40px);line-height:1.11;letter-spacing:-.03em;margin:0;font-weight:750}
   .sub{color:var(--ink2);max-width:680px;margin:15px 0 0;font-size:16.5px}
 
@@ -391,7 +403,7 @@
 </div></section>
 
 <section id="sizing"><div class="wrap rise">
-  <p class="eyebrow">The auditable core</p>
+  <p class="eyebrow"><i class="chip"></i>The auditable core</p>
   <h2>Three ways sizing goes wrong.<br>All three are common.</h2>
   <p class="sub">Every number is arithmetic you can check with <code>--explain</code>. Getting
     any of these wrong rejects a model that fits, or accepts one that doesn't.</p>
@@ -414,6 +426,15 @@
     <img src="assets/edu-kv-growth.svg" loading="lazy" alt="KV cache per stream against context length for MHA, GQA and MLA on a logarithmic axis">
     <figcaption>Log scale on purpose: MLA is roughly fifty times smaller than MHA, and a
       linear axis would render three of four series as one flat line.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="assets/edu-silicon.svg" loading="lazy"
+         alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks
+              filled with weights and KV cache; and a bar chart showing compute utilisation
+              stopping at 6.1% where the KV cache exhausts memory">
+    <figcaption>The same arithmetic, seen on the silicon. One lit square out of 132 — and
+      batching cannot recover the rest, because the KV cache fills the HBM first.</figcaption>
   </figure>
 
   <div class="note"><p><b>Any catalogue entry with <code>kv_scheme: mla</code> must set
