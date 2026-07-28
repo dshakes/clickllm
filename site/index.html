@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>clickllm — you don't have a model problem, you have a proof problem</title>
-<meta name="description" content="GLM-5.2 is MIT-licensed, 11× cheaper, and probably good enough. 'Probably' is why you're still paying $18K a month. clickllm turns your production traffic into the benchmark that settles it.">
+<meta name="description" content="Prove which open-weight LLM can replace your closed-model API — on your own traffic, hardware and budget — then migrate across with a quality gate and a rollback button.">
 <meta property="og:title" content="clickllm — Prove it, then move it.">
 <meta property="og:description" content="Your traffic becomes the benchmark. The benchmark becomes the proof. The proof becomes the migration.">
 <meta property="og:type" content="website">
@@ -13,410 +13,539 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
 <style>
   :root{
-    /* Deep-ink canvas with an instrument-panel accent: cyan primary, violet
-       secondary, amber reserved for the honest-failure story. */
-    --void:#04060c; --deep:#070b14; --panel:#0d1320; --panel2:#111827;
-    --line:#1c2534; --line2:#243043;
-    --ink:#eef4ff; --ink2:#9fb0c8; --ink3:#64748b;
-    --cyan:#22d3ee; --cyan-dim:#0e7490; --violet:#a78bfa; --amber:#fbbf24;
-    --emerald:#34d399; --rose:#fb7185;
-    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
-    --sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
+    --void:#04060c; --deep:#070b14; --panel:#0d1320; --panel2:#111a2b;
+    --ink:#eef4ff; --ink2:#9fb0cc; --ink3:#63758f;
+    --line:#1c2534; --line2:#243045;
+    --cyan:#22d3ee; --violet:#a78bfa; --emerald:#34d399; --amber:#fbbf24; --rose:#fb7185;
+    --max:1180px;
   }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:88px}
   body{
-    background:var(--void); color:var(--ink); font-family:var(--sans);
-    line-height:1.6; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+    margin:0; background:var(--void); color:var(--ink);
+    font:16px/1.65 ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
   }
-  /* Grid + aurora, fixed so it reads as a surface the content sits on. */
-  body::before{
-    content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
-    background-image:linear-gradient(rgba(34,211,238,.045) 1px, transparent 1px),
-                     linear-gradient(90deg, rgba(34,211,238,.045) 1px, transparent 1px);
-    background-size:56px 56px;
-    mask-image:radial-gradient(ellipse 90% 55% at 50% 0%, #000 35%, transparent 78%);
-  }
-  body::after{
-    content:""; position:fixed; inset:-30% -10% auto -10%; height:70vh; z-index:-3;
-    pointer-events:none; filter:blur(90px); opacity:.5;
-    background:radial-gradient(45% 60% at 22% 40%, rgba(34,211,238,.22), transparent 70%),
-               radial-gradient(40% 55% at 74% 25%, rgba(167,139,250,.20), transparent 70%);
-  }
-  .wrap{max-width:1140px;margin:0 auto;padding:0 26px}
+  img{max-width:100%;height:auto}
   a{color:var(--cyan);text-decoration:none}
   a:hover{text-decoration:underline}
-  code,kbd{font-family:var(--mono);font-size:.88em}
+  code,kbd{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.92em}
 
-  header{position:sticky;top:0;z-index:40;backdrop-filter:blur(14px) saturate(140%);
-         background:rgba(4,6,12,.72);border-bottom:1px solid var(--line)}
-  nav{display:flex;align-items:center;gap:26px;height:62px}
-  .brand{font-weight:800;letter-spacing:-.03em;font-size:17px;color:var(--ink);display:flex;align-items:center}
-  .brand .mark{margin-right:9px}
-  .brand b{color:var(--cyan);font-weight:800}
-  .mark{width:9px;height:9px;background:var(--cyan);box-shadow:0 0 14px var(--cyan);
-        transform:rotate(45deg);border-radius:1px}
-  nav a.n{color:var(--ink2);font-size:13.5px;font-weight:500}
-  nav a.n:hover{color:var(--ink);text-decoration:none}
-  nav .sp{flex:1}
-  .btn{display:inline-block;padding:9px 17px;border-radius:9px;font-weight:650;font-size:13.5px;
-       border:1px solid var(--line2);background:var(--panel);color:var(--ink)!important;transition:.15s}
-  .btn:hover{border-color:var(--cyan);text-decoration:none!important;box-shadow:0 0 0 1px rgba(34,211,238,.25)}
-  .btn.primary{background:linear-gradient(180deg,#22d3ee,#0891b2);border-color:#22d3ee;color:#04060c!important;
-               box-shadow:0 4px 24px -6px rgba(34,211,238,.6)}
-
-  section{padding:88px 0;border-bottom:1px solid var(--line)}
-  .kick{font-size:11px;letter-spacing:.24em;font-weight:700;color:var(--cyan);text-transform:uppercase}
-  h1{font-size:clamp(38px,6.2vw,72px);font-weight:800;letter-spacing:-.04em;line-height:1.02;margin:18px 0 22px}
-  h1 .dim{color:var(--ink3)}
-  h2{font-size:clamp(26px,3.6vw,40px);font-weight:800;letter-spacing:-.03em;margin:12px 0 16px;line-height:1.1}
-  h3{font-size:16px;font-weight:700;margin:0 0 6px;letter-spacing:-.01em}
-  .lede{font-size:clamp(16px,1.9vw,19.5px);color:var(--ink2);max-width:66ch}
-  p{color:var(--ink2);max-width:70ch}
-  .muted{color:var(--ink3);font-size:13.5px}
-  em{color:var(--ink);font-style:normal;font-weight:600}
-
-  .hero{padding:104px 0 76px;border-bottom:1px solid var(--line)}
-  .tag{display:inline-flex;align-items:center;gap:9px;padding:6px 14px;border-radius:999px;
-       border:1px solid rgba(34,211,238,.35);background:rgba(34,211,238,.08);
-       color:var(--cyan);font-size:12.5px;font-weight:700;letter-spacing:.02em}
-  .cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:32px;align-items:center}
-
-  .grid{display:grid;gap:16px}
-  .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
-  .g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
-  .g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
-  .card{background:linear-gradient(180deg,var(--panel2),var(--panel));
-        border:1px solid var(--line);border-radius:14px;padding:22px}
-  .card.hl{border-color:rgba(34,211,238,.4);
-           background:linear-gradient(180deg,rgba(34,211,238,.07),rgba(13,19,32,.9))}
-  .card.warn{border-color:rgba(251,191,36,.35);
-             background:linear-gradient(180deg,rgba(251,191,36,.06),rgba(13,19,32,.9))}
-  .card p{font-size:14px;margin-top:5px}
-  .stat{font-family:var(--mono);font-size:30px;font-weight:800;letter-spacing:-.03em}
-  .stat.c{color:var(--cyan)} .stat.a{color:var(--amber)} .stat.e{color:var(--emerald)} .stat.r{color:var(--rose)}
-
-  figure{margin:36px 0 0}
-  figure img{width:100%;height:auto;display:block;border-radius:14px;border:1px solid var(--line2);
-             box-shadow:0 24px 70px -30px rgba(0,0,0,.9)}
-  figcaption{margin-top:11px;font-size:13px;color:var(--ink3)}
-
-  pre{background:linear-gradient(180deg,#080c15,#05080f);border:1px solid var(--line);border-radius:14px;
-      padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;line-height:1.7;
-      color:#c7d5ea;margin-top:20px}
-  pre .c{color:#4b5b73} pre .k{color:var(--cyan)} pre .g{color:var(--emerald)}
-  pre .r{color:var(--rose)} pre .w{color:var(--amber)} pre .v{color:var(--violet)}
-
-  table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13.5px}
-  th,td{text-align:left;padding:12px 12px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--ink3);font-weight:700;font-size:11px;letter-spacing:.11em;text-transform:uppercase}
-  td strong{color:var(--ink)}
-
-  .tabs{display:flex;gap:7px;flex-wrap:wrap;margin-top:24px}
-  .tab{padding:8px 15px;border-radius:9px;border:1px solid var(--line2);background:var(--panel);
-       font-size:13px;font-weight:650;cursor:pointer;color:var(--ink2);font-family:var(--sans)}
-  .tab[aria-selected=true]{border-color:var(--cyan);color:var(--ink);background:rgba(34,211,238,.12)}
-  .panel[hidden]{display:none}
-
-  .status{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
-  .dot{width:7px;height:7px;border-radius:50%;flex:none}
-  .dot.on{background:var(--emerald);box-shadow:0 0 10px var(--emerald)}
-  .dot.off{background:#2f3d52}
-
-  .rail{border-left:2px solid var(--line2);padding-left:22px;margin-top:26px}
-  .rail > div{position:relative;padding-bottom:22px}
-  .rail > div::before{content:"";position:absolute;left:-27px;top:7px;width:9px;height:9px;
-                      border-radius:50%;background:var(--panel);border:2px solid var(--line2)}
-  .rail > div.on::before{background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 12px var(--cyan)}
-
-  footer{padding:52px 0 72px}
-  .foot{display:flex;gap:34px;flex-wrap:wrap;justify-content:space-between;align-items:flex-start}
-
-  @media (prefers-reduced-motion:no-preference){
-    .rv{opacity:0;transform:translateY(14px);transition:opacity .55s cubic-bezier(.2,.7,.3,1),transform .55s cubic-bezier(.2,.7,.3,1)}
-    .rv.in{opacity:1;transform:none}
+  /* Background: a grid that fades out, plus two slow glows. Fixed so it does
+     not scroll — a moving grid behind text is nausea, not depth. */
+  .bg{position:fixed;inset:0;z-index:-1;pointer-events:none}
+  .bg::before{
+    content:'';position:absolute;inset:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:72px 72px; opacity:.28;
+    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 20%,transparent 78%);
+            mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 20%,transparent 78%);
+  }
+  .bg::after{
+    content:'';position:absolute;top:-22%;left:50%;transform:translateX(-50%);
+    width:1200px;height:900px;
+    background:radial-gradient(closest-side,rgba(34,211,238,.14),transparent 70%),
+               radial-gradient(closest-side,rgba(167,139,250,.12),transparent 70%);
+    background-position:20% 30%, 78% 12%; background-repeat:no-repeat;
+    background-size:60% 60%, 55% 55%;
+    filter:blur(10px);
   }
 
-  /* Responsive safety net. Verified by CSS audit rather than device emulation:
-     the harness could not change the viewport, so these are the rules that make
-     overflow structurally impossible rather than merely unobserved. */
-  img{max-width:100%;height:auto}
-  /* Tables are the classic mobile overflow: a 3-column table cannot reflow, so
-     it scrolls inside its own container rather than pushing the page sideways. */
-  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:14px 0}
-  .tablewrap table{margin:0}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+
+  nav{
+    position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:color-mix(in srgb,var(--void) 82%,transparent);
+    border-bottom:1px solid transparent; transition:border-color .3s;
+  }
+  nav.stuck{border-bottom-color:var(--line)}
+  .navin{max-width:var(--max);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:28px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:var(--ink)}
+  .brand:hover{text-decoration:none}
+  .mark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;
+        background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04060c;font-size:13px;font-weight:900}
+  .navlinks{display:flex;gap:22px;margin-left:auto;font-size:14.5px}
+  .navlinks a{color:var(--ink2)}
+  .navlinks a:hover{color:var(--ink);text-decoration:none}
+  .cta{padding:9px 18px;border-radius:10px;font-size:14.5px;font-weight:600;
+       background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04060c}
+  .cta:hover{text-decoration:none;filter:brightness(1.1)}
+
+  header{padding:76px 0 40px}
+  .pill{display:inline-flex;align-items:center;gap:9px;padding:6px 14px;border-radius:999px;
+        border:1px solid var(--line2);background:var(--panel);font-size:12.5px;color:var(--ink2);
+        font-family:ui-monospace,'SF Mono',Menlo,monospace}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--emerald);
+       box-shadow:0 0 0 3px rgba(52,211,153,.16)}
+  h1{font-size:clamp(36px,5.6vw,66px);line-height:1.04;letter-spacing:-.032em;
+     margin:26px 0 0;font-weight:800}
+  .grad{background:linear-gradient(115deg,var(--cyan),var(--violet) 55%,var(--rose));
+        -webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:clamp(17px,2vw,20px);color:var(--ink2);max-width:640px;margin:24px 0 0}
+  .lede b{color:var(--ink)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 0}
+  .chip{padding:7px 14px;border-radius:9px;border:1px solid var(--line2);
+        background:var(--panel);font-size:13px;color:var(--ink2)}
+  .chip b{color:var(--ink)}
+  .herogrid{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start}
+
+  .term{border:1px solid var(--line2);border-radius:14px;background:#060a12;overflow:hidden;
+        box-shadow:0 24px 60px -30px rgba(0,0,0,.9)}
+  .termbar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);
+           background:var(--panel)}
+  .tl{width:11px;height:11px;border-radius:50%}
+  .termtitle{margin-left:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink3)}
+  .term pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,'SF Mono',Menlo,monospace;
+            font-size:12.5px;line-height:1.75;color:var(--ink2)}
+  .p{color:var(--emerald)} .u{color:var(--ink)} .c{color:var(--ink3)}
+  .k{color:var(--cyan)} .w{color:var(--amber)} .r{color:var(--rose)}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:44px 0 0}
+  .stat{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:16px 18px}
+  .stat .n{font-size:26px;font-weight:750;letter-spacing:-.02em}
+  .stat .l{font-size:12px;color:var(--ink3);margin-top:2px}
+
+  section{padding:88px 0;border-top:1px solid var(--line)}
+  .eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.18em;
+           text-transform:uppercase;color:var(--ink3);margin:0 0 14px}
+  h2{font-size:clamp(27px,3.6vw,42px);line-height:1.12;letter-spacing:-.028em;margin:0;font-weight:750}
+  .sub{color:var(--ink2);max-width:680px;margin:16px 0 0;font-size:16.5px}
+
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:40px}
+  .card{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:22px}
+  .card h3{margin:14px 0 8px;font-size:18px;font-weight:650}
+  .card p{margin:0;font-size:14.5px;color:var(--ink2)}
+  .cardtop{display:flex;align-items:center;justify-content:space-between}
+  .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:17px;
+       background:var(--panel2);border:1px solid var(--line2)}
+  .tag{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.08em;
+       padding:4px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--ink3)}
+  .tag.bad{color:var(--rose);border-color:rgba(251,113,133,.35)}
+  .tag.ok{color:var(--emerald);border-color:rgba(52,211,153,.35)}
+  .tag.warn{color:var(--amber);border-color:rgba(251,191,36,.35)}
+
+  figure{margin:34px 0 0}
+  figure img{width:100%;border-radius:14px;border:1px solid var(--line);background:var(--panel)}
+  figcaption{font-size:13px;color:var(--ink3);margin-top:10px;max-width:780px;line-height:1.6}
+  .gallery{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:40px}
+  .gallery figure{margin:0}
+
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:26px 0 0}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink3);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+
+  .tabs{display:flex;gap:8px;margin:32px 0 14px;flex-wrap:wrap}
+  .tab{padding:8px 16px;border-radius:9px;border:1px solid var(--line2);background:var(--panel);
+       color:var(--ink2);font-size:14px;cursor:pointer;font-family:inherit}
+  .tab[aria-selected=true]{border-color:var(--cyan);color:var(--ink);background:var(--panel2)}
+  .cmd{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-radius:11px;
+       background:var(--panel);padding:14px 16px;margin-top:10px}
+  .cmd code{flex:1;overflow-x:auto;color:var(--ink);white-space:nowrap}
+  .copy{padding:6px 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);
+        color:var(--ink2);font-size:12.5px;cursor:pointer;font-family:inherit;flex:none}
+  .copy:hover{color:var(--ink)}
+
+  .note{border-left:3px solid var(--cyan);background:var(--panel);padding:16px 20px;
+        border-radius:0 12px 12px 0;margin-top:28px;font-size:14.5px;color:var(--ink2)}
+  .note b{color:var(--ink)}
+  .note.warn{border-left-color:var(--amber)}
+  .note p{margin:0}
+
+  footer{border-top:1px solid var(--line);padding:40px 0 64px;color:var(--ink3);font-size:14px}
+  .foot{display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+
+  .rise{opacity:0;transform:translateY(18px);
+        transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+  .rise.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){
+    .rise{opacity:1;transform:none;transition:none}
+    html{scroll-behavior:auto}
+  }
+
+  @media (max-width:900px){
+    .herogrid{grid-template-columns:1fr;gap:32px}
+    .cards{grid-template-columns:1fr}
+    .gallery{grid-template-columns:1fr}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .navlinks{display:none}
+    section{padding:60px 0}
+    header{padding:48px 0 24px}
+  }
 </style>
 </head>
 <body>
+<div class="bg"></div>
 
+<nav id="nav"><div class="navin">
+  <a class="brand" href="#top"><span class="mark">◆</span>clickllm</a>
+  <div class="navlinks">
+    <a href="#problem">Why</a>
+    <a href="#loop">The loop</a>
+    <a href="#sizing">Sizing</a>
+    <a href="#learn">Learn</a>
+    <a href="#install">Install</a>
+    <a href="docs/">Docs</a>
+  </div>
+  <a class="cta" href="#install">Install</a>
+</div></nav>
+
+<div class="wrap" id="top">
 <header>
-  <div class="wrap"><nav>
-    <a class="brand" href="#top"><i class="mark"></i>click<b>llm</b></a>
-    <a class="n" href="#why">Why</a>
-    <a class="n" href="#how">How</a>
-    <a class="n" href="#proof">The proof</a>
-    <a class="n" href="#install">Install</a>
-    <a class="n" href="docs/">Docs</a>
-    <span class="sp"></span>
-    <a class="btn" href="https://github.com/dshakes/clickllm">GitHub</a>
-  </nav></div>
-</header>
-
-<main id="top">
-
-<!-- ═══ HERO ═══ -->
-<section class="hero">
-  <div class="wrap">
-    <div class="tag"><i class="mark" style="width:7px;height:7px"></i> Prove it, then move it.</div>
-    <h1>You don't have a model problem.<br><span class="dim">You have a</span> proof problem.</h1>
-    <p class="lede">GLM-5.2 is MIT-licensed, 11× cheaper, and <em>probably</em> good enough.
-      "Probably" is why you're still paying $18K a month.</p>
-    <p class="lede" style="margin-top:14px">clickllm turns your production traffic into the
-      benchmark that settles it — then moves you across with a quality gate and a rollback button.</p>
-    <div class="cta">
-      <a class="btn primary" href="#install">Get started</a>
-      <a class="btn" href="docs/">Read the docs</a>
-      <a class="btn" href="#why">Why this exists</a>
+  <div class="herogrid">
+    <div>
+      <span class="pill"><i class="dot"></i>local-first · zero telemetry · Apache-2.0</span>
+      <h1>You don't have a model&nbsp;problem.<br><span class="grad">You have a proof problem.</span></h1>
+      <p class="lede">GLM-5.2 is MIT-licensed, 11× cheaper, and <b>probably</b> good enough.
+        "Probably" is why you're still paying $18K a month.</p>
+      <div class="chips">
+        <span class="chip"><b>your traffic</b>, not a benchmark</span>
+        <span class="chip"><b>a rollback button</b>, not a leap</span>
+        <span class="chip"><b>every number</b> drillable to the prompt</span>
+      </div>
     </div>
 
-    <div class="grid g4" style="margin-top:52px">
-      <div class="card"><div class="muted">Integration</div><div class="stat c">1 line</div><div class="muted">swap one base_url</div></div>
-      <div class="card"><div class="muted">Added latency</div><div class="stat c">&lt;15ms</div><div class="muted">p95, streaming passthrough</div></div>
-      <div class="card"><div class="muted">Rollback</div><div class="stat c">&lt;10s</div><div class="muted">gated on quality, not errors</div></div>
-      <div class="card"><div class="muted">Lock-in</div><div class="stat e">none</div><div class="muted">config runs without us</div></div>
-    </div>
-  </div>
-</section>
+    <div class="term">
+      <div class="termbar">
+        <i class="tl" style="background:#fb7185"></i><i class="tl" style="background:#fbbf24"></i>
+        <i class="tl" style="background:#34d399"></i>
+        <span class="termtitle">clickllm — ~/payments-api</span>
+      </div>
+<pre><span class="p">$</span> <span class="u">uvx clickllm fit --context 32k --concurrency 8</span>
 
-<!-- ═══ WHY ═══ -->
-<section id="why">
-  <div class="wrap">
-    <div class="kick">The gap</div>
-    <h2>Everyone already knows the answer.<br>Nobody can prove it.</h2>
-    <p class="lede">Ask any staff engineer whether an open model could handle most of their
-      traffic and they'll say yes. Ask them to bet the product on it and they'll stop — correctly.
-      Nothing turns that instinct into evidence.</p>
+  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span>
 
-    <div class="tablewrap"><table>
-      <thead><tr><th>What you'd need</th><th>Closest tool</th><th>Why it stops short</th></tr></thead>
-      <tbody>
-        <tr><td><strong>A benchmark of your workload</strong></td><td>promptfoo, Inspect AI</td><td>Both start from a test set <em>you</em> hand-write. Yours doesn't exist.</td></tr>
-        <tr><td><strong>A verdict you'd act on</strong></td><td>LM Studio side-by-side</td><td>One prompt at a time, by hand, judged by eye.</td></tr>
-        <tr><td><strong>Your traffic, analysed</strong></td><td>LiteLLM</td><td>Proxies every request you make. Does nothing with them.</td></tr>
-        <tr><td><strong>A safe cutover</strong></td><td>Any gateway</td><td>Canaries on <em>errors</em>. Not one gates on <em>quality</em>.</td></tr>
-        <tr><td><strong>To stay current</strong></td><td>—</td><td>You find out on Twitter, then redo the work by hand.</td></tr>
-      </tbody>
-    </table></div>
-
-    <figure class="rv">
-      <img src="assets/gap-map.svg" alt="Bar chart: how many tools solve each of six migration steps. Deployment has six; hardware fit has one; four steps have none.">
-      <figcaption>Tools that solve each step end-to-end. Everyone builds the one column that was already finished.</figcaption>
-    </figure>
-  </div>
-</section>
-
-<!-- ═══ HOW ═══ -->
-<section id="how">
-  <div class="wrap">
-    <div class="kick">The loop</div>
-    <h2>Seven stages. One command.</h2>
-    <p class="lede">Each stage is an agent with tools — resumable, and able to skip ahead when the
-      answer is already known. <code>clickllm switch</code> drives all seven and asks only when it
-      genuinely can't decide.</p>
-
-    <figure class="rv">
-      <img src="assets/switch-loop.svg" alt="The Switch Loop: seven stages turning $2,847/mo of closed-model spend into $317/mo of proven open-model inference">
-      <figcaption>Four of the seven stages exist nowhere else. Those four are the product.</figcaption>
-    </figure>
-
-    <div class="grid g3" style="margin-top:34px">
-      <div class="card"><h3>① Observe</h3><p>Swap one <code>base_url</code>. Traffic is captured and PII redacted <em>before</em> it touches disk. Useful on day one as a cost ledger.</p></div>
-      <div class="card hl"><h3>② Distill</h3><p>Cluster by task <em>shape</em>, not semantics — same system prompt, same tools, same output format is the same job. Deterministic, so the eval set reproduces.</p></div>
-      <div class="card"><h3>③ Fit</h3><p>What runs on your silicon at the context and concurrency you actually use. MoE, GQA and MLA-correct.</p></div>
-      <div class="card hl"><h3>④ Prove</h3><p>Assertions → task graders → position-swapped judge, scored against your incumbent's real answers, per cluster.</p></div>
-      <div class="card"><h3>⑤ Deploy</h3><p>Zero-config. Every knob derived, benchmarked, and reverted if it doesn't help on <em>your</em> hardware.</p></div>
-      <div class="card hl"><h3>⑥ Cut over</h3><p>Shadow → canary → cut, gated on quality. Auto-rollback under 10 seconds. Shadow traffic is genuinely dispatched, never simulated.</p></div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══ THE PROOF ═══ -->
-<section id="proof">
-  <div class="wrap">
-    <div class="kick">The artifact</div>
-    <h2>The output is a decision,<br>not a dashboard.</h2>
-    <p class="lede">One table your CTO can read in ten seconds, and an engineer can drill into
-      for an hour.</p>
-
-    <pre><span class="c">                    codegen   tools   long-ctx   summar.   classify   ~cost
-                     (38%)    (24%)     (11%)     (19%)      (8%)</span>
-  ──────────────────────────────────────────────────────────────────────────
-  GLM-5.2 Q4          <span class="g">96 ██</span>   <span class="g">91 ██</span>    <span class="w">62 ▓▒</span>     <span class="g">99 ██</span>     <span class="g">100 ██</span>    <span class="g">$210/mo</span>
-  Kimi-K2.7-Code      <span class="g">98 ██</span>   <span class="g">94 ██</span>    <span class="w">71 ▓█</span>     <span class="g">95 ██</span>     <span class="g">100 ██</span>    <span class="g">$180/mo</span>
-  Qwen3.6-27B Q8      <span class="w">84 ▓█</span>   <span class="w">79 ▓█</span>    <span class="r">55 ▒░</span>     <span class="g">97 ██</span>     <span class="g">100 ██</span>    <span class="g">$140/mo</span>
-  ──────────────────────────────────────────────────────────────────────────
-  gpt-5 (incumbent)  100      100      100       100       100     <span class="r">$2,847/mo</span>
-
-  <span class="w">▸ REGRET: long-context multi-file refactor (11% of traffic)</span>
-    Every candidate degrades past 18K context. Keep gpt-5 for this cluster.
-    <span class="g">Hybrid saves $2,530/mo (89%) at zero quality loss.</span>
-
-  <span class="c">judge: claude-opus-5, position-swapped · human agreement 0.89 (n=40)</span></pre>
-
-    <div class="grid g3" style="margin-top:26px">
-      <div class="card"><h3>Traffic-weighted</h3><p>A cluster that's 38% of your load counts five times one at 8%. Unweighted matrices flatter the wrong models.</p></div>
-      <div class="card"><h3>Incumbent pinned at 100</h3><p>Nobody cares about absolute quality. They care whether switching is a downgrade.</p></div>
-      <div class="card warn"><h3>Regret above the fold</h3><p>Where open loses is printed first. The honest failure is what makes the wins credible — and it's what a vendor comparison will never show you.</p></div>
-    </div>
-
-    <figure class="rv">
-      <img src="assets/e2e.svg" alt="End-to-end: the request path through the gateway, and the control loop that decides what it may hit">
-      <figcaption>Purple is the live request. Green is the loop deciding what it's allowed to hit. They never cross.</figcaption>
-    </figure>
-  </div>
-</section>
-
-<!-- ═══ INSTALL ═══ -->
-<section id="install">
-  <div class="wrap">
-    <div class="kick">Install</div>
-    <h2>Every channel you already use.</h2>
-    <div class="tabs" role="tablist">
-      <button class="tab" role="tab" aria-selected="true"  data-p="p-uvx">uvx</button>
-      <button class="tab" role="tab" aria-selected="false" data-p="p-brew">Homebrew</button>
-      <button class="tab" role="tab" aria-selected="false" data-p="p-pipx">pipx</button>
-      <button class="tab" role="tab" aria-selected="false" data-p="p-docker">Docker</button>
-      <button class="tab" role="tab" aria-selected="false" data-p="p-src">Source</button>
-    </div>
-    <div id="p-uvx"    class="panel"><pre><span class="c"># nothing to install — runs straight from the index</span>
-uvx clickllm fit --context 32k --concurrency 8</pre></div>
-    <div id="p-brew"   class="panel" hidden><pre>brew install dshakes/tap/clickllm</pre></div>
-    <div id="p-pipx"   class="panel" hidden><pre>pipx install clickllm</pre></div>
-    <div id="p-docker" class="panel" hidden><pre>docker run --rm ghcr.io/dshakes/clickllm:latest fit --json
-docker run --rm --gpus all ghcr.io/dshakes/clickllm:latest fit</pre></div>
-    <div id="p-src"    class="panel" hidden><pre>git clone https://github.com/dshakes/clickllm &amp;&amp; cd clickllm
-uv run --python 3.13 python -m clickllm.cli fit
-cargo test --all   <span class="c"># 110 Rust tests</span></pre></div>
-
-    <pre style="margin-top:26px">  <span class="k">M4 Max</span> · 16 cores · 128 GB · 546 GB/s
-  usable for inference: 96 GB
-  <span class="c">raise to ~118 GB with: sudo sysctl iogpu.wired_limit_mb=120586</span>
-
-  FEASIBLE at 32,768 context, concurrency 8
-
-  model                     quant   weights      kv   total    free  ~tok/s  license
-  ----------------------------------------------------------------------------------
-  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      21  <span class="g">Apache-2.0</span>
-  <span class="g">Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0</span>
-  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      27  <span class="g">MIT</span>
+  model                 quant  total   ~tok/s  licence
+  <span class="c">─────────────────────────────────────────────────</span>
+  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">119</span>     Apache-2.0
+  Phi-4 14B             q8     66.3G   <span class="k">27</span>      MIT
 
   <span class="r">NOT FEASIBLE</span>
-  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity
-                            (50B of 2800B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —
+                        sparsity cuts compute, not memory</span>
 
-  runtime -> <span class="k">vllm-mlx</span>
-             continuous batching on Metal; at concurrency 8 aggregate throughput
-             dominates, despite ~15% lower single-stream than llama.cpp</pre>
-    <p class="muted" style="margin-top:14px">Every number answers <code>--explain</code>, which prints
-      the arithmetic that produced it. A recommendation you can't audit won't be trusted with production.</p>
-  </div>
-</section>
-
-<!-- ═══ STATUS ═══ -->
-<section id="status">
-  <div class="wrap">
-    <div class="kick">Status</div>
-    <h2>Pre-alpha, built in the open.</h2>
-    <p class="lede">This page describes the target. Here is what actually runs today — stated plainly,
-      because a roadmap dressed as a changelog is the fastest way to lose an engineer.</p>
-
-    <div class="grid g2" style="margin-top:8px">
-      <div class="card">
-        <h3 style="color:var(--emerald)">Running today</h3>
-        <div class="rail" style="margin-top:16px">
-          <div class="on"><b>Fit solver</b><p>MoE/GQA/MLA-correct sizing, runtime recommendation, <code>--explain</code>.</p></div>
-          <div class="on"><b>Licence gate</b><p>Refuses before bytes move. Unknown licences fail closed.</p></div>
-          <div class="on"><b>Streaming gateway</b><p>SSE passthrough, in-flight token metering, migration router, real shadow dispatch.</p></div>
-          <div class="on"><b>Surfaces</b><p>CLI · MCP server · Python SDK · agent skill · local console.</p></div>
-          <div class="on"><b>146 tests</b><p>110 Rust, 36 Python. Clippy <code>-D warnings</code> clean.</p></div>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Not built yet</h3>
-        <div class="rail" style="margin-top:16px">
-          <div><b>① Observe</b><p>Capture and redaction.</p></div>
-          <div><b>② Distill</b><p>Clustering and sampling land first — in progress.</p></div>
-          <div><b>④ Prove</b><p>The grader stack. The milestone the thesis rests on.</p></div>
-          <div><b>⑦ Guard</b><p>Drift watch and promotion proposals.</p></div>
-        </div>
-        <p class="muted">Full acceptance criteria and risk gates in the
-          <a href="https://github.com/dshakes/clickllm/blob/main/docs/80-implementation-plan.md">implementation plan</a>.</p>
-      </div>
-    </div>
-
-    <div class="card warn" style="margin-top:16px">
-      <h3 style="color:var(--amber)">The risk we're most likely to get wrong</h3>
-      <p>Grader quality <em>is</em> the product. A wrong equivalence verdict breaks a customer's
-        production system. Mitigations are designed in — three-tier grading, position-swap debiasing,
-        published judge–human agreement, and shadow mode as the real gate before any traffic moves.
-        If stage ④ can't produce verdicts people trust, there is no product, and we'd rather find
-        that out in month four than month twenty-four.</p>
+<span class="p">$</span> <span class="u">clickllm guard receipt.json --traffic mix.json</span>
+  <span class="r">RECEIPT VOID</span> · 17cfed178112
+    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name
+    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored
+  <span class="w">→ re-prove now: the model you proved is not the
+    model in production</span>
+</pre>
     </div>
   </div>
-</section>
 
-<!-- ═══ ABOUT ═══ -->
-<section id="about">
-  <div class="wrap">
-    <div class="kick">About</div>
-    <h2>Built on a thesis, not a hunch.</h2>
-    <p class="lede">Fourteen competing products were researched across four layers before a line was
-      written. The conclusion: almost everything here already exists and is good — deployment is
-      solved six times over — and the migration itself is unowned. Every load-bearing decision,
-      including the two that reversed earlier ones, is recorded as an ADR.</p>
-    <div class="grid g3" style="margin-top:24px">
-      <div class="card"><h3>Apache-2.0</h3><p>A product about escaping lock-in cannot create lock-in. Eval sets export; generated config runs standalone.</p></div>
-      <div class="card"><h3>Local-first</h3><p>Zero telemetry. Nothing leaves your machine without an explicit command. Runs fully air-gapped.</p></div>
-      <div class="card"><h3>Auditable</h3><p><code>--explain</code> on every number. Judge model and human-agreement rate disclosed in every report.</p></div>
-    </div>
-    <p style="margin-top:26px"><a class="btn" href="docs/">Documentation →</a>
-      <a class="btn" href="https://github.com/dshakes/clickllm/tree/main/docs/adr">Read the ADRs →</a></p>
+  <div class="stats">
+    <div class="stat"><div class="n grad">478</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
+    <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>
   </div>
-</section>
+</header>
+</div>
 
-</main>
+<section id="problem"><div class="wrap rise">
+  <p class="eyebrow">The three ways a migration dies</p>
+  <h2>Everyone can run the model.<br>Nobody can prove it's&nbsp;safe.</h2>
+  <p class="sub">Deployment is solved six times over. The gap is the <em>decision</em> — and it
+    is usually made on a vibe, a leaderboard, or a dashboard that has never seen your traffic.</p>
 
-<footer>
-  <div class="wrap foot">
-    <div>
-      <div class="brand"><i class="mark"></i>click<b>llm</b></div>
-      <p class="muted" style="margin-top:8px">Prove it, then move it.</p>
+  <div class="cards">
+    <div class="card">
+      <div class="cardtop"><span class="ico">📊</span><span class="tag bad">wrong data</span></div>
+      <h3>A benchmark isn't your workload</h3>
+      <p>MMLU says nothing about whether a model can extract line items from <em>your</em>
+        invoices. clickllm builds the eval set from traffic you actually served — redacted
+        before it touches disk, clustered by task shape.</p>
     </div>
-    <div class="muted" style="line-height:2">
-      <a href="docs/">Docs</a> · <a href="https://github.com/dshakes/clickllm">Source</a> ·
-      <a href="https://github.com/dshakes/clickllm/issues">Issues</a> ·
-      <a href="https://github.com/dshakes/clickllm/blob/main/LICENSE">Apache-2.0</a>
+    <div class="card">
+      <div class="cardtop"><span class="ico">🎲</span><span class="tag bad">no confidence</span></div>
+      <h3>A score without an interval is a guess</h3>
+      <p>"94%" over eleven samples is noise wearing a number. Every cell carries a Wilson
+        interval, and a cell with too little evidence shows <code>?</code> rather than a
+        fabricated score.</p>
+    </div>
+    <div class="card">
+      <div class="cardtop"><span class="ico">🚪</span><span class="tag bad">no way back</span></div>
+      <h3>A cutover with no rollback is a bet</h3>
+      <p>Shadow first, always. Rollback is automatic and easy to trigger; advancing is only
+        ever a <em>proposal</em> a human applies. The gateway re-derives that rule from the
+        numbers, so buggy automation still cannot escalate.</p>
     </div>
   </div>
-</footer>
+</div></section>
+
+<section id="loop"><div class="wrap rise">
+  <p class="eyebrow">Prove it, then move it</p>
+  <h2>Seven stages. Each one can say&nbsp;no.</h2>
+  <p class="sub">Observe your traffic, distill it into task clusters, size what fits, prove
+    equivalence, deploy native config, cut over behind a gate — then keep checking that the
+    proof still holds.</p>
+  <figure>
+    <img src="assets/loop-animated.svg" alt="Traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning closed-model spend into proven open-model inference">
+    <figcaption>The loop is the product. Everything else is an implementation detail of one
+      of these stages.</figcaption>
+  </figure>
+
+  <div class="cards" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <div class="cardtop"><span class="ico">🧾</span><span class="tag ok">portable</span></div>
+      <h3>Proof is an artifact, not a dashboard</h3>
+      <p>A receipt is a file: every claim with its interval, the bar it was measured against,
+        the judge and its human-agreement rate, and — required, never optional — the clusters
+        that did <em>not</em> pass. Re-run the eval set and the digest must match. A signature
+        says <em>we said this</em>; reproduction says <em>and it's true</em>.</p>
+    </div>
+    <div class="card">
+      <div class="cardtop"><span class="ico">🛡️</span><span class="tag warn">keeps checking</span></div>
+      <h3>Three kinds of stale, not one</h3>
+      <p>The model changed behind its name → your proof is <b>void</b>. Your traffic moved →
+        the eval set answers questions nobody asks. Something new shipped → your proof is
+        still true. Only the first two mean you no longer know whether production is
+        adequate, and collapsing them is how a watchdog gets muted.</p>
+    </div>
+  </div>
+</div></section>
+
+<section id="sizing"><div class="wrap rise">
+  <p class="eyebrow">The auditable core</p>
+  <h2>Three ways sizing goes wrong.<br>All three are common.</h2>
+  <p class="sub">Every number is arithmetic you can check with <code>--explain</code>. Getting
+    any of these wrong rejects a model that fits, or accepts one that doesn't.</p>
+
+  <div class="tablewrap"><table>
+    <tr><th>Trap</th><th>What people do</th><th>What it costs</th></tr>
+    <tr><td><b>MoE</b></td>
+      <td>Size on <em>active</em> parameters, because that's the headline number.</td>
+      <td>Weights need <b>total</b> params resident. Sparsity cuts compute, not memory — a
+        2.8T MoE needs 1,467 GB at q4 whatever its active count.</td></tr>
+    <tr><td><b>GQA</b></td>
+      <td>Use attention heads in the KV formula instead of KV heads.</td>
+      <td>Up to an <b>8× overestimate</b>. The model fits; the tool says it doesn't.</td></tr>
+    <tr><td><b>MLA</b></td>
+      <td>Apply the GQA formula to a DeepSeek-family model.</td>
+      <td><b>~50× overestimate.</b> MLA stores a compressed latent, not per-head K/V.</td></tr>
+  </table></div>
+
+  <figure>
+    <img src="assets/edu-kv-growth.svg" loading="lazy" alt="KV cache per stream against context length for MHA, GQA and MLA on a logarithmic axis">
+    <figcaption>Log scale on purpose: MLA is roughly fifty times smaller than MHA, and a
+      linear axis would render three of four series as one flat line.</figcaption>
+  </figure>
+
+  <div class="note"><p><b>Any catalogue entry with <code>kv_scheme: mla</code> must set
+    <code>kv_lora_rank</code></b> — enforced by a test, because the failure is silent and the
+    arithmetic looks fine either way.</p></div>
+</div></section>
+
+<section id="plan"><div class="wrap rise">
+  <p class="eyebrow">Engine and flags, derived</p>
+  <h2>Batch and real-time are tuned in<br><span class="grad">opposite directions.</span></h2>
+  <p class="sub">A stack tuned for throughput and one tuned for tail latency disagree on almost
+    every knob, and the defaults ship somewhere in between. Both are "running vLLM". Only one
+    is running it correctly.</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="cardtop"><span class="ico">🧩</span><span class="tag">picks the engine</span></div>
+      <h3>Prefix sharing</h3>
+      <p>Above 55% shared prompt tokens, RadixAttention reuses that prefix's KV instead of
+        recomputing it per request — structural, and no vLLM flag reproduces it. Below,
+        PagedAttention is the better-supported default.</p>
+    </div>
+    <div class="card">
+      <div class="cardtop"><span class="ico">🎯</span><span class="tag">a function of load</span></div>
+      <h3>Speculative decoding</h3>
+      <p>Drafting is a bet that spare compute exists. At high batch there is none, the verify
+        pass competes with real tokens, and throughput <em>drops</em>. Derived from
+        concurrency — never a checkbox.</p>
+    </div>
+    <div class="card">
+      <div class="cardtop"><span class="ico">⚖️</span><span class="tag warn">has a cost</span></div>
+      <h3>fp8 KV cache</h3>
+      <p>Halves KV memory — offered only when KV is what actually binds. It is the one knob
+        with a real accuracy question, and the reason says so: vLLM publishes no quantitative
+        claim. <em>Prove it before you trust it.</em></p>
+    </div>
+  </div>
+
+  <figure>
+    <img src="assets/edu-spec-decode.svg" loading="lazy" alt="Throughput change from speculative decoding against batch size, positive at low batch and negative beyond about 32">
+    <figcaption>The quantity has a <em>sign</em>. That is why it is derived from your
+      concurrency rather than offered as a switch.</figcaption>
+  </figure>
+
+  <div class="note warn"><p><b>Every engine flag is verified against published docs, never
+    recalled.</b> That rule exists because breaking it shipped a bug:
+    <code>--guided-decoding-backend</code> had been renamed in vLLM, so every
+    structured-output config generated was unrunnable. Where a flag can't be confirmed, the
+    adapter reports a <em>gap</em> rather than a plausible guess.</p></div>
+</div></section>
+
+<section id="box"><div class="wrap rise">
+  <p class="eyebrow">Inference in a box</p>
+  <h2>It is not a container.<br>A container can't reach Apple's&nbsp;GPU.</h2>
+  <p class="sub">The box is an artifact <em>plus a binding decision made on arrival</em> —
+    which is why the interesting content is the three outcomes, not the packaging.</p>
+  <figure>
+    <img src="assets/in-a-box.svg" loading="lazy" alt="One artifact landing on three machines and producing three outcomes: run as packed, re-solved with the changes reported, or refused">
+    <figcaption>Run as packed, re-solved with every change reported, or refused. The re-solve
+      is the product — anyone can ship an artifact.</figcaption>
+  </figure>
+</div></section>
+
+<section id="learn"><div class="wrap rise">
+  <p class="eyebrow">Inference from first principles</p>
+  <h2>If you've never sized a KV cache,<br>start here.</h2>
+  <p class="sub">Nine diagrams on a palette validated for colour-vision deficiency against the
+    real surface — computed, not chosen by eye. The full course, with the arithmetic, is in
+    the <a href="docs/#edu-why">docs</a>.</p>
+
+  <div class="gallery">
+    <figure>
+      <img src="assets/edu-memory.svg" loading="lazy" alt="Stacked memory use for a 32B model as concurrency rises from 1 to 32">
+      <figcaption><b>Where the memory goes.</b> Weights are a constant you can look up. The KV
+        cache decides how many people you can serve — and it crosses the 80 GB line at 32
+        users, not the model.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/edu-prefill-decode.svg" loading="lazy" alt="Timeline of one request: a wide compute-bound prefill then narrow bandwidth-bound decode steps">
+      <figcaption><b>Prefill vs decode.</b> A long prompt with a short answer is a prefill
+        problem; a short prompt with a long answer is a decode problem. Tuning the wrong one
+        buys hardware that doesn't help.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/edu-batching.svg" loading="lazy" alt="Static batching idling until the slowest request finishes, against continuous batching refilling each slot">
+      <figcaption><b>Continuous batching.</b> Same tokens, same GPU. The shaded time is what
+        static batching throws away — the single biggest throughput win in modern serving.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/edu-quantization.svg" loading="lazy" alt="Weight size for a 32B model at 16-, 8-, 6- and 4-bit">
+      <figcaption><b>Quantization buys bandwidth.</b> Decode re-reads every weight for every
+        token, so a smaller format is directly <em>faster</em> — not just smaller.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/edu-tpu.svg" loading="lazy" alt="Memory per TPU host for v5e, v6e and v5p against an H100 and an 8-way H100 node">
+      <figcaption><b>TPUs.</b> Per-chip memory is the number usually quoted and the wrong one
+        to plan with. Multi-host serving is unsupported on GKE, so one host is a
+        <em>ceiling</em>, not a starting point.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/degradation.svg" loading="lazy" alt="The degradation ladder: quantisation reduced first, then context halved repeatedly, then refusal below a 2k floor">
+      <figcaption><b>Degrading honestly.</b> Give something up rather than nothing — and name
+        what was given up. Serving 8k when it was built for 32k is fine if you know, and an
+        incident if you don't.</figcaption>
+    </figure>
+  </div>
+</div></section>
+
+<section id="telemetry"><div class="wrap rise">
+  <p class="eyebrow">What the dashboard won't tell you</p>
+  <h2>Telemetry that grades the plan<br>that produced&nbsp;it.</h2>
+  <p class="sub">A planner emits a config on assumptions. Then nobody checks. clickllm reports
+    only the predictions your deployment <em>falsified</em>.</p>
+
+  <div class="term" style="margin-top:34px">
+    <div class="termbar">
+      <i class="tl" style="background:#fb7185"></i><i class="tl" style="background:#fbbf24"></i>
+      <i class="tl" style="background:#34d399"></i>
+      <span class="termtitle">clickllm — engine, right now</span>
+    </div>
+<pre>  candidate-local   <span class="r">KV near full — scheduler is preempting</span>
+  KV cache   <span class="r">████████████████████████░░</span>  <span class="u">94%</span>
+  prefill    <span class="k">██████░░░░░░░░░░░░░░░░░░░░</span>  <span class="u">25%</span>  <span class="c">decode-bound — tune bandwidth</span>
+
+  running <span class="u">14</span>  waiting <span class="u">6</span>  queued <span class="u">60ms</span>  TTFT <span class="u">210ms</span>  e2e <span class="u">640ms</span>
+  prefix hits <span class="u">62%</span>  draft accepted <span class="u">41%</span>  truncated <span class="u">12%</span>  abandoned <span class="u">3%</span>
+
+  <span class="w">THE DEPLOYMENT DISAGREES WITH THE PLAN</span>
+  <span class="w">│</span> speculative decoding was enabled assuming idle compute, but only
+  <span class="w">│</span> <span class="u">41%</span> of drafted tokens are accepted. Below ~60% the draft pass costs
+  <span class="w">│</span> more than it returns — turn it off or change the drafter.
+  <span class="w">│</span> <span class="u">12%</span> of completions stop at the token limit rather than finishing.
+  <span class="w">│</span> That reads as a quality problem and is almost always max_tokens.
+  <span class="w">│</span> the card is at <span class="u">98%</span> memory but the engine's KV cache is only at <span class="u">60%</span>.
+  <span class="w">│</span> Roughly 38% is held by another process — engine telemetry alone
+  <span class="w">│</span> cannot show you this.
+</pre>
+  </div>
+  <p class="sub" style="margin-top:22px">Every field is optional and renders as <code>—</code>
+    when unreadable. A KV utilisation of "0%" reads as <em>plenty of headroom</em>, which is
+    the exact opposite of <em>we could not tell</em>.</p>
+</div></section>
+
+<section id="install"><div class="wrap rise">
+  <p class="eyebrow">No login, no tokens, no account</p>
+  <h2>Try it in ten seconds.</h2>
+  <p class="sub">The sizing solver has zero runtime dependencies and runs offline. Nothing
+    leaves your machine — captured traffic is the most sensitive data you have, and export is
+    an explicit command, never a background sync.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-t="uvx">uvx</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="brew">Homebrew</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="pip">pip</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="git">git</button>
+  </div>
+  <div id="cmds"></div>
+
+  <div class="note"><p><b>Then ask the inverse.</b>
+    <code>clickllm where deepseek-v3 --context 128k</code> answers <em>what would I need to
+    run this?</em> across 20 hardware classes — including TPU v5e, v6e and v5p, sized per
+    host because a TPU is not rented by the chip.</p></div>
+</div></section>
+
+<footer><div class="wrap foot">
+  <span>Apache-2.0</span>
+  <a href="docs/">Documentation</a>
+  <a href="https://github.com/dshakes/clickllm">GitHub</a>
+  <a href="docs/#edu-why">Learn inference</a>
+  <span style="margin-left:auto;color:var(--ink3)">Prove it, then move it.</span>
+</div></footer>
 
 <script>
-  const tabs = [...document.querySelectorAll('.tab')];
-  tabs.forEach(t => t.addEventListener('click', () => {
-    tabs.forEach(o => {
-      o.setAttribute('aria-selected', String(o === t));
-      document.getElementById(o.dataset.p).hidden = o !== t;
-    });
-  }));
+const CMDS = {
+  uvx:  [['uvx clickllm fit --context 32k --concurrency 8', 'size what runs on this machine']],
+  brew: [['brew install dshakes/tap/clickllm', ''], ['clickllm fit', '']],
+  pip:  [['pip install clickllm', 'the solver — zero runtime dependencies'],
+         ['pip install clickllm-core', 'optional: compiled datapath bindings']],
+  git:  [['git clone https://github.com/dshakes/clickllm', ''],
+         ['PYTHONPATH=src python3 -m clickllm.cli fit', '']],
+};
+function renderCmds(kind){
+  document.getElementById('cmds').innerHTML = CMDS[kind].map(([c, note]) => `
+    <div class="cmd"><code>${c}</code>
+      <button class="copy" data-c="${c.replace(/"/g,'&quot;')}">Copy</button></div>
+    ${note ? `<p class="sub" style="margin:6px 0 0;font-size:13px">${note}</p>` : ''}`).join('');
+}
+renderCmds('uvx');
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', x === t));
+  renderCmds(t.dataset.t);
+}));
+document.addEventListener('click', async e => {
+  const b = e.target.closest('.copy');
+  if (!b) return;
+  // Clipboard is unavailable over file:// and in some browsers; say so rather
+  // than silently doing nothing.
+  try { await navigator.clipboard.writeText(b.dataset.c); b.textContent = 'Copied'; }
+  catch { b.textContent = 'Press ⌘C'; }
+  setTimeout(() => { b.textContent = 'Copy'; }, 1400);
+});
 
-  if (matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
-    const io = new IntersectionObserver(es => es.forEach(e => {
-      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-    }), { rootMargin: '0px 0px -8% 0px' });
-    document.querySelectorAll('.rv').forEach(el => io.observe(el));
-  } else {
-    document.querySelectorAll('.rv').forEach(el => el.classList.add('in'));
-  }
+// Scroll reveal. Guarded: without IntersectionObserver every section would sit
+// at opacity 0 forever, so the fallback shows everything rather than hiding it.
+if ('IntersectionObserver' in window) {
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -12% 0px' });
+  document.querySelectorAll('.rise').forEach(el => io.observe(el));
+} else {
+  document.querySelectorAll('.rise').forEach(el => el.classList.add('in'));
+}
+
+const nav = document.getElementById('nav');
+addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { passive: true });
 </script>
 </body>
 </html>
