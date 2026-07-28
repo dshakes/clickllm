@@ -29,6 +29,7 @@ pub mod meter;
 pub mod proxy;
 pub mod router;
 pub mod sse;
+pub mod telemetry;
 
 pub use capture::{Capture, CaptureStore, Report as RedactionReport, redact};
 pub use control::{PhaseChange, Transition};
@@ -36,6 +37,7 @@ pub use meter::{Meter, Metered, Usage};
 pub use proxy::{AppState, Record, app};
 pub use router::{Backend, Decision, Phase, Route, Router};
 pub use sse::{Decoder, Event};
+pub use telemetry::Snapshot;
 
 /// Crate version, for request logs and provenance.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

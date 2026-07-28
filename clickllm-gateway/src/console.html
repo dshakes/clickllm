@@ -57,6 +57,9 @@
 
   <div class="grid tiles" id="tiles"></div>
 
+  <h2>Engine, right now</h2>
+  <div id="engine"></div>
+
   <h2>Shadow / candidate</h2>
   <div id="mirrors"></div>
 
@@ -72,6 +75,18 @@
   </footer>
 </div>
 
+<style>
+  .meter{flex:1;height:8px;border-radius:4px;background:#1c2534;overflow:hidden;min-width:120px}
+  .meter i{display:block;height:100%;border-radius:4px;background:#0e9bbd;transition:width .4s}
+  .meter i.warm{background:#c2820b} .meter i.hot{background:#e0405f}
+  .kvrow{display:flex;align-items:center;gap:12px;margin:10px 0 8px;font-size:12.5px}
+  .kvrow>span:first-child{width:74px;color:#9fb0cc}
+  .kvrow>b{font-variant-numeric:tabular-nums;min-width:46px;text-align:right}
+  .statline{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:#9fb0cc}
+  .statline b{color:#eef4ff;font-variant-numeric:tabular-nums}
+  .cardhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .sub.dim{color:#63758f;font-size:11.5px;margin-top:6px}
+</style>
 <script>
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString();
@@ -178,6 +193,53 @@ function renderMirrors(rows) {
       persists — a rollout gated on it would never have data to advance on.</div>` : '');
 }
 
+// --- live engine telemetry ---------------------------------------------------
+// Every field may be absent. Absent renders as an em dash, never as 0 — a KV
+// utilisation of "0%" reads as plenty of headroom, which is the exact opposite
+// of "we could not read it". See telemetry.rs for why that distinction is the
+// point of the module.
+// Prefixed to avoid colliding with the request-table helpers above, which
+// already own `pct` and `ms` with different meanings.
+const NA = '\u2014';
+const tPct = v => v === null || v === undefined ? NA : (v * 100).toFixed(0) + '%';
+const tMs  = v => v === null || v === undefined ? NA : Math.round(v) + 'ms';
+const tNum = v => v === null || v === undefined ? NA : Math.round(v).toLocaleString();
+
+function bar(frac) {
+  // A meter with no reading shows an empty track, not a full-width zero.
+  if (frac === null || frac === undefined) return `<div class="meter"></div>`;
+  const cls = frac >= 0.90 ? 'hot' : frac >= 0.75 ? 'warm' : '';
+  return `<div class="meter"><i class="${cls}" style="width:${Math.min(frac,1)*100}%"></i></div>`;
+}
+
+function renderEngine(payload) {
+  const rows = (payload.backends || []).map(b => {
+    const t = b.telemetry || {};
+    if (t.error) {
+      return `<div class="card">
+        <div class="cardhead"><b>${b.backend}</b> <span class="tag">no telemetry</span></div>
+        <div class="sub">${t.error}</div>
+        <div class="sub dim">Not an outage on its own — the gateway is still serving.
+          It means this engine publishes no metrics endpoint we can read.</div>
+      </div>`;
+    }
+    const pressure = t.kv_cache_used !== null && t.kv_cache_used !== undefined && t.kv_cache_used >= 0.90;
+    return `<div class="card">
+      <div class="cardhead"><b>${b.backend}</b>
+        ${pressure ? '<span class="tag warn">KV near full — scheduler is preempting</span>' : ''}</div>
+      <div class="kvrow"><span>KV cache</span>${bar(t.kv_cache_used)}<b>${tPct(t.kv_cache_used)}</b></div>
+      <div class="statline">
+        <span>running <b>${tNum(t.running)}</b></span>
+        <span>waiting <b>${tNum(t.waiting)}</b></span>
+        <span>TTFT <b>${tMs(t.ttft_ms)}</b></span>
+        <span>inter-token <b>${tMs(t.itl_ms)}</b></span>
+        <span>prefix hits <b>${tPct(t.prefix_hit_rate)}</b></span>
+      </div>
+    </div>`;
+  }).join('');
+  $('engine').innerHTML = rows || `<div class="sub dim">No backends configured.</div>`;
+}
+
 async function poll() {
   try {
     const res = await fetch('metrics/requests', { cache: 'no-store' });
@@ -185,6 +247,12 @@ async function poll() {
     render(await res.json());
     const mres = await fetch('metrics/mirrors', { cache: 'no-store' });
     if (mres.ok) renderMirrors(await mres.json());
+    // Engine telemetry is a separate, slower call against the engines
+    // themselves. Its failure must not mark the gateway unreachable.
+    try {
+      const eres = await fetch('metrics/engine', { cache: 'no-store' });
+      if (eres.ok) renderEngine(await eres.json());
+    } catch (_) { /* rendered per-backend above */ }
     failures = 0;
     $('dot').className = 'dot';
     $('livetext').textContent = 'live';

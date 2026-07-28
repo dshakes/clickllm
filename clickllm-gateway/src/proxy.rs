@@ -286,6 +286,7 @@ pub fn app(state: Arc<AppState>) -> AxumRouter {
             get(crate::control::get_phase).post(crate::control::set_phase),
         )
         .route("/control/history", get(crate::control::history))
+        .route("/metrics/engine", get(engine_telemetry))
         .route("/", get(console))
         .with_state(state)
 }
@@ -304,6 +305,40 @@ async fn records(State(st): State<Arc<AppState>>) -> Json<Vec<Record>> {
 
 async fn mirrors(State(st): State<Arc<AppState>>) -> Json<Vec<MirrorRecord>> {
     Json(st.mirrors())
+}
+
+/// Live engine telemetry for every distinct backend this router can reach.
+///
+/// Scraped on demand rather than polled in the background: a dashboard nobody
+/// has open should not be generating traffic against a production engine, and a
+/// stale cached reading is worse than a fresh one that took 200ms.
+///
+/// Both backends are scraped concurrently — serially, a single unreachable
+/// engine would add its whole timeout to the other's latency.
+async fn engine_telemetry(State(st): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let backends: Vec<(String, String)> = {
+        let r = st.router.read();
+        let route = r.route_for(None);
+        let mut seen = std::collections::BTreeMap::new();
+        for b in [&route.incumbent, &route.candidate] {
+            seen.insert(b.name.clone(), b.base_url.clone());
+        }
+        seen.into_iter().collect()
+    };
+
+    let client = &st.client;
+    let readings = futures_util::future::join_all(backends.iter().map(|(name, url)| async move {
+        (name.clone(), crate::telemetry::scrape(client, url).await)
+    }))
+    .await;
+
+    Json(serde_json::json!({
+        "source": crate::telemetry::SOURCE,
+        "backends": readings
+            .into_iter()
+            .map(|(name, snap)| serde_json::json!({ "backend": name, "telemetry": snap }))
+            .collect::<Vec<_>>(),
+    }))
 }
 
 /// Errors the datapath can return to a client.
