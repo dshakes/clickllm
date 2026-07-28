@@ -332,18 +332,33 @@ async fn engine_telemetry(State(st): State<Arc<AppState>>) -> Json<serde_json::V
     }))
     .await;
 
+    // Read once for the whole response: the host is shared by every backend,
+    // and shelling out per backend would multiply the cost for one answer.
+    let host = tokio::task::spawn_blocking(crate::host::probe)
+        .await
+        .unwrap_or(crate::host::Support::Unavailable {
+            reason: "host probe task failed".into(),
+        });
+    let host_peak = host.peak_memory_used();
+
     Json(serde_json::json!({
         "source": crate::telemetry::SOURCE,
+        "host": host,
         "backends": readings
             .into_iter()
             .map(|(name, snap)| {
                 // Contradictions are computed here rather than client-side: the
                 // thresholds are policy and belong next to the numbers they
                 // judge, not duplicated into every surface that renders them.
-                let against_plan = snap.contradictions(
+                let mut against_plan = snap.contradictions(
                     snap.prefix_hit_rate.is_some(),
                     snap.draft_acceptance.is_some(),
                 );
+                // The one thing engine telemetry structurally cannot report:
+                // memory on the card that belongs to somebody else.
+                if let Some(foreign) = host.foreign_memory(snap.kv_cache_used) {
+                    against_plan.push(foreign);
+                }
                 serde_json::json!({
                     "backend": name,
                     "telemetry": snap,
@@ -352,6 +367,7 @@ async fn engine_telemetry(State(st): State<Arc<AppState>>) -> Json<serde_json::V
                         "truncation_rate": snap.truncation_rate(),
                         "abandon_rate": snap.abandon_rate(),
                         "prefill_share": snap.prefill_share(),
+                        "host_memory_used": host_peak,
                     },
                     "contradicts_plan": against_plan,
                 })

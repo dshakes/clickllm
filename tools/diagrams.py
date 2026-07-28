@@ -798,6 +798,69 @@ def degradation() -> None:
     save("degradation.svg", p)
 
 
+# --- 9. TPUs ------------------------------------------------------------------
+
+
+def tpus() -> None:
+    """Memory per host, because that is the number that decides what fits.
+
+    Per-*chip* memory is the number everyone quotes and the wrong one to plan
+    with: a TPU is rented by the host, and vLLM does not support multi-host
+    serving on GKE — so one host is a hard ceiling, not a starting point.
+
+    Specs verified against Google Cloud's per-generation pages, 2026-07-27.
+    """
+    W, H = 900, 400
+    p = head(
+        W,
+        H,
+        "TPUs: plan by the host, not the chip",
+        "Memory available per TPU host for v5e, v6e and v5p, against an H100 and "
+        "an 8×H100 node for scale. Per-chip figures are the ones usually quoted "
+        "and the wrong ones to size against.",
+    )
+    p.append(
+        '<text x="28" y="50" class="sub">Multi-host serving is unsupported on '
+        "GKE, so one host is a ceiling rather than a starting point</text>"
+    )
+
+    rows = [
+        ("TPU v5e · 8 chips", 16, 8, 128, 0),
+        ("TPU v6e · 8 chips", 32, 8, 256, 0),
+        ("TPU v5p · 4 chips", 95, 4, 380, 0),
+        ("NVIDIA H100", 80, 1, 80, 1),
+        ("8× H100 node", 80, 8, 640, 1),
+    ]
+    x0, y0, bwid, rowh = 210, 92, 400, 44
+    scale = bwid / 640.0
+
+    for i, (name, per_chip, chips, total, slot) in enumerate(rows):
+        y = y0 + i * rowh
+        p.append(f'<text x="{x0 - 14}" y="{y + 20}" class="lb" text-anchor="end">{name}</text>')
+        p.append(bar(x0, y, max(total * scale, 3), 26, slot))
+        p.append(
+            f'<text x="{x0 + total * scale + 14:.0f}" y="{y + 19}" class="m">'
+            f"{total:,} GB</text>"
+        )
+        p.append(
+            f'<text x="{x0 + bwid + 130}" y="{y + 19}" class="ax">'
+            f"{per_chip} GB × {chips}</text>"
+        )
+
+    p.append(legend(x0, y0 + len(rows) * rowh + 22, [(0, "TPU host"), (1, "NVIDIA")]))
+    note(
+        p,
+        28,
+        H - 62,
+        "A v6e host holds 256 GB without leaving one machine, which is more than "
+        "an H100 and less than an 8×H100 node — and unlike the node, it cannot be "
+        "extended by adding a second one. vLLM lists v5e, v6e and v7x as "
+        "recommended; v3, v4 and v5p are experimental, which is a different "
+        "promise.",
+    )
+    save("edu-tpu.svg", p)
+
+
 if __name__ == "__main__":
     print("writing diagrams:")
     memory_breakdown()
@@ -808,4 +871,5 @@ if __name__ == "__main__":
     quantization()
     in_a_box()
     degradation()
+    tpus()
     print("done")

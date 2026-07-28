@@ -90,6 +90,16 @@ MEMORY_SAFETY_MARGIN = 0.08
 #: monopolise a scheduler step, large enough not to shred prefill throughput.
 PREFILL_CHUNK_TOKENS = 2048
 
+#: TPU generations vLLM lists as recommended rather than experimental.
+#: Verified 2026-07-27 against docs.vllm.ai/projects/tpu — v3, v4 and v5p are
+#: experimental, which is a materially different promise and worth surfacing.
+TPU_RECOMMENDED = ("v5e", "v6e", "v7x")
+
+#: Model traits vLLM's TPU backend lists as still maturing. Not "broken" — but a
+#: DeepSeek-family model is MLA, and shipping someone onto a TPU without saying
+#: so would be selling a maturity level that has not been claimed.
+TPU_MATURING = ("MLA attention", "XL MoE", "vision encoders")
+
 
 class Workload(StrEnum):
     """What the deployment is for.
@@ -112,6 +122,11 @@ class Engine(StrEnum):
     """Serving stack."""
 
     VLLM = "vllm"
+    #: vLLM's TPU backend, which is a different engine wearing the same CLI.
+    #: It lowers through JAX via the `tpu-inference` plugin rather than running
+    #: the CUDA kernels, so feature support is its own matrix — see
+    #: [`TPU_MATURING`].
+    VLLM_TPU = "vllm-tpu"
     SGLANG = "sglang"
     LLMD = "llm-d"
     LLAMA_CPP = "llama.cpp"
@@ -229,6 +244,17 @@ def _pick_engine(hw: Hardware, req: Requirements) -> tuple[Engine, str]:
     config that cannot start. (ADR-0002 is why this does not leak past the
     `Runtime` trait on the Rust side.)
     """
+    if hw.kind == "tpu":
+        # The only real option. SGLang and llm-d are CUDA-only, and llama.cpp
+        # has no TPU path — offering any of them here produces a command that
+        # cannot start, which is worse than no command.
+        return (
+            Engine.VLLM_TPU,
+            "TPU: vLLM's TPU backend is the only engine here. It lowers through "
+            "JAX via the tpu-inference plugin rather than running CUDA kernels, "
+            "so it shares the CLI but not the feature matrix.",
+        )
+
     if hw.kind == "apple":
         if req.structured_output or req.concurrency >= 4:
             return (
@@ -471,6 +497,41 @@ def _budget_warnings(req: Requirements, fit: Fit | None) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _tpu_notes(hw: Hardware, model: ModelSpec | None) -> list[str]:
+    """What a TPU deployment needs told, and what cannot be promised.
+
+    Verified against vLLM's TPU project docs (2026-07-27). Every item is a
+    published limitation, not an inference from first principles — the same rule
+    the engine adapter follows, for the same reason.
+    """
+    notes = [
+        "TPU serving runs through vLLM's tpu-inference plugin, which lowers via "
+        "JAX. Flags are vLLM's; the feature matrix is its own and is published "
+        "separately.",
+        "multi-host serving is not supported on GKE, so memory cannot be "
+        "aggregated across hosts — a model larger than one host is not a "
+        "sharding problem here, it is out of reach.",
+    ]
+    if model is not None and getattr(model, "kv_scheme", None) == "mla":
+        notes.append(
+            "this model uses MLA attention, which vLLM lists as still maturing "
+            "on TPU. It may run correctly and unoptimised, or not run — check "
+            "the published support matrix before committing to this hardware."
+        )
+    if model is not None and getattr(model, "is_moe", False):
+        notes.append(
+            "large MoE models are listed as still maturing on TPU; validate "
+            "throughput on your own traffic rather than trusting a projection."
+        )
+    if not any(g in hw.name.lower() for g in TPU_RECOMMENDED):
+        notes.append(
+            f"this generation is not on vLLM's recommended list "
+            f"({', '.join(TPU_RECOMMENDED)}); the others are supported as "
+            f"experimental, which is a different promise."
+        )
+    return notes
+
+
 def plan(
     hw: Hardware,
     req: Requirements,
@@ -527,6 +588,8 @@ def plan(
         )
 
     notes = []
+    if engine is Engine.VLLM_TPU:
+        notes.extend(_tpu_notes(hw, model))
     if engine is Engine.SGLANG:
         notes.append(
             "SGLang's flag names differ from vLLM's; the emitted config "

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>TPUs: plan by the host, not the chip</title><desc id='d'>Memory available per TPU host for v5e, v6e and v5p, against an H100 and an 8×H100 node for scale. Per-chip figures are the ones usually quoted and the wrong ones to size against.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="900" height="400" fill="var(--bg)"/>
+<text x="28" y="30" class="t">TPUs: plan by the host, not the chip</text>
+<text x="28" y="50" class="sub">Multi-host serving is unsupported on GKE, so one host is a ceiling rather than a starting point</text>
+<text x="196" y="112" class="lb" text-anchor="end">TPU v5e · 8 chips</text>
+<rect x="210.0" y="92.0" width="80.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="304" y="111" class="m">128 GB</text>
+<text x="740" y="111" class="ax">16 GB × 8</text>
+<text x="196" y="156" class="lb" text-anchor="end">TPU v6e · 8 chips</text>
+<rect x="210.0" y="136.0" width="160.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="384" y="155" class="m">256 GB</text>
+<text x="740" y="155" class="ax">32 GB × 8</text>
+<text x="196" y="200" class="lb" text-anchor="end">TPU v5p · 4 chips</text>
+<rect x="210.0" y="180.0" width="237.5" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="462" y="199" class="m">380 GB</text>
+<text x="740" y="199" class="ax">95 GB × 4</text>
+<text x="196" y="244" class="lb" text-anchor="end">NVIDIA H100</text>
+<rect x="210.0" y="224.0" width="50.0" height="26.0" rx="4" fill="var(--s1)"/>
+<text x="274" y="243" class="m">80 GB</text>
+<text x="740" y="243" class="ax">80 GB × 1</text>
+<text x="196" y="288" class="lb" text-anchor="end">8× H100 node</text>
+<rect x="210.0" y="268.0" width="400.0" height="26.0" rx="4" fill="var(--s1)"/>
+<text x="624" y="287" class="m">640 GB</text>
+<text x="740" y="287" class="ax">80 GB × 8</text>
+<rect x="210" y="327" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="224" y="335" class="lb">TPU host</text><rect x="288" y="327" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="302" y="335" class="lb">NVIDIA</text>
+<text x="28" y="338" class="note">A v6e host holds 256 GB without leaving one machine, which is more than an H100 and less than an 8×H100 node — and</text>
+<text x="28" y="354" class="note">unlike the node, it cannot be extended by adding a second one. vLLM lists v5e, v6e and v7x as recommended; v3, v4</text>
+<text x="28" y="370" class="note">and v5p are experimental, which is a different promise.</text>
+</svg>

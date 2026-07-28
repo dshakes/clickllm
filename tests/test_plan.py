@@ -266,3 +266,72 @@ def test_notes_flag_a_realtime_plan_with_no_stated_budget():
 def test_an_sglang_plan_notes_that_flag_names_are_translated():
     p = plan(H100, Requirements(Workload.INTERACTIVE, prefix_sharing=0.9))
     assert any("flag names differ" in n for n in p.notes)
+
+
+# --- TPU -----------------------------------------------------------------------
+# Every fact asserted here is from Google Cloud's per-generation spec pages and
+# vLLM's TPU project docs, checked 2026-07-27 — not inferred.
+
+
+TPU_V6E = Hardware(
+    kind="tpu",
+    name="TPU v6e Trillium (8 chips)",
+    total_bytes=256 * 2**30,
+    usable_bytes=240 * 2**30,
+    bandwidth_gbps=11384.0,
+    cores=8,
+    devices=8,
+)
+
+
+def test_a_tpu_never_gets_an_engine_that_cannot_run_there():
+    # SGLang and llm-d are CUDA-only; llama.cpp has no TPU path. Offering any of
+    # them produces a command that cannot start.
+    from clickllm.plan import Engine
+
+    for w in Workload:
+        for sharing in (0.0, 0.9):  # 0.9 would pick SGLang on CUDA
+            p = plan(TPU_V6E, Requirements(w, concurrency=64, prefix_sharing=sharing))
+            assert p.engine is Engine.VLLM_TPU, f"{w}/{sharing}: {p.engine}"
+
+
+def test_the_tpu_plan_says_it_is_a_different_engine_wearing_the_same_cli():
+    p = plan(TPU_V6E, Requirements(Workload.INTERACTIVE, concurrency=8))
+    joined = " ".join(p.notes)
+    assert "tpu-inference" in joined and "JAX" in joined
+    assert "feature matrix" in joined
+
+
+def test_the_multi_host_ceiling_is_stated_because_it_is_not_a_sharding_problem():
+    p = plan(TPU_V6E, Requirements(Workload.BATCH, concurrency=128))
+    assert any("multi-host" in n and "aggregated" in n for n in p.notes), p.notes
+
+
+def test_an_experimental_generation_is_flagged_as_a_different_promise():
+    from dataclasses import replace
+
+    v4 = replace(TPU_V6E, name="TPU v4 (8 chips)")
+    assert any(
+        "not on vLLM's recommended list" in n for n in plan(v4, Requirements(Workload.BATCH)).notes
+    )
+    # ...and a recommended one is not.
+    assert not any(
+        "recommended list" in n for n in plan(TPU_V6E, Requirements(Workload.BATCH)).notes
+    )
+
+
+def test_an_mla_model_on_tpu_is_flagged_rather_than_silently_planned():
+    # DeepSeek-family models are MLA, which vLLM lists as still maturing on TPU.
+    from clickllm.catalog import load
+
+    mla = next((m for m in load() if getattr(m, "kv_scheme", "") == "mla"), None)
+    assert mla is not None, "catalogue has no MLA model to test with"
+    p = plan(
+        TPU_V6E, Requirements(Workload.INTERACTIVE, concurrency=8), model=mla, quant=mla.quants[0]
+    )
+    assert any("MLA attention" in n and "maturing" in n for n in p.notes), p.notes
+
+
+def test_a_cuda_plan_carries_no_tpu_notes():
+    p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=8))
+    assert not any("TPU" in n or "tpu-inference" in n for n in p.notes)

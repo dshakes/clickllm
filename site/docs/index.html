@@ -135,6 +135,7 @@
   <a href="#edu-quant">Quantization</a>
   <a href="#edu-spec">Speculative decoding</a>
   <a href="#edu-engines">The serving stack</a>
+  <a href="#edu-tpu">TPUs and other silicon</a>
 
   <h4>Use</h4>
   <a href="#recommend">Getting a recommendation</a>
@@ -398,6 +399,39 @@ language models on hardware you control.</p>
 
 <!-- ══════════ USE ══════════ -->
 <hr>
+
+<h2 id="edu-tpu">Learn: TPUs and other silicon</h2>
+<figure>
+  <img src="../assets/edu-tpu.svg" loading="lazy"
+       alt="Memory per TPU host for v5e, v6e and v5p against an H100 and an 8-way H100 node">
+  <figcaption>Per-chip memory is the number usually quoted and the wrong one to plan with —
+    a TPU is rented by the host, and one host is a ceiling.</figcaption>
+</figure>
+<p>A TPU is not a GPU with different branding. Three differences change how you size and
+  deploy, and all three are load-bearing:</p>
+<div class="tablewrap"><table>
+  <tr><th>What</th><th>Why it matters</th></tr>
+  <tr><td><strong>XLA compiles for static shapes</strong></td>
+      <td>The continuous batching that makes vLLM fast on CUDA assumes shapes change per step.
+        On TPU the graph is compiled, so the same trick is a different implementation with
+        different characteristics — not a flag you flip.</td></tr>
+  <tr><td><strong>Memory is per host, and hosts do not combine</strong></td>
+      <td>vLLM does not support multi-host serving on GKE. A v6e host holds 256&nbsp;GB; a
+        model needing more is out of reach rather than a sharding problem.</td></tr>
+  <tr><td><strong>The engine is a different engine</strong></td>
+      <td>vLLM TPU lowers through JAX via the <code>tpu-inference</code> plugin instead of
+        running CUDA kernels. Same CLI, its own feature matrix.</td></tr>
+</table></div>
+<div class="note warn">
+  <p><b>Check the support matrix before committing hardware.</b> vLLM lists v5e, v6e and v7x
+    as recommended; v3, v4 and v5p are <em>experimental</em>. MLA attention, XL MoE and vision
+    encoders are listed as still maturing — so a DeepSeek-family model, which is MLA, is
+    exactly the case to verify rather than assume. clickllm surfaces each of these as a plan
+    note rather than quietly picking the hardware for you.</p>
+</div>
+<p class="sub">SGLang, llm-d and llama.cpp have no TPU path at all, so clickllm will never
+  offer them there — emitting a command that cannot start is worse than emitting none.</p>
+
 <h2 id="recommend">Getting a recommendation <span class="pill live">LIVE</span></h2>
 <p>Recommendations combine three inputs: <em>your hardware</em>, <em>your workload</em>, and
   <em>current capability rankings</em>. None alone is enough — a leaderboard doesn't know your GPU,
