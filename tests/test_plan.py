@@ -506,3 +506,66 @@ def test_the_bundle_is_not_background_only():
     from clickllm.desktop import plist
 
     assert "LSBackgroundOnly" not in plist("clickllm")
+
+
+# --- speculative decoding: the flag has to be the shape vLLM parses -----------
+
+
+def test_speculative_config_is_json_not_a_bare_method_name():
+    """`--speculative-config eagle3` is accepted by no vLLM and fails at startup.
+
+    This shipped: the adapter emitted the knob's value verbatim, and every test
+    asserting "the flag is present" passed while the generated command could not
+    start. Same class as the renamed --guided-decoding-backend.
+
+    Verified: docs.vllm.ai/en/stable/features/speculative_decoding/mtp, 2026-07-28.
+    """
+    import json
+
+    from clickllm import catalog
+    from clickllm.hardware import Hardware
+    from clickllm.plan import Requirements, Workload, plan
+
+    hw = Hardware(
+        kind="nvidia",
+        name="H100",
+        total_bytes=80 * 1024**3,
+        usable_bytes=72 * 1024**3,
+        bandwidth_gbps=3350.0,
+        cores=1,
+    )
+    req = Requirements(workload=Workload.INTERACTIVE, concurrency=4, context=8192)
+    argv, _ = plan(hw, req, catalog.get("llama-3.1-8b")).command("meta-llama/Llama-3.1-8B")
+
+    i = argv.index("--speculative-config")
+    parsed = json.loads(argv[i + 1])  # must not raise
+    assert parsed["method"] == "eagle3"
+    assert parsed["num_speculative_tokens"] >= 1
+
+
+def test_a_model_with_its_own_mtp_head_is_not_asked_for_an_eagle_draft():
+    """DeepSeek-family checkpoints carry an MTP head. Requesting eagle3 asks for
+    a draft model that does not exist for them."""
+    import json
+
+    from clickllm import catalog
+    from clickllm.hardware import Hardware
+    from clickllm.plan import Requirements, Workload, plan
+
+    hw = Hardware(
+        kind="nvidia",
+        name="8xH200",
+        total_bytes=1128 * 1024**3,
+        usable_bytes=1000 * 1024**3,
+        bandwidth_gbps=4800.0,
+        cores=1,
+        devices=8,
+    )
+    req = Requirements(workload=Workload.INTERACTIVE, concurrency=4, context=8192)
+    argv, _ = plan(hw, req, catalog.get("deepseek-v3")).command("deepseek-ai/DeepSeek-V3")
+
+    i = argv.index("--speculative-config")
+    spec = json.loads(argv[i + 1])
+    assert spec["method"] == "mtp", spec
+    # >1 runs the same head repeatedly and lowers the acceptance rate.
+    assert spec["num_speculative_tokens"] == 1, spec

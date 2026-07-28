@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from clickllm.catalog import ModelSpec
-from clickllm.engines import Setting
+from clickllm.engines import MTP_NATIVE, Setting
 from clickllm.fit import Fit, solve
 from clickllm.hardware import Hardware
 
@@ -383,18 +383,33 @@ def _speculative(req: Requirements, fit: Fit | None) -> Knob:
             f"numbers turn negative around batch 32.",
         )
     slow = fit is not None and fit.tokens_per_sec is not None and fit.tokens_per_sec < 40
-    return Knob(
-        Setting.SPECULATIVE,
-        "eagle3",
+    # A model with its own MTP head needs no draft model — the weights are
+    # already in the checkpoint. Asking for eagle3 here would request a draft
+    # that does not exist for this family.
+    model_id = fit.model.id if fit is not None else ""
+    native_mtp = any(k in model_id for k in MTP_NATIVE)
+    method = "mtp" if native_mtp else "eagle3"
+
+    why = (
         f"concurrency {req.concurrency} leaves compute idle between tokens, which "
         f"is exactly what drafting spends"
-        + (
+    )
+    if native_mtp:
+        why += (
+            ". This family ships its own multi-token-prediction head, so drafting "
+            "reuses weights already resident rather than loading a separate draft "
+            "model. One speculative token: running the same head repeatedly lowers "
+            "the acceptance rate."
+        )
+    elif slow:
+        why += (
             f". Decode is estimated at {fit.tokens_per_sec:.0f} tok/s, so the "
             f"latency win is worth the memory."
-            if slow
-            else ". Expect roughly 1.3–1.8× on interactive traffic; measure it."
-        ),
-    )
+        )
+    else:
+        why += ". Expect roughly 1.3–1.8× on interactive traffic; measure it."
+
+    return Knob(Setting.SPECULATIVE, method, why)
 
 
 def _chunked_prefill(req: Requirements) -> Knob:
