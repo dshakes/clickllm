@@ -293,7 +293,12 @@ def cmd_build(args: argparse.Namespace) -> int:
         s = Session.from_json(pathlib.Path(args.resume).read_text())
     if args.description:
         s.tell(" ".join(args.description))
-    s.on(args.on)
+    # Only touch hardware when a profile was named or none is known yet — a
+    # bare --resume must not silently re-detect the local machine and discard
+    # a previously saved --on profile (e.g. a remote "h100"). mcp._build guards
+    # the same way; this was a real inconsistency between the two surfaces.
+    if args.on or s.hw is None:
+        s.on(args.on)
 
     for name in ("concurrency", "context", "ttft_ms", "itl_ms", "prefix_sharing"):
         v = getattr(args, name, None)

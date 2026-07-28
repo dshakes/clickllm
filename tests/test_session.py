@@ -8,6 +8,7 @@ the answer, it never asks twice, it survives a restart, and it stops at the door
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -207,6 +208,66 @@ def test_it_always_points_at_the_proof_step():
 def test_no_agent_facing_tool_can_move_traffic():
     forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
     assert not [n for n in mcp.TOOLS if any(w in n for w in forbidden)]
+
+
+# --- resuming must not silently discard a chosen machine ------------------------
+
+
+def test_a_bare_resume_does_not_re_detect_hardware_over_a_saved_profile(tmp_path):
+    """Caught by the automated reviewer on PR #16: cmd_build called `s.on(args.on)`
+    unconditionally, so `--resume saved.json` with no `--on` silently re-detected
+    the local machine and threw away a previously saved remote profile like h100.
+    mcp._build already guarded this correctly; cli.cmd_build did not."""
+    import subprocess
+    import sys
+
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    saved = tmp_path / "sess.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "clickllm.cli",
+            "build",
+            "batch scoring overnight",
+            "--on",
+            "h100",
+            "--save",
+            str(saved),
+        ],
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": src, "PATH": "/usr/bin:/bin"},
+        check=True,
+    )
+    assert "H100" in saved.read_text()
+
+    resumed = tmp_path / "sess2.json"
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "clickllm.cli",
+            "build",
+            "--resume",
+            str(saved),
+            "--save",
+            str(resumed),
+        ],
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": src, "PATH": "/usr/bin:/bin"},
+        check=True,
+    )
+    assert "H100" in resumed.read_text(), r.stdout + r.stderr
+
+
+def test_the_mcp_surface_already_had_the_correct_guard():
+    """The reference behaviour cmd_build was fixed to match."""
+    t1 = mcp._build(description="batch scoring overnight", machine="h100")
+    t2 = mcp._build(state=t1["state"])  # no machine passed on the resumed turn
+    assert t2["state"]["hw"]["name"] == t1["state"]["hw"]["name"]
 
 
 # --- the multi-turn agent surface -------------------------------------------------
