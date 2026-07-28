@@ -65,6 +65,13 @@ from enum import StrEnum
 MTP_NATIVE = ("deepseek-v3", "deepseek-v4", "mimo", "longcat", "glm-4.5", "glm-5")
 
 
+#: Speculative methods that load a SEPARATE draft checkpoint, so a bare method
+#: name is not a runnable config. `mtp` is absent on purpose: those families
+#: carry the head in the checkpoint already, which is the whole point of
+#: `MTP_NATIVE`. Verified against vLLM's speculative-decoding docs, 2026-07-28.
+DRAFT_REQUIRED = frozenset({"eagle", "eagle3", "draft_model", "medusa"})
+
+
 #: Ranks vLLM's `--max-lora-rank` actually accepts. It is a choice list, not a
 #: free integer, so an adapter trained at rank 48 is rejected at startup unless
 #: it is rounded UP to the next accepted value. Rounding down would silently
@@ -270,6 +277,24 @@ class VllmAdapter(Adapter):
                 # asserts the flag is present.
                 # Verified: docs.vllm.ai/en/stable/features/speculative_decoding/mtp
                 # (checked 2026-07-28).
+                spec = json.loads(_speculative_json(value))
+                if spec.get("method") in DRAFT_REQUIRED and not spec.get("model"):
+                    # One layer below the bug above, and worse. EAGLE3 is a draft
+                    # *model*, not a mode: every example in vLLM's docs names a
+                    # trained head ("nvidia/Llama-3.3-70B-Instruct-Eagle3"), and
+                    # none can be derived from the base model's name.
+                    #
+                    # `{"method":"eagle3","num_speculative_tokens":1}` is valid
+                    # JSON made of real flags, and vLLM cannot start from it —
+                    # it has no way to know which head to load. No argv check
+                    # catches this, because nothing about the argv is wrong.
+                    return Unsupported(
+                        setting,
+                        f"{spec['method']} needs a trained draft checkpoint and "
+                        "none was named; a draft model cannot be inferred from "
+                        "the base model. Pass a speculative config carrying "
+                        '"model": "<org>/<draft-repo>" to enable it',
+                    )
                 return Translated(("--speculative-config", _speculative_json(value)))
             case Setting.LORA_FLEET:
                 # Verified: docs.vllm.ai/en/stable/features/lora and

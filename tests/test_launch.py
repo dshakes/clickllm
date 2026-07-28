@@ -340,7 +340,25 @@ class H(BaseHTTPRequestHandler):
         pass
 
 
-HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+class Reusable(HTTPServer):
+    # The port came from a socket the test bound and closed, so on macOS it can
+    # still be in TIME_WAIT when this process starts. Without both of these the
+    # stub fails to bind and the test reads it as "the engine never answered".
+    allow_reuse_address = True
+
+
+def bind(port, deadline=20.0):
+    end = time.monotonic() + deadline
+    while True:
+        try:
+            return Reusable(("127.0.0.1", port), H)
+        except OSError:
+            if time.monotonic() > end:
+                raise
+            time.sleep(0.1)
+
+
+bind(int(sys.argv[1])).serve_forever()
 """
 
 
@@ -408,7 +426,7 @@ def test_a_200_on_the_model_list_is_not_treated_as_ready(tmp_path):
     plan = _stub_plan(tmp_path, argv, port)
     proc = subprocess.Popen(argv)  # noqa: S603
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             try:
                 with urllib.request.urlopen(f"{plan.base}/v1/models", timeout=1) as r:  # noqa: S310

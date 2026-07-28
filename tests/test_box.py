@@ -226,8 +226,14 @@ def test_the_container_files_are_the_engines_own_image_and_flags(built):
     start = lines.index("    command:")
     args = list(takewhile(lambda ln: ln.startswith("      - "), lines[start + 1 :]))
     assert args and all(ln.startswith('      - "') for ln in args), args
-    assert any('"{' in ln for ln in args), "the JSON-carrying flag is the reason for the quoting"
     assert files["targets/linux-cuda/Dockerfile"].rstrip().splitlines()[-1].startswith("CMD [")
+
+    # This used to also assert a JSON-carrying arg was present, since that is
+    # *why* everything is quoted. No single-node target emits one any more:
+    # eagle3 now requires a named draft checkpoint, and the only families that
+    # speculate without one (MTP-native: glm-5.2, deepseek-v3, deepseek-v4-pro)
+    # are 355B+ and fit no single node. The blanket quoting rule above is the
+    # invariant that matters and still covers the JSON case if it returns.
 
 
 def test_the_rocm_target_uses_amds_image_and_amds_device_plugin(built):
