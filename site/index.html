@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>clickllm — you don't have a model problem, you have a proof problem</title>
-<meta name="description" content="Prove which open-weight LLM can replace your closed-model API — on your own traffic, hardware and budget — then migrate across with a quality gate and a rollback button.">
+<title>clickllm — open weights are free, running them properly is the hard part</title>
+<meta name="description" content="Run open-weight LLMs properly on your own hardware — sizing, engine, flags and deployment derived for you, then proved on your own traffic with a quality gate and a rollback button.">
 <meta property="og:title" content="clickllm — Prove it, then move it.">
-<meta property="og:description" content="Your traffic becomes the benchmark. The benchmark becomes the proof. The proof becomes the migration.">
+<meta property="og:description" content="One command. You never write a config. Agents drive it natively. Your traffic becomes the benchmark, and the benchmark becomes the proof.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://dshakes.github.io/clickllm/assets/switch-loop.svg">
 <meta name="twitter:card" content="summary_large_image">
@@ -231,7 +231,18 @@
     .cards{grid-template-columns:1fr}
     .gallery{grid-template-columns:1fr}
     .stats{grid-template-columns:repeat(2,1fr)}
-    .navlinks{display:none}
+    /* The nav links used to be display:none here, which removed every section
+       link on mobile with no hamburger and no fallback — the whole site became
+       unnavigable below 900px unless you knew the anchors. They now drop to a
+       second row and scroll horizontally if they still do not fit, so every
+       link stays reachable at any width. */
+    .navin{flex-wrap:wrap;row-gap:10px;gap:14px;padding:11px 18px}
+    .navlinks{order:3;width:100%;margin-left:0;gap:18px;font-size:13.5px;
+              overflow-x:auto;-webkit-overflow-scrolling:touch;
+              scrollbar-width:none;padding-bottom:2px}
+    .navlinks::-webkit-scrollbar{display:none}
+    .navlinks a{white-space:nowrap}
+    .cta{margin-left:auto;padding:8px 14px;font-size:13.5px}
     section{padding:58px 0}
     header{padding:44px 0 22px}
     .bg::after{display:none}
@@ -260,9 +271,11 @@
   <div class="herogrid">
     <div>
       <span class="pill"><i class="dot"></i>local-first · zero telemetry · Apache-2.0</span>
-      <h1>You don't have a model&nbsp;problem.<br><span class="grad">You have a proof problem.</span></h1>
-      <p class="lede">GLM-5.2 is MIT-licensed, 11× cheaper, and <b>probably</b> good enough.
-        "Probably" is why you're still paying $18K a month.</p>
+      <h1>Open weights are&nbsp;free.<br><span class="grad">Running them properly is the hard part.</span></h1>
+      <p class="lede">One command. You never write a config. Agents drive it natively.
+        Between "the weights are on Hugging Face" and "it's serving production" sits a
+        project — <b>clickllm collapses it into one decision</b>, and prints the
+        arithmetic behind every number in it.</p>
       <div class="ci" aria-hidden="true">
         <span class="whisk"></span><span class="bar"></span><span class="pt"></span>
         <span class="bar" style="background:linear-gradient(90deg,var(--candidate),var(--ink3))"></span>

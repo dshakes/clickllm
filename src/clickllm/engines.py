@@ -50,8 +50,31 @@ designing against.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
+
+#: Model families that carry their own multi-token-prediction head. For these,
+#: `mtp` reuses weights already in the checkpoint, so it needs no draft model —
+#: proposing `eagle3` instead would ask for a draft that does not exist.
+#: Verified against docs.vllm.ai/en/stable/features/speculative_decoding/mtp,
+#: 2026-07-28. Matched on substrings because catalogue ids carry version suffixes.
+MTP_NATIVE = ("deepseek-v3", "deepseek-v4", "mimo", "longcat", "glm-4.5", "glm-5")
+
+
+def _speculative_json(value: object) -> str:
+    """Render the speculative knob as the JSON object vLLM actually parses.
+
+    Accepts either a bare method name (`"eagle3"`, `"mtp"`) or an already-formed
+    mapping. `num_speculative_tokens` defaults to 1 because vLLM's own docs call
+    that "a reasonable starting point", and because for MTP a value above 1 runs
+    the same head repeatedly and lowers the acceptance rate.
+    """
+    spec = dict(value) if isinstance(value, dict) else {"method": str(value)}
+    spec.setdefault("num_speculative_tokens", 1)
+    # Compact separators: this ends up on a command line a human has to read.
+    return json.dumps(spec, separators=(",", ":"), sort_keys=True)
+
 
 __all__ = [
     "SOURCES",
@@ -167,7 +190,14 @@ class VllmAdapter(Adapter):
             case Setting.SPECULATIVE:
                 if not value or value == "off":
                     return Translated((), "speculative decoding is off by default")
-                return Translated(("--speculative-config", str(value)))
+                # vLLM takes a JSON object here, not a bare method name. Emitting
+                # `--speculative-config eagle3` produces a command that fails at
+                # startup — the same class of defect as the renamed
+                # --guided-decoding-backend, and invisible to any test that only
+                # asserts the flag is present.
+                # Verified: docs.vllm.ai/en/stable/features/speculative_decoding/mtp
+                # (checked 2026-07-28).
+                return Translated(("--speculative-config", _speculative_json(value)))
             case Setting.MEMORY_FRACTION:
                 return Translated(("--gpu-memory-utilization", str(value)))
             case Setting.TENSOR_PARALLEL:
