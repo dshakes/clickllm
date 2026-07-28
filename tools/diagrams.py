@@ -75,7 +75,30 @@ def head(w: int, h: int, title: str, desc: str) -> list[str]:
         ".ax{fill:var(--muted);font-size:10.5px}"
         f".m{{font-family:{MONO};font-size:10.5px;fill:var(--ink2)}}"
         ".g{stroke:var(--grid);stroke-width:1}"
-        ".note{fill:var(--muted);font-size:10.5px;font-style:italic}",
+        ".note{fill:var(--muted);font-size:10.5px;font-style:italic}"
+        # --- motion -------------------------------------------------------
+        # Animation is used only where the thing being taught IS a process over
+        # time — a token stream, a slot refilling, a saturated pipe. On a static
+        # magnitude it would be decoration competing with the data, so most of
+        # these diagrams stay still on purpose.
+        #
+        # CSS keyframes rather than SMIL, for one reason that matters: a media
+        # query can switch them off. Motion a reader cannot stop is an
+        # accessibility failure, and `prefers-reduced-motion` is honoured here
+        # in the shared header so no individual diagram can forget it.
+        "@keyframes clkpulse{0%,100%{opacity:.45}50%{opacity:1}}"
+        "@keyframes clkflow{to{stroke-dashoffset:-28}}"
+        "@keyframes clkpop{0%{opacity:0}3%{opacity:1}92%{opacity:1}100%{opacity:0}}"
+        ".pulse{animation:clkpulse 2.4s ease-in-out infinite}"
+        ".flow{animation:clkflow 1.1s linear infinite}"
+        # No `opacity:0` on the class itself. The hidden-until-my-turn state
+        # comes from the backwards fill of `both`, so a renderer that ignores
+        # CSS animation entirely leaves these marks VISIBLE rather than blanking
+        # them — the difference between "not animated" and "half the diagram is
+        # missing" in whatever strips CSS from an <img> next.
+        ".pop{animation:clkpop 6s linear infinite both}"
+        "@media (prefers-reduced-motion:reduce){"
+        ".pulse,.flow,.pop{animation:none;opacity:1}}",
         "</style>",
         f'<rect width="{w}" height="{h}" fill="var(--bg)"/>',
         f'<text x="28" y="30" class="t">{title}</text>',
@@ -250,8 +273,15 @@ def prefill_decode() -> None:
     )
 
     tx = x0 + pw + 14
+    # Animated, because "one token per step" is a claim about *time*. A row of
+    # 22 identical squares states it; watching them arrive one at a time after a
+    # single wide prefill is the same fact learned instead of read.
     for i in range(22):
-        p.append(bar(tx + i * 26, y, 22, 44, 1, r=5))
+        p.append(
+            f'<rect class="pop" style="animation-delay:{0.5 + i * 0.15:.2f}s" '
+            f'x="{tx + i * 26}" y="{y}" width="22" height="44" rx="5" '
+            f'fill="var(--s1)"/>'
+        )
     p.append(
         f'<text x="{tx + 11 * 26:.0f}" y="{y - 12}" class="lb" text-anchor="middle" '
         f'fill="var(--s1)">decode — one token per step, {22} steps shown</text>'
@@ -421,7 +451,16 @@ def batching() -> None:
                 f'height="24" rx="4" fill="var(--grid)" opacity="0.55"/>'
             )
         for start, length, slot in runs:
-            p.append(bar(x0 + start * unit + 1, y, length * unit - 3, 24, slot, r=4))
+            # Both timelines share one clock: a run appears at its own start
+            # time. That is the entire lesson made visible — in the static row
+            # nothing ever appears after t=0, while in the continuous row a new
+            # request drops into a slot the instant it frees.
+            p.append(
+                f'<rect class="pop" style="animation-delay:{start * 0.45:.2f}s" '
+                f'x="{x0 + start * unit + 1:.0f}" y="{y}" '
+                f'width="{length * unit - 3:.0f}" height="24" rx="4" '
+                f'fill="var(--s{slot})"/>'
+            )
 
     p.append('<text x="28" y="88" class="lb">static batching</text>')
     for i, ln in enumerate(lens):
@@ -1045,6 +1084,265 @@ def kernels() -> None:
     save("edu-kernels.svg", p)
 
 
+# --- 11. what the silicon is actually doing ------------------------------------
+
+
+def silicon() -> None:
+    """The hardware you bought, and the fraction of it a decode step uses.
+
+    Every other diagram here measures the workload. This one measures the
+    *machine*, because "is this GPU being used well" is the question people
+    think they are asking when they ask about tokens per second — and the honest
+    answer is uncomfortable enough to be worth drawing rather than asserting.
+
+    ## The arithmetic
+
+    A decode step reads every weight once and does two FLOPs with each one per
+    sequence in the batch, so its arithmetic intensity is
+
+        2 * batch / bytes_per_param     FLOP per byte
+
+    which at fp16 is simply `batch`. The machine's own balance point — the
+    intensity at which compute and bandwidth finish together — is
+
+        989.4 TFLOP/s / 3.35 TB/s = 295 FLOP/byte
+
+    So saturating an H100's tensor cores on a decode step needs a batch of ~295.
+    At batch 1 you are using 1/295 of the compute: 0.3%, less than a single SM's
+    worth of work spread across 132 of them.
+
+    ## And the part that makes it a product problem
+
+    Batching buys that compute back — but the KV cache is what pays for it, and
+    on this workload the memory runs out at batch 18 (6.1% of peak). The other
+    94% is not idle because nobody batched hard enough; it is *unreachable*
+    without changing quantisation, context, or attention scheme. That is the
+    whole thesis of the sizing solver in one picture.
+
+    Sources: H100 SXM5 datasheet (132 SMs, 989.4 TFLOPS dense BF16/FP16 tensor
+    core, 3.35 TB/s HBM3, 5 stacks). Memory figures are `clickllm fit`'s, for
+    Qwen3 32B at q8 and 8k context.
+    """
+    W, H = 900, 852
+    p = head(
+        W,
+        H,
+        "What your silicon is actually doing",
+        "An H100 running a 32B model at 8k context. The compute die is almost "
+        "entirely idle during decode, the memory bandwidth is saturated, and the "
+        "KV cache fills the HBM before batching can recover the idle compute.",
+    )
+    p.append(
+        '<text x="28" y="50" class="sub">The compute is idle, the memory is full, '
+        "and the KV cache is the reason you cannot fix it by batching harder</text>"
+    )
+
+    PEAK_TFLOPS, BW_GBS, SMS, STACKS = 989.4, 3350, 132, 5
+    RIDGE = 295  # PEAK / BW, in FLOP per byte — the machine's balance point
+    WALL_BATCH, WALL_PCT = 18, 6.1
+    WEIGHTS, KV, OVER, USABLE, NAMEPLATE = 30.5, 36.0, 3.9, 72.0, 80.0
+
+    # --- the die --------------------------------------------------------------
+    dx, dy, dw, dh = 28, 86, 290, 320
+    p.append(
+        f'<rect x="{dx}" y="{dy}" width="{dw}" height="{dh}" rx="12" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
+    )
+    p.append(f'<text x="{dx + 18}" y="{dy + 26}" class="lb">GPU die · {SMS} SMs</text>')
+    p.append(f'<text x="{dx + 18}" y="{dy + 43}" class="ax">{PEAK_TFLOPS:,.0f} TFLOPS peak</text>')
+
+    # 132 SMs as a 12x11 grid. One is lit: that is 0.3% of the die, and drawing
+    # it as "less than one square out of 132" lands in a way a percentage does
+    # not. Seven more are tinted — together they are the most batching can ever
+    # reach on this workload.
+    cols, cell, pitch = 12, 17, 19
+    gx, gy = dx + 19, dy + 58
+    reachable = round(SMS * WALL_PCT / 100)
+    for i in range(SMS):
+        cx, cy = gx + (i % cols) * pitch, gy + (i // cols) * pitch
+        if i == 0:
+            p.append(bar(cx, cy, cell, cell, 2, r=3))
+        elif i < reachable:
+            p.append(
+                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="3" '
+                f'fill="var(--s2)" opacity="0.3"/>'
+            )
+        else:
+            p.append(
+                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="3" '
+                f'fill="none" stroke="var(--grid)"/>'
+            )
+    p.append(
+        f'<text x="{dx + 18}" y="{dy + dh - 40}" class="ax" fill="var(--s2)">'
+        f"1 lit = 0.3% in use at batch 1</text>"
+    )
+    p.append(
+        f'<text x="{dx + 18}" y="{dy + dh - 22}" class="ax">'
+        f"{reachable} shaded = {WALL_PCT}%, the most reachable</text>"
+    )
+
+    # --- the pipe -------------------------------------------------------------
+    px, pw, py = 334, 140, 226
+    p.append(bar(px, py, pw, 22, 0, r=6))
+    # Traffic visibly moving through a full pipe, next to a die that does not
+    # move at all. The contrast is the point: the bottleneck is the one that is
+    # busy, and a still picture cannot say which of the two that is.
+    p.append(
+        f'<path class="flow" d="M {px + 8} {py + 11} H {px + pw - 16}" '
+        f'stroke="var(--bg)" stroke-width="3" stroke-linecap="round" '
+        f'stroke-dasharray="7 7" opacity="0.55"/>'
+    )
+    p.append(
+        f'<path d="M {px + pw - 13} {py + 4} l 9 7 l -9 7" fill="none" '
+        f'stroke="var(--bg)" stroke-width="2"/>'
+    )
+    p.append(
+        f'<text x="{px + pw / 2:.0f}" y="{py - 10}" class="ax" text-anchor="middle">'
+        f"{BW_GBS:,} GB/s</text>"
+    )
+    p.append(
+        f'<text x="{px + pw / 2:.0f}" y="{py + 40}" class="ax" text-anchor="middle" '
+        f'fill="var(--s0)">100% saturated</text>'
+    )
+    p.append(
+        f'<text x="{px + pw / 2:.0f}" y="{py + 57}" class="ax" text-anchor="middle">'
+        f"the actual limit</text>"
+    )
+
+    # --- the HBM stacks -------------------------------------------------------
+    sx, sw, gap, sy, sh = 498, 56, 10, 120, 244
+    per_stack = NAMEPLATE / STACKS
+    # Filled bottom-up across the stacks in order, so the memory reads as a tank
+    # being filled rather than five independent bars. Overhead is grey rather
+    # than a categorical hue: it is not a series anyone compares, and spending a
+    # validated slot on it would cost the legend a colour that carries meaning.
+    fills = [(WEIGHTS, "var(--s1)"), (KV, "var(--s0)"), (OVER, "var(--muted)")]
+    for s in range(STACKS):
+        x = sx + s * (sw + gap)
+        p.append(
+            f'<rect x="{x}" y="{sy}" width="{sw}" height="{sh}" rx="7" '
+            f'fill="var(--panel)" stroke="var(--grid)"/>'
+        )
+        lo, hi = s * per_stack, (s + 1) * per_stack
+        at = 0.0
+        for amount, paint in fills:
+            seg_lo, seg_hi = at, at + amount
+            at = seg_hi
+            # Clip this segment to this stack's GB range.
+            top, bot = max(seg_lo, lo), min(seg_hi, hi)
+            if bot <= top:
+                continue
+            y0 = sy + sh - (bot - lo) / per_stack * sh
+            p.append(
+                f'<rect x="{x + 3}" y="{y0:.1f}" width="{sw - 6}" '
+                f'height="{(bot - top) / per_stack * sh - 2:.1f}" rx="3" '
+                f'fill="{paint}"/>'
+            )
+    p.append(
+        f'<text x="{sx}" y="{sy - 26}" class="lb">HBM3 · {STACKS} stacks · '
+        f"{NAMEPLATE:.0f} GB</text>"
+    )
+    p.append(
+        f'<text x="{sx}" y="{sy - 9}" class="ax">{WEIGHTS + KV + OVER:.1f} GB used of '
+        f"{USABLE:.0f} usable — KV is the biggest term</text>"
+    )
+    # The usable ceiling sits below the nameplate, and saying so is the point.
+    # It is drawn ONLY on the stack the cumulative level actually falls in: the
+    # fill is a tank filling left to right, so a line ruled across every stack
+    # would be mixing a cumulative quantity with a per-stack one, and would read
+    # as "each stack is 90% usable" — which is not what 72 of 80 GB means.
+    ceil_stack = int(USABLE // per_stack)
+    ceil_x = sx + ceil_stack * (sw + gap)
+    yline = sy + sh - (USABLE - ceil_stack * per_stack) / per_stack * sh
+    p.append(
+        f'<path d="M {ceil_x - 6} {yline:.1f} H {ceil_x + sw + 6}" '
+        f'stroke="var(--s3)" stroke-width="1.5" stroke-dasharray="5 4"/>'
+    )
+    p.append(
+        f'<text x="{ceil_x + sw + 10}" y="{yline + 4:.1f}" class="ax" '
+        f'fill="var(--s3)">{USABLE:.0f} GB usable</text>'
+    )
+
+    # --- the wall -------------------------------------------------------------
+    ry = 448
+    p.append(
+        f'<text x="28" y="{ry}" class="lb">Batching buys the compute back — '
+        f"until it does not</text>"
+    )
+    p.append(
+        f'<text x="28" y="{ry + 19}" class="ax">Share of peak FLOPs at each batch '
+        f"size. Saturating this die needs batch {RIDGE}.</text>"
+    )
+
+    rows = [
+        (1, 0.3, True),
+        (8, 2.7, True),
+        (WALL_BATCH, WALL_PCT, True),
+        (32, 10.8, False),
+        (64, 21.7, False),
+        (RIDGE, 100.0, False),
+    ]
+    lx, bx0, bw2, ry0, rh = 132, 144, 596, ry + 42, 32
+    # Rows below the wall are pushed down so the wall and its label own a band of
+    # their own — at the old spacing the label collided with the next row.
+    wall_gap = 26
+    for i, (batch, pct, reach) in enumerate(rows):
+        y = ry0 + i * rh + (wall_gap if i >= 3 else 0)
+        p.append(f'<text x="{lx}" y="{y + 15}" class="ax" text-anchor="end">batch {batch}</text>')
+        w = max(bw2 * pct / 100, 2)
+        if reach:
+            p.append(bar(bx0, y, w, 20, 2))
+        else:
+            # Unreachable is drawn as an outline, not a fill: it is a quantity
+            # that does not exist on this machine, and a solid bar would read as
+            # something you could go and get.
+            p.append(
+                f'<rect x="{bx0}" y="{y}" width="{w:.1f}" height="20" rx="4" '
+                f'fill="none" stroke="var(--s3)" stroke-dasharray="5 4"/>'
+            )
+        p.append(
+            f'<text x="{bx0 + w + 10:.0f}" y="{y + 14}" class="m"'
+            + (">" if reach else ' fill="var(--muted)">')
+            + f"{pct:.1f}%</text>"
+        )
+
+    wall_y = ry0 + 3 * rh + 4
+    p.append(
+        f'<path d="M {bx0 - 6} {wall_y} H {bx0 + bw2}" stroke="var(--s3)" stroke-width="1.5"/>'
+    )
+    p.append(
+        f'<text x="{bx0}" y="{wall_y + 15}" class="ax" fill="var(--s3)">'
+        f"memory wall — the KV cache fills the HBM here</text>"
+    )
+
+    ly = ry0 + len(rows) * rh + wall_gap + 40
+    p.append(
+        legend(
+            28,
+            ly,
+            [(2, "compute in use"), (1, "weights"), (0, "KV cache"), (3, "out of reach")],
+        )
+    )
+    # Overhead is greyed rather than given a categorical slot, so it gets its
+    # swatch by hand rather than through legend().
+    p.append(
+        f'<rect x="536" y="{ly - 7}" width="9" height="9" rx="2.5" fill="var(--muted)"/>'
+        f'<text x="550" y="{ly + 1}" class="lb">runtime overhead</text>'
+    )
+    note(
+        p,
+        28,
+        ly + 30,
+        "So the 94% is not idle because nobody batched hard enough — it is "
+        "unreachable until something gives up memory: a smaller quantisation, a "
+        "shorter context, fp8 KV, or an MLA model whose cache is ~50x smaller. "
+        "That is the trade clickllm's solver exists to price. The roofline is "
+        "weights-only and therefore an upper bound; real KV reads push the "
+        "intensity lower still. Estimates, not measurements.",
+    )
+    save("edu-silicon.svg", p)
+
+
 if __name__ == "__main__":
     print("writing diagrams:")
     memory_breakdown()
@@ -1057,4 +1355,5 @@ if __name__ == "__main__":
     degradation()
     tpus()
     kernels()
+    silicon()
     print("done")
