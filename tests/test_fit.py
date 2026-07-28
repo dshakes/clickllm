@@ -152,12 +152,13 @@ def test_unverified_models_are_flagged():
 
 
 def test_sdk_and_mcp_self_checks():
-    from clickllm import advise, mcp, sdk, watch
+    from clickllm import advise, mcp, sdk, session, watch
 
     sdk.demo()
     mcp.demo()
     advise.demo()
     watch.demo()
+    session.demo()
 
 
 def test_sdk_labels_every_throughput_figure_as_an_estimate():

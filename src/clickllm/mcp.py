@@ -74,6 +74,59 @@ def _explain(model_id: str, context: str = "32k", concurrency: int = 1) -> dict[
     return {"model": model_id, "fits": f.feasible, "arithmetic": f.explain()}
 
 
+def _build(
+    description: str = "",
+    machine: str = "",
+    state: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> dict[str, Any]:
+    """Drive the whole flow one turn at a time, carrying state between calls.
+
+    This is the multi-turn surface: pass `state` back from the previous call and
+    the conversation continues. Read-only — it produces a command and a proof
+    plan, and runs neither.
+    """
+    import json as _json
+
+    from .session import Session
+
+    s = Session.from_json(_json.dumps(state)) if state else Session()
+    # Mutate state directly rather than calling tell()/on()/set() (which each
+    # call step() internally) — a worth-asking question gets committed to
+    # `s.asked` inside step(), and if that commit fires on an intermediate
+    # call whose Turn is then discarded, the single most valuable question is
+    # silently lost before it ever reaches whoever is having this conversation.
+    # One step() call at the end means exactly one commit, in priority order.
+    if description:
+        s._apply_text(description)
+    if machine or s.hw is None:
+        s._apply_hardware(machine or None)
+    known = {k: v for k, v in overrides.items() if v is not None}
+    if known:
+        s._apply_fields(**known)
+
+    turn = s.step()
+    return {
+        "stage": turn.stage.value,
+        "said": turn.said,
+        # One question, never a list. Ask it, then call back with `state`.
+        "question": turn.question,
+        "evidence": list(turn.evidence),
+        "assuming": list(turn.assuming),
+        "answer": s.answer(),
+        "suggestions": [
+            {"impact": x.impact.value, "action": x.action, "because": x.because}
+            for x in s.optimizations()
+        ],
+        # Pass this back verbatim on the next call to continue the conversation.
+        "state": _json.loads(s.to_json()),
+        "advisory": (
+            "A plan and a command, not an action. Deployment is a human step and "
+            "no eval result moves production traffic without one."
+        ),
+    }
+
+
 def _advise(
     context: str = "32k",
     concurrency: int = 1,
@@ -266,6 +319,44 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                     "concurrency": {"type": "integer", "minimum": 1},
                 },
                 "required": ["model_id"],
+            },
+        },
+    ),
+    "clickllm_build": (
+        _build,
+        {
+            "description": (
+                "The whole flow in one multi-turn call: read what the user is building, "
+                "size their hardware, choose a model, configure the engine, critique the "
+                "plan, and hand back a command plus a proof plan. Pass 'state' back from "
+                "the previous response to continue the conversation. If 'question' is "
+                "non-null it is the ONE thing that would change the answer — ask the user "
+                "that and call again. There is always a usable 'answer', so never make the "
+                "user answer a question before showing them something. Report 'assuming' "
+                "alongside it: those are defaults, not findings. Produces a command; runs "
+                "nothing."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Plain language, e.g. 'coding assistant for 20 engineers'.",
+                    },
+                    "machine": {
+                        "type": "string",
+                        "description": "Hardware profile id; omit to detect the local machine.",
+                    },
+                    "state": {
+                        "type": "object",
+                        "description": "The 'state' object from the previous call.",
+                    },
+                    "concurrency": {"type": "integer", "minimum": 1},
+                    "context": {"type": "integer"},
+                    "ttft_ms": {"type": "integer"},
+                    "itl_ms": {"type": "integer"},
+                    "prefix_sharing": {"type": "number", "minimum": 0, "maximum": 1},
+                },
             },
         },
     ),

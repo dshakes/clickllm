@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-584-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-658-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -63,6 +63,43 @@ Every number answers `--explain`, which prints the arithmetic that produced it.
 
 ---
 
+## Or just say what you're building
+
+```bash
+clickllm build "coding assistant for about 20 engineers, needs to feel snappy"
+```
+```
+  Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB, 7 candidates fit. Engine: mlx.
+
+  understood:
+    · workload = interactive   (from "assistant")
+    · concurrency = 4   (from "20 engineers — about a fifth in flight at once,
+                         since people read and think between requests")
+
+  assuming:
+    · context = 32768
+
+  ? How long are the prompts — a few thousand tokens, or tens of thousands?
+```
+
+It detects the machine, sizes it, picks the model, chooses the engine, critiques
+its own plan, and ends with a command plus the eval to run against it.
+
+**It asks one question, and only when the answer would change the deployment.**
+That is computed, not curated — it re-plans under each candidate answer and stays
+silent when they agree. A form that asks about concurrency when every candidate
+fits at every concurrency is spending the only thing you brought: attention.
+
+**It never blocks.** There is a usable answer before you answer anything, with
+the assumptions listed. Questions refine; they do not gate. And when nothing
+fits, it says what *would* — this context at that concurrency, or a machine that
+is genuinely bigger on the same measure and actually solves the problem.
+
+`--save` and `--resume` carry a session across restarts. An agent drives the
+same flow over MCP by passing `state` back each turn.
+
+---
+
 ## Agent-first, by construction
 
 Most tools ship a CLI and bolt on an agent wrapper. Here the CLI, the MCP server,
@@ -76,6 +113,7 @@ clickllm_fit       // what runs on this machine, at this context and concurrency
 clickllm_explain   // the full arithmetic behind one verdict — weights, KV, headroom
 clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
 clickllm_advise    // what to change unprompted, and where production diverged
+clickllm_build     // the whole flow, multi-turn: pass state back to continue
 clickllm_catalog   // parameters, MoE split, context, licence
 ```
 
@@ -211,6 +249,7 @@ And two the suite enforces underneath:
 | — | **Plan** — engine *and* flags derived from what the deployment is for | ✅ |
 | — | **Advise** — `clickllm advise`: what to change unprompted, and drift against real telemetry | ✅ |
 | — | **Intent** — a sentence in, a plan out; asks about what it cannot infer | ✅ |
+| — | **Build** — `clickllm build`: the whole flow multi-turn, resumable, agent-drivable | ✅ |
 | ④ | **Prove** — `clickllm prove`: grader stack, position-swapped judge, equivalence matrix | ✅ |
 | — | **Receipt** — a portable, reproducible proof you can hand to an auditor | ✅ |
 | ⑤ | **Deploy** — native vLLM / SGLang / llm-d config, inference in a box | ✅ |
@@ -318,10 +357,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 335 Python
+uv run --with pytest --python 3.13 pytest -q       # 409 Python
 ```
 
-**584 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**658 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-core/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
