@@ -57,6 +57,9 @@
 
   <div class="grid tiles" id="tiles"></div>
 
+  <h2>Engine, right now</h2>
+  <div id="engine"></div>
+
   <h2>Shadow / candidate</h2>
   <div id="mirrors"></div>
 
@@ -72,6 +75,22 @@
   </footer>
 </div>
 
+<style>
+  .meter{flex:1;height:8px;border-radius:4px;background:#1c2534;overflow:hidden;min-width:120px}
+  .meter i{display:block;height:100%;border-radius:4px;background:#0e9bbd;transition:width .4s}
+  .meter i.warm{background:#c2820b} .meter i.hot{background:#e0405f}
+  .kvrow{display:flex;align-items:center;gap:12px;margin:10px 0 8px;font-size:12.5px}
+  .kvrow>span:first-child{width:74px;color:#9fb0cc}
+  .kvrow>b{font-variant-numeric:tabular-nums;min-width:46px;text-align:right}
+  .statline{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:#9fb0cc}
+  .statline b{color:#eef4ff;font-variant-numeric:tabular-nums}
+  .cardhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .sub.dim{color:#63758f;font-size:11.5px;margin-top:6px}
+  .hint{color:#63758f;font-size:11px;white-space:nowrap}
+  .contras{margin-top:12px;border-top:1px solid #1c2534;padding-top:10px}
+  .contrahead{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#c2820b;margin-bottom:6px}
+  .contra{font-size:12px;color:#9fb0cc;line-height:1.5;margin:5px 0;padding-left:12px;border-left:2px solid #c2820b}
+</style>
 <script>
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString();
@@ -178,6 +197,69 @@ function renderMirrors(rows) {
       persists — a rollout gated on it would never have data to advance on.</div>` : '');
 }
 
+// --- live engine telemetry ---------------------------------------------------
+// Every field may be absent. Absent renders as an em dash, never as 0 — a KV
+// utilisation of "0%" reads as plenty of headroom, which is the exact opposite
+// of "we could not read it". See telemetry.rs for why that distinction is the
+// point of the module.
+// Prefixed to avoid colliding with the request-table helpers above, which
+// already own `pct` and `ms` with different meanings.
+const NA = '\u2014';
+const tPct = v => v === null || v === undefined ? NA : (v * 100).toFixed(0) + '%';
+const tMs  = v => v === null || v === undefined ? NA : Math.round(v) + 'ms';
+const tNum = v => v === null || v === undefined ? NA : Math.round(v).toLocaleString();
+
+function bar(frac) {
+  // A meter with no reading shows an empty track, not a full-width zero.
+  if (frac === null || frac === undefined) return `<div class="meter"></div>`;
+  const cls = frac >= 0.90 ? 'hot' : frac >= 0.75 ? 'warm' : '';
+  return `<div class="meter"><i class="${cls}" style="width:${Math.min(frac,1)*100}%"></i></div>`;
+}
+
+function renderEngine(payload) {
+  const rows = (payload.backends || []).map(b => {
+    const t = b.telemetry || {};
+    if (t.error) {
+      return `<div class="card">
+        <div class="cardhead"><b>${b.backend}</b> <span class="tag">no telemetry</span></div>
+        <div class="sub">${t.error}</div>
+        <div class="sub dim">Not an outage on its own — the gateway is still serving.
+          It means this engine publishes no metrics endpoint we can read.</div>
+      </div>`;
+    }
+    const d = b.derived || {};
+    // Predictions the deployment falsified. The reason this panel exists: a
+    // planner emits a config on assumptions and nobody ever checks them.
+    const against = (b.contradicts_plan || []).map(
+      c => `<div class="contra">${c}</div>`).join('');
+    return `<div class="card">
+      <div class="cardhead"><b>${b.backend}</b>
+        ${d.kv_pressure ? '<span class="tag warn">KV near full — scheduler is preempting</span>' : ''}</div>
+      <div class="kvrow"><span>KV cache</span>${bar(t.kv_cache_used)}<b>${tPct(t.kv_cache_used)}</b></div>
+      <div class="kvrow"><span>prefill</span>${bar(d.prefill_share)}<b>${tPct(d.prefill_share)}</b>
+        <span class="hint">${d.prefill_share === null || d.prefill_share === undefined ? ''
+          : d.prefill_share > 0.5 ? 'prefill-bound — tune chunking' : 'decode-bound — tune bandwidth'}</span></div>
+      <div class="statline">
+        <span>running <b>${tNum(t.running)}</b></span>
+        <span>waiting <b>${tNum(t.waiting)}</b></span>
+        <span>queued <b>${tMs(t.queue_ms)}</b></span>
+        <span>TTFT <b>${tMs(t.ttft_ms)}</b></span>
+        <span>inter-token <b>${tMs(t.itl_ms)}</b></span>
+        <span>end-to-end <b>${tMs(t.e2e_ms)}</b></span>
+      </div>
+      <div class="statline">
+        <span>prefix hits <b>${tPct(t.prefix_hit_rate)}</b></span>
+        <span>draft accepted <b>${tPct(t.draft_acceptance)}</b></span>
+        <span>truncated <b>${tPct(d.truncation_rate)}</b></span>
+        <span>abandoned <b>${tPct(d.abandon_rate)}</b></span>
+        <span>KV reuse gap <b>${t.kv_reuse_gap_s === null || t.kv_reuse_gap_s === undefined ? NA : t.kv_reuse_gap_s.toFixed(1) + 's'}</b></span>
+      </div>
+      ${against ? `<div class="contras"><div class="contrahead">The deployment disagrees with the plan</div>${against}</div>` : ''}
+    </div>`;
+  }).join('');
+  $('engine').innerHTML = rows || `<div class="sub dim">No backends configured.</div>`;
+}
+
 async function poll() {
   try {
     const res = await fetch('metrics/requests', { cache: 'no-store' });
@@ -185,6 +267,12 @@ async function poll() {
     render(await res.json());
     const mres = await fetch('metrics/mirrors', { cache: 'no-store' });
     if (mres.ok) renderMirrors(await mres.json());
+    // Engine telemetry is a separate, slower call against the engines
+    // themselves. Its failure must not mark the gateway unreachable.
+    try {
+      const eres = await fetch('metrics/engine', { cache: 'no-store' });
+      if (eres.ok) renderEngine(await eres.json());
+    } catch (_) { /* rendered per-backend above */ }
     failures = 0;
     $('dot').className = 'dot';
     $('livetext').textContent = 'live';

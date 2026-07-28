@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 366" width="900" height="366" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>When the box lands somewhere smaller</title><desc id='d'>The degradation ladder: quantisation is reduced first, then context is halved repeatedly, until either the workload fits or it drops below the 2k floor and is refused.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="900" height="366" fill="var(--bg)"/>
+<text x="28" y="30" class="t">When the box lands somewhere smaller</text>
+<text x="28" y="50" class="sub">Give something up rather than nothing — and name what was given up</text>
+<text x="186" y="112" class="lb" text-anchor="end">as packed</text>
+<rect x="200.0" y="92.0" width="380.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="596" y="110" class="m">q8 · 32k context</text>
+<text x="186" y="156" class="lb" text-anchor="end">re-quantise</text>
+<rect x="200.0" y="136.0" width="235.6" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="596" y="154" class="m">q4 · 32k context</text>
+<text x="186" y="200" class="lb" text-anchor="end">halve context</text>
+<rect x="200.0" y="180.0" width="152.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="596" y="198" class="m">q4 · 16k context</text>
+<text x="186" y="244" class="lb" text-anchor="end">halve again</text>
+<rect x="200.0" y="224.0" width="106.4" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="596" y="242" class="m">q4 · 8k context</text>
+<text x="186" y="288" class="lb" text-anchor="end">floor reached</text>
+<rect x="200" y="268" width="380" height="26" rx="4" fill="none" stroke="var(--s3)" stroke-dasharray="6 4"/>
+<text x="214" y="286" class="ax" fill="var(--s3)">below 2k — refuse</text>
+<text x="28" y="320" class="note">Every rung is reported, never applied silently. A deployment that serves 8k when it was built for 32k is fine if you</text>
+<text x="28" y="336" class="note">know; it is an incident if you do not.</text>
+</svg>

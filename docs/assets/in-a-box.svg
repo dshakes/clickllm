@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 580" width="900" height="580" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>Inference in a box</title><desc id='d'>One artifact carrying a model reference, a tuned plan, a provenance record and an optional benchmark. It lands on three different machines and produces three different outcomes: run as packed, re-solved with the changes reported, or refused.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="900" height="580" fill="var(--bg)"/>
+<text x="28" y="30" class="t">Inference in a box</text>
+<text x="28" y="50" class="sub">One artifact · three machines · three honest outcomes. Not a container — a container cannot reach Apple's GPU.</text>
+<rect x="300" y="78" width="300" height="112" rx="12" fill="var(--panel)" stroke="var(--s1)" stroke-width="2"/>
+<text x="450" y="102" class="lb" text-anchor="middle" fill="var(--s1)">the box · OCI artifact</text>
+<text x="320" y="124" class="ax">· model reference + digest</text>
+<text x="320" y="140" class="ax">· the plan it was tuned with</text>
+<text x="320" y="156" class="ax">· the host class it was tuned on</text>
+<text x="320" y="172" class="ax">· benchmark, or an explicit none</text>
+<path d="M 450 190 V 212 H 168 V 258" fill="none" stroke="var(--grid)" stroke-width="1.5"/>
+<text x="168" y="246" class="ax" text-anchor="middle">same host class</text>
+<rect x="37" y="258" width="262" height="132" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="37" y="258" width="262" height="4" rx="2" fill="var(--s0)"/>
+<text x="55" y="288" class="lb">H100 80GB</text>
+<text x="55" y="310" class="ax" fill="var(--s0)">AS PACKED</text>
+<text x="55" y="336" class="ax">plan used unchanged</text>
+<text x="55" y="354" class="ax">benchmark still valid</text>
+<path d="M 450 190 V 212 H 450 V 258" fill="none" stroke="var(--grid)" stroke-width="1.5"/>
+<text x="450" y="246" class="ax" text-anchor="middle">different silicon</text>
+<rect x="319" y="258" width="262" height="132" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="319" y="258" width="262" height="4" rx="2" fill="var(--s1)"/>
+<text x="337" y="288" class="lb">M4 Max 128GB</text>
+<text x="337" y="310" class="ax" fill="var(--s1)">RE-SOLVED</text>
+<text x="337" y="336" class="ax">CUDA engines cannot run here</text>
+<text x="337" y="354" class="ax">→ llama.cpp on Metal</text>
+<text x="337" y="372" class="ax">benchmark invalidated</text>
+<path d="M 450 190 V 212 H 732 V 258" fill="none" stroke="var(--grid)" stroke-width="1.5"/>
+<text x="732" y="246" class="ax" text-anchor="middle">smaller machine</text>
+<rect x="601" y="258" width="262" height="132" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="601" y="258" width="262" height="4" rx="2" fill="var(--s2)"/>
+<text x="619" y="288" class="lb">RTX 4090 24GB</text>
+<text x="619" y="310" class="ax" fill="var(--s2)">RE-SOLVED, DEGRADED</text>
+<text x="619" y="336" class="ax">q8 → q4</text>
+<text x="619" y="354" class="ax">context 32k → 8k</text>
+<text x="619" y="372" class="ax">and it says so</text>
+<rect x="37" y="410" width="826" height="52" rx="10" fill="var(--panel)" stroke="var(--s3)"/>
+<rect x="37" y="410" width="4" height="52" rx="2" fill="var(--s3)"/>
+<text x="57" y="432" class="lb" fill="var(--s3)">UNSUPPORTED — below 2k context, the honest answer is no</text>
+<text x="57" y="450" class="ax">A box that quietly served a quarter of the context it was built for would be worse than one that refuses: nobody finds out until a long request truncates.</text>
+<rect x="28" y="487" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="42" y="495" class="lb">as packed</text><rect x="113" y="487" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="127" y="495" class="lb">re-solved</text><rect x="198" y="487" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="212" y="495" class="lb">refused</text>
+<text x="28" y="522" class="note">The re-solve is the product. Anyone can ship an artifact; the value is that it re-derives its own plan on arrival</text>
+<text x="28" y="538" class="note">and reports every single thing it had to give up.</text>
+</svg>

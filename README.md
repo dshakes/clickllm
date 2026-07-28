@@ -8,7 +8,7 @@
 "Probably" is why you're still paying $18K a month.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-163-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-451-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -111,18 +111,50 @@ Four things there are deliberate, and each corrects how these comparisons usuall
 
 | | Capability | |
 |---|---|---|
-| ③ | **Fit** — MoE/GQA/MLA-correct sizing, runtime recommendation, `--explain` | ✅ |
-| — | **Where** — 17 hardware classes, cost per Mtok, TP-aware bandwidth | ✅ |
-| — | **Licence gate** — refuses before bytes move; unknown licences fail closed | ✅ |
+| ① | **Observe** — capture, redaction that fails closed, encrypted store | ✅ |
 | ② | **Distill** — structural clustering, representative sampling | ✅ |
+| ③ | **Fit** — MoE/GQA/MLA-correct sizing, 17 hardware classes, `--explain` | ✅ |
+| — | **Plan** — engine *and* flags derived from what the deployment is for | ✅ |
+| — | **Intent** — a sentence in, a plan out; asks about what it cannot infer | ✅ |
 | ④ | **Prove** — grader stack, position-swapped judge, equivalence matrix | ✅ |
-| ⑥ | **Gateway** — SSE streaming, token metering, router, real shadow dispatch | ✅ |
+| — | **Receipt** — a portable, reproducible proof you can hand to an auditor | ✅ |
+| ⑤ | **Deploy** — native vLLM / SGLang / llm-d config, inference in a box | ✅ |
+| ⑥ | **Gateway** — SSE streaming, metering, router, real shadow dispatch | ✅ |
+| — | **Gate** — automatic rollback, human-gated advance, live control surface | ✅ |
+| — | **Telemetry** — KV pressure, prefill/decode split, plan-vs-reality check | ✅ |
+| ⑦ | **Guard** — model drift, traffic drift, re-prove proposals | ✅ |
+| — | **Post-training** — distil from your own captured incumbent output | ✅ |
 | — | **Surfaces** — CLI · MCP · Python SDK · agent skill · local console | ✅ |
-| ① | **Observe** — capture and redaction | 🔜 |
-| ⑤ | **Deploy** — native config generation, inference in a box | 🔜 |
-| ⑦ | **Guard** — drift watch, promotion proposals | 🔜 |
+| — | **TPU / host GPU stats** | 🔜 |
 
 Full acceptance criteria and risk gates: **[implementation plan](docs/80-implementation-plan.md)**.
+
+---
+
+## Prove it, then move it
+
+The motto is the control flow. Nothing skips a step, and each step can say *no*.
+
+<img src="docs/assets/in-a-box.svg" alt="One artifact landing on three machines and producing three outcomes: run as packed, re-solved with the changes reported, or refused" width="100%">
+
+**Proof is an artifact, not a dashboard.** A receipt is a file: every claim with
+its confidence interval, the bar it was measured against, the judge and how much
+it agreed with humans, and — required, never optional — the clusters that did
+*not* pass. Re-run the same eval set and the digest must match, which is a
+stronger claim than a signature. A signature says *we said this*; reproduction
+says *and it is true*, and anyone holding the eval set can check it.
+
+**Moving is asymmetric.** Rollback is automatic and deliberately easy to trigger.
+Advancing is only ever a proposal — the gate says the evidence supports 25%, a
+human moves it. The control surface re-derives that rule from the numbers alone,
+so the automation can be wrong or bypassed and traffic still cannot escalate
+unattended.
+
+**Then it keeps checking.** The guard separates three things every other tool
+collapses into one "stale" flag: the model changed behind its name (your proof is
+void), your traffic moved (the eval set answers questions nobody asks now), or
+something new was released (your proof is still true). Only the first two mean
+you no longer know whether production is adequate.
 
 ---
 
@@ -176,14 +208,28 @@ report.commercially_clean()   # permissive licence AND verified architecture
 ## Verification
 
 ```bash
-cargo test --all                                   # 110 Rust
+cargo test --all                                   # 229 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 53 Python
+uv run --with pytest --python 3.13 pytest -q       # 222 Python
 ```
 
-**163 tests.** The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. The gateway's streaming tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
+**451 tests.** The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
-Two defects that shipped and were caught by review, both now regression tests: an SSE frame cap that was *detected* but never *enforced*, and shadow mirroring that was recorded and displayed without ever dispatching to the candidate.
+**Every engine flag is verified against published docs, never recalled.** That
+rule exists because breaking it shipped a bug: `--guided-decoding-backend` had
+been renamed in vLLM, so every structured-output config this repo generated was
+unrunnable. Where a flag could not be confirmed — SGLang's grammar backend at the
+time of writing — the adapter reports a gap rather than emitting a plausible
+guess. A wrong flag fails loudly and costs an afternoon; a *right-looking* flag
+with inverted meaning succeeds and quietly costs half your throughput.
+
+Four defects caught by review or by rendering, all now regression tests:
+
+- an SSE frame cap that was *detected* but never *enforced*
+- shadow mirroring recorded and displayed without ever dispatching
+- failover that would serve **unproven candidate output during shadow mode** —
+  the phase whose entire contract is "scored, never served"
+- concurrent capture appends interleaving into a log that decrypted as garbage
 
 ---
 

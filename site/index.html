@@ -136,6 +136,15 @@
     .rv{opacity:0;transform:translateY(14px);transition:opacity .55s cubic-bezier(.2,.7,.3,1),transform .55s cubic-bezier(.2,.7,.3,1)}
     .rv.in{opacity:1;transform:none}
   }
+
+  /* Responsive safety net. Verified by CSS audit rather than device emulation:
+     the harness could not change the viewport, so these are the rules that make
+     overflow structurally impossible rather than merely unobserved. */
+  img{max-width:100%;height:auto}
+  /* Tables are the classic mobile overflow: a 3-column table cannot reflow, so
+     it scrolls inside its own container rather than pushing the page sideways. */
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:14px 0}
+  .tablewrap table{margin:0}
 </style>
 </head>
 <body>
@@ -188,7 +197,7 @@
       traffic and they'll say yes. Ask them to bet the product on it and they'll stop — correctly.
       Nothing turns that instinct into evidence.</p>
 
-    <table>
+    <div class="tablewrap"><table>
       <thead><tr><th>What you'd need</th><th>Closest tool</th><th>Why it stops short</th></tr></thead>
       <tbody>
         <tr><td><strong>A benchmark of your workload</strong></td><td>promptfoo, Inspect AI</td><td>Both start from a test set <em>you</em> hand-write. Yours doesn't exist.</td></tr>
@@ -197,7 +206,7 @@
         <tr><td><strong>A safe cutover</strong></td><td>Any gateway</td><td>Canaries on <em>errors</em>. Not one gates on <em>quality</em>.</td></tr>
         <tr><td><strong>To stay current</strong></td><td>—</td><td>You find out on Twitter, then redo the work by hand.</td></tr>
       </tbody>
-    </table>
+    </table></div>
 
     <figure class="rv">
       <img src="assets/gap-map.svg" alt="Bar chart: how many tools solve each of six migration steps. Deployment has six; hardware fit has one; four steps have none.">

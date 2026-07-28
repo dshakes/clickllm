@@ -12,6 +12,7 @@
 //! where wrappers lag upstream by a release and every flag change costs a rebuild.
 
 pub mod llmd;
+pub mod sglang;
 pub mod vllm;
 
 use serde::{Deserialize, Serialize};

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 452" width="860" height="452" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>Where the memory goes</title><desc id='d'>Stacked memory use for a 32B model at 32k context as concurrency rises from 1 to 32. Weights stay constant; the KV cache grows linearly and is what eventually exceeds the 80 GB ceiling.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="860" height="452" fill="var(--bg)"/>
+<text x="28" y="30" class="t">Where the memory goes</text>
+<text x="28" y="50" class="sub">32B model · 8-bit weights · 32k context · the KV cache is the term that moves</text>
+<line x1="90" y1="324.0" x2="610" y2="324.0" class="g"/>
+<text x="80" y="327.5" class="ax" text-anchor="end">0</text>
+<line x1="90" y1="266.0" x2="610" y2="266.0" class="g"/>
+<text x="80" y="269.5" class="ax" text-anchor="end">24</text>
+<line x1="90" y1="208.0" x2="610" y2="208.0" class="g"/>
+<text x="80" y="211.5" class="ax" text-anchor="end">48</text>
+<line x1="90" y1="150.0" x2="610" y2="150.0" class="g"/>
+<text x="80" y="153.5" class="ax" text-anchor="end">72</text>
+<line x1="90" y1="92.0" x2="610" y2="92.0" class="g"/>
+<text x="80" y="95.5" class="ax" text-anchor="end">96</text>
+<text x="60" y="78" class="ax" text-anchor="start">GiB</text>
+<line x1="90" y1="130.7" x2="610" y2="130.7" stroke="var(--s3)" stroke-width="2" stroke-dasharray="7 4"/><text x="614" y="134.2" class="lb" fill="var(--s3)">80 GB card</text>
+<rect x="90.0" y="246.7" width="74.0" height="75.3" rx="4" fill="var(--s0)"/>
+<rect x="90.0" y="237.0" width="74.0" height="7.7" rx="4" fill="var(--s1)"/>
+<rect x="90.0" y="232.2" width="74.0" height="2.8" rx="4" fill="var(--s2)"/>
+<text x="127.0" y="222.2" class="lb" text-anchor="middle" fill="var(--ink2)">38 GiB</text>
+<text x="127.0" y="342.0" class="ax" text-anchor="middle">1 user</text>
+<rect x="210.0" y="246.7" width="74.0" height="75.3" rx="4" fill="var(--s0)"/>
+<rect x="210.0" y="237.0" width="74.0" height="7.7" rx="4" fill="var(--s1)"/>
+<rect x="210.0" y="217.7" width="74.0" height="17.3" rx="4" fill="var(--s2)"/>
+<text x="247.0" y="207.7" class="lb" text-anchor="middle" fill="var(--ink2)">44 GiB</text>
+<text x="247.0" y="342.0" class="ax" text-anchor="middle">4 users</text>
+<rect x="330.0" y="246.7" width="74.0" height="75.3" rx="4" fill="var(--s0)"/>
+<rect x="330.0" y="237.0" width="74.0" height="7.7" rx="4" fill="var(--s1)"/>
+<rect x="330.0" y="159.7" width="74.0" height="75.3" rx="4" fill="var(--s2)"/>
+<text x="367.0" y="149.7" class="lb" text-anchor="middle" fill="var(--ink2)">68 GiB</text>
+<text x="367.0" y="342.0" class="ax" text-anchor="middle">16 users</text>
+<text x="367.0" y="202.3" class="m" text-anchor="middle" fill="var(--bg)">KV 32</text>
+<rect x="450.0" y="246.7" width="74.0" height="75.3" rx="4" fill="var(--s0)"/>
+<rect x="450.0" y="237.0" width="74.0" height="7.7" rx="4" fill="var(--s1)"/>
+<rect x="450.0" y="82.3" width="74.0" height="152.7" rx="4" fill="var(--s2)"/>
+<text x="487.0" y="72.3" class="lb" text-anchor="middle" fill="var(--s3)">100 GiB</text>
+<text x="487.0" y="342.0" class="ax" text-anchor="middle">32 users</text>
+<text x="487.0" y="163.7" class="m" text-anchor="middle" fill="var(--bg)">KV 64</text>
+<rect x="90" y="363" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="104" y="371" class="lb">weights</text><rect x="162" y="363" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="176" y="371" class="lb">runtime overhead</text><rect x="293" y="363" width="9" height="9" rx="2.5" fill="var(--s2)"/><text x="307" y="371" class="lb">KV cache</text>
+<text x="28" y="412" class="note">Weights are a one-time cost you can look up. The KV cache is the one that decides how many people you can serve —</text>
+<text x="28" y="428" class="note">and it is linear in context × concurrency.</text>
+</svg>

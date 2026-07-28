@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 386" width="860" height="386" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>Prefill and decode are different machines</title><desc id='d'>A timeline of one request: a short, wide, compute-bound prefill reading the whole prompt in parallel, followed by a long sequence of narrow memory-bound decode steps emitting one token each.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="860" height="386" fill="var(--bg)"/>
+<text x="28" y="30" class="t">Prefill and decode are different machines</text>
+<text x="28" y="50" class="sub">One request, two phases with opposite bottlenecks — which is why they are tuned, and increasingly served, separately</text>
+<text x="88" y="130" class="ax" text-anchor="end">time →</text>
+<rect x="100.0" y="108.0" width="128.0" height="44.0" rx="6" fill="var(--s0)"/>
+<text x="164" y="136" class="m" text-anchor="middle" fill="var(--bg)">prefill</text>
+<rect x="242.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="268.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="294.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="320.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="346.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="372.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="398.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="424.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="450.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="476.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="502.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="528.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="554.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="580.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="606.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="632.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="658.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="684.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="710.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="736.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="762.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<rect x="788.0" y="108.0" width="22.0" height="44.0" rx="5" fill="var(--s1)"/>
+<text x="528" y="96" class="lb" text-anchor="middle" fill="var(--s1)">decode — one token per step, 22 steps shown</text>
+<rect x="28" y="192" width="392" height="112" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="28" y="192" width="4" height="112" rx="2" fill="var(--s0)"/>
+<text x="46" y="216" class="lb" fill="var(--s0)">prefill</text>
+<text x="46" y="238" class="ax">reads the whole prompt at once</text>
+<text x="46" y="255" class="ax">all tokens in parallel → compute-bound</text>
+<text x="46" y="272" class="ax">sets time-to-first-token</text>
+<text x="46" y="289" class="ax">wants: big chunks, tensor cores busy</text>
+<rect x="440" y="192" width="392" height="112" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="440" y="192" width="4" height="112" rx="2" fill="var(--s1)"/>
+<text x="458" y="216" class="lb" fill="var(--s1)">decode</text>
+<text x="458" y="238" class="ax">emits one token, then the next</text>
+<text x="458" y="255" class="ax">re-reads all weights per token → bandwidth-bound</text>
+<text x="458" y="272" class="ax">sets the gap between tokens</text>
+<text x="458" y="289" class="ax">wants: big batches, fast memory</text>
+<text x="28" y="346" class="note">A long prompt with a short answer is a prefill problem. A short prompt with a long answer is a decode problem.</text>
+<text x="28" y="362" class="note">Tuning for the wrong one is the commonest way to buy hardware that does not help.</text>
+</svg>
