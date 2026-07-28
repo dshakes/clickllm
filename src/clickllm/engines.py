@@ -62,6 +62,52 @@ from enum import StrEnum
 MTP_NATIVE = ("deepseek-v3", "deepseek-v4", "mimo", "longcat", "glm-4.5", "glm-5")
 
 
+#: Ranks vLLM's `--max-lora-rank` actually accepts. It is a choice list, not a
+#: free integer, so an adapter trained at rank 48 is rejected at startup unless
+#: it is rounded UP to the next accepted value. Rounding down would silently
+#: truncate the adapter.
+#: Verified: docs.vllm.ai/en/stable/configuration/engine_args (2026-07-28).
+VLLM_LORA_RANKS = (1, 8, 16, 32, 64, 128, 256, 320, 512)
+
+
+@dataclass(frozen=True, slots=True)
+class LoraFleet:
+    """Adapters to serve over one set of base weights.
+
+    Multi-LoRA is the cheapest personalisation there is — one copy of the base
+    model in memory, N adapters swapped per request — and it is routinely left
+    on the table because the flags are per-engine and easy to get subtly wrong.
+
+    Attributes:
+        adapters: display name -> path or Hugging Face id. The name is what
+            callers put in the request's ``model`` field.
+        max_rank: the largest rank across the adapters.
+        max_concurrent: how many distinct adapters may appear in one batch.
+    """
+
+    adapters: tuple[tuple[str, str], ...] = ()
+    max_rank: int = 16
+    max_concurrent: int = 1
+
+    def vllm_rank(self) -> int:
+        """The rank rounded UP to a value vLLM accepts.
+
+        Up, never down: a rank below what the adapter was trained at does not
+        degrade it, it refuses to load it.
+
+        Raises:
+            ValueError: if the rank exceeds the largest accepted value, which is
+                a real refusal rather than something to clamp silently.
+        """
+        for r in VLLM_LORA_RANKS:
+            if r >= self.max_rank:
+                return r
+        raise ValueError(
+            f"LoRA rank {self.max_rank} exceeds the largest rank vLLM accepts "
+            f"({VLLM_LORA_RANKS[-1]}); this adapter cannot be served as-is"
+        )
+
+
 def _speculative_json(value: object) -> str:
     """Render the speculative knob as the JSON object vLLM actually parses.
 
@@ -108,6 +154,9 @@ class Setting(StrEnum):
     STRUCTURED_OUTPUT = "structured_output"
     QUANTIZATION = "quantization"
     KV_CACHE_DTYPE = "kv_cache_dtype"
+    #: Serve N fine-tuned adapters over one set of base weights. The value is a
+    #: `LoraFleet`; anything else is a programming error rather than a setting.
+    LORA_FLEET = "lora_fleet"
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +247,18 @@ class VllmAdapter(Adapter):
                 # Verified: docs.vllm.ai/en/stable/features/speculative_decoding/mtp
                 # (checked 2026-07-28).
                 return Translated(("--speculative-config", _speculative_json(value)))
+            case Setting.LORA_FLEET:
+                # Verified: docs.vllm.ai/en/stable/features/lora and
+                # .../configuration/engine_args (checked 2026-07-28).
+                if not isinstance(value, LoraFleet) or not value.adapters:
+                    return Translated((), "no LoRA adapters to serve")
+                argv = ["--enable-lora"]
+                argv += ["--lora-modules", *(f"{n}={p}" for n, p in value.adapters)]
+                argv += ["--max-lora-rank", str(value.vllm_rank())]
+                # --max-loras is adapters *per batch* and defaults to 1, so
+                # loading eight and leaving it unset serialises seven of them.
+                argv += ["--max-loras", str(value.max_concurrent)]
+                return Translated(tuple(argv))
             case Setting.MEMORY_FRACTION:
                 return Translated(("--gpu-memory-utilization", str(value)))
             case Setting.TENSOR_PARALLEL:
@@ -284,6 +345,19 @@ class SglangAdapter(Adapter):
                     "run `python3 -m sglang.launch_server --help` and add them "
                     "rather than guessing at the family name",
                 )
+            case Setting.LORA_FLEET:
+                # Same intent, a genuinely different dialect: `--lora-paths`
+                # rather than `--lora-modules`, and the batch cap is
+                # `--max-loras-per-batch`, which must leave room for the base
+                # model as well as the adapters.
+                # Verified: docs.sglang.io/docs/advanced_features/lora (2026-07-28).
+                if not isinstance(value, LoraFleet) or not value.adapters:
+                    return Translated((), "no LoRA adapters to serve")
+                argv = ["--enable-lora"]
+                argv += ["--lora-paths", *(f"{n}={p}" for n, p in value.adapters)]
+                argv += ["--max-lora-rank", str(value.max_rank)]
+                argv += ["--max-loras-per-batch", str(value.max_concurrent + 1)]
+                return Translated(tuple(argv))
             case Setting.STRUCTURED_OUTPUT:
                 if not value:
                     return Translated(())

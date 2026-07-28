@@ -396,22 +396,29 @@ def test_every_setting_the_adapter_supports_is_reachable_from_some_plan():
     from dataclasses import replace
 
     from clickllm.catalog import load
+    from clickllm.engines import LoraFleet
 
     m = load()[0]
+    fleets = (None, LoraFleet(adapters=(("sql", "org/sql-lora"),), max_rank=16))
     reachable: set[Setting] = set()
     for hw in (H100, replace(H100, devices=4)):
         for w in Workload:
             for structured in (False, True):
-                for conc, ctx in ((8, 8192), (32, 32_768)):
-                    p = plan(
-                        hw,
-                        Requirements(
-                            w, concurrency=conc, context=ctx, structured_output=structured
-                        ),
-                        model=m,
-                        quant=m.quants[0],
-                    )
-                    reachable |= {k.name for k in p.knobs}
+                for fleet in fleets:
+                    for conc, ctx in ((8, 8192), (32, 32_768)):
+                        p = plan(
+                            hw,
+                            Requirements(
+                                w,
+                                concurrency=conc,
+                                context=ctx,
+                                structured_output=structured,
+                                lora=fleet,
+                            ),
+                            model=m,
+                            quant=m.quants[0],
+                        )
+                        reachable |= {k.name for k in p.knobs}
     assert reachable == set(Setting), (
         f"never emitted: {sorted(x.value for x in set(Setting) - reachable)}"
     )
@@ -569,3 +576,70 @@ def test_a_model_with_its_own_mtp_head_is_not_asked_for_an_eagle_draft():
     assert spec["method"] == "mtp", spec
     # >1 runs the same head repeatedly and lowers the acceptance rate.
     assert spec["num_speculative_tokens"] == 1, spec
+
+
+# --- multi-LoRA: one base model, many adapters --------------------------------
+
+
+def test_the_two_engines_spell_multi_lora_differently():
+    """Same intent, genuinely different dialects. Emitting vLLM's flags to SGLang
+    produces a server that will not start."""
+    from clickllm.engines import LoraFleet, Setting, adapter_for
+
+    fleet = LoraFleet(
+        adapters=(("sql", "org/sql"), ("sum", "org/sum")), max_rank=16, max_concurrent=2
+    )
+    vllm = adapter_for("vllm").translate(Setting.LORA_FLEET, fleet).argv
+    sgl = adapter_for("sglang").translate(Setting.LORA_FLEET, fleet).argv
+
+    assert "--lora-modules" in vllm and "--max-loras" in vllm
+    assert "--lora-paths" in sgl and "--max-loras-per-batch" in sgl
+    # Neither may leak the other's spelling.
+    assert "--lora-paths" not in vllm and "--lora-modules" not in sgl
+
+
+def test_sglang_leaves_a_batch_slot_for_the_base_model():
+    """--max-loras-per-batch counts the base model too, so N adapters needs N+1.
+    Setting it to N silently starves one adapter."""
+    from clickllm.engines import LoraFleet, Setting, adapter_for
+
+    fleet = LoraFleet(adapters=(("a", "p"), ("b", "q")), max_concurrent=2)
+    argv = adapter_for("sglang").translate(Setting.LORA_FLEET, fleet).argv
+    assert argv[argv.index("--max-loras-per-batch") + 1] == "3"
+
+
+def test_a_lora_rank_is_rounded_up_to_one_vllm_accepts():
+    """--max-lora-rank is a choice list, not a free integer. Rounding DOWN would
+    refuse to load an adapter; rounding up merely wastes a little memory."""
+    from clickllm.engines import LoraFleet
+
+    assert LoraFleet(max_rank=48).vllm_rank() == 64
+    assert LoraFleet(max_rank=16).vllm_rank() == 16
+    assert LoraFleet(max_rank=1).vllm_rank() == 1
+
+
+def test_a_rank_beyond_the_ceiling_is_refused_not_clamped():
+    from clickllm.engines import LoraFleet
+
+    with pytest.raises(ValueError, match="exceeds the largest rank"):
+        LoraFleet(max_rank=1024).vllm_rank()
+
+
+def test_no_adapters_is_a_successful_no_op_not_a_gap():
+    """Empty means 'plain base-model deployment', which every engine supports."""
+    from clickllm.engines import LoraFleet, Setting, Translated, adapter_for
+
+    for engine in ("vllm", "sglang"):
+        t = adapter_for(engine).translate(Setting.LORA_FLEET, LoraFleet())
+        assert isinstance(t, Translated) and t.argv == ()
+
+
+def test_the_per_batch_cap_cannot_exceed_the_concurrency():
+    """A batch cannot hold more distinct adapters than it holds requests, and
+    every extra slot costs memory for nothing."""
+    from clickllm.engines import LoraFleet, Setting
+    from clickllm.plan import Requirements, Workload, plan
+
+    fleet = LoraFleet(adapters=tuple((f"a{i}", f"p{i}") for i in range(8)), max_rank=16)
+    p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=2, context=8192, lora=fleet))
+    assert p.get(Setting.LORA_FLEET).value.max_concurrent == 2

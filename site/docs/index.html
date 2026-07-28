@@ -97,7 +97,22 @@
 
   @media(max-width:900px){
     .shell{grid-template-columns:1fr;gap:0}
-    aside{position:static;height:auto;border-bottom:1px solid var(--line);padding-bottom:18px}
+    /* Stacked above the content rather than beside it. Two things then go wrong
+       if left alone, and both did:
+
+       1. The nav is 22 links tall — over 900px — so every visitor scrolled past
+          a wall of navigation before reading a word. Capped and scrolled inside
+          itself instead, which keeps every link reachable without owning the
+          screen.
+       2. Links carry a 12px inset for their active-state pill; the section
+          headings do not. Side by side in a narrow column that reads as ragged
+          text, so the headings take the same inset and the menu lines up. */
+    aside{position:static;height:auto;max-height:45vh;overflow-y:auto;
+          border-bottom:1px solid var(--line);padding:16px 0 14px}
+    /* The 2px transparent border matters: links reserve it for the active-state
+       rule, so matching padding alone still leaves the headings 2px out. */
+    aside h4{padding-left:12px;border-left:2px solid transparent;margin:16px 0 6px}
+    aside h4:first-child{margin-top:0}
   }
 
   /* Responsive safety net. Verified by CSS audit rather than device emulation:

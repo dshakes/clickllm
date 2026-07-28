@@ -66,6 +66,13 @@ OVERSIZED_CONTEXT = 65_536
 #: than staying quiet, because the user pays for the failed attempt in time.
 COMFORTABLE_HEADROOM = 0.35
 
+#: Concurrency and context at which prefill starts interfering with decode badly
+#: enough that splitting them across instances is worth evaluating. Both must
+#: hold: heavy concurrency with short prompts has little prefill to disaggregate,
+#: and long prompts at low concurrency have nothing to collide with.
+PD_DISAGG_CONCURRENCY = 32
+PD_DISAGG_CONTEXT = 16_384
+
 #: Concurrency this far above plan means the plan is describing a different
 #: deployment. 1.5x rather than 1.05x — normal traffic varies, and a suggestion
 #: that fires on noise gets filtered out mentally within a week.
@@ -227,6 +234,39 @@ def suggest(req: Requirements, p: Plan) -> list[Suggestion]:
                     setting=Setting.QUANTIZATION,
                 )
             )
+
+    # Prefill and decode want opposite things from a GPU, and in one process
+    # they fight. Splitting them is the 2026 answer — and it is a topology, not
+    # a flag, so this is a suggestion rather than something the planner emits.
+    tp = p.get(Setting.TENSOR_PARALLEL)
+    multi_device = bool(tp and isinstance(tp.value, int) and tp.value > 1)
+    if (
+        req.workload is not Workload.BATCH
+        and req.concurrency >= PD_DISAGG_CONCURRENCY
+        and req.context >= PD_DISAGG_CONTEXT
+        and multi_device
+    ):
+        out.append(
+            Suggestion(
+                id="consider-pd-disaggregation",
+                impact=Impact.MEDIUM,
+                action="Evaluate prefill/decode disaggregation across two instances.",
+                because=(
+                    f"concurrency {req.concurrency} at {req.context:,} context on "
+                    f"{tp.value} devices. Long prefills and latency-sensitive decode "
+                    f"share one GPU here, and they want opposite things from it — a "
+                    f"prefill landing mid-batch is what puts variance in your "
+                    f"time-to-first-token."
+                ),
+                expect=(
+                    "steadier tail latency, at the cost of real operational weight: "
+                    "two vLLM deployments plus a routing proxy, KV moved between them "
+                    "over --kv-transfer-config, and vLLM's own docs still label it "
+                    "experimental and subject to change. Worth measuring before "
+                    "adopting, not worth adopting on principle."
+                ),
+            )
+        )
 
     # A latency budget nobody stated is a budget nobody can miss — and a
     # deployment nobody can tell is failing.

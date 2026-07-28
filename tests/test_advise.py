@@ -8,6 +8,8 @@ nothing it returns can act on its own.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from clickllm import mcp
 from clickllm.advise import Impact, Observed, Suggestion, reconcile, suggest
 from clickllm.hardware import Hardware
@@ -188,3 +190,59 @@ def test_the_agent_gets_drift_only_when_it_supplies_telemetry():
     assert mcp._advise(context="8k", concurrency=4)["drift"] == []
     drifted = mcp._advise(context="8k", concurrency=4, observed={"concurrency": 40})
     assert [s["id"] for s in drifted["drift"]] == ["replan-for-observed-concurrency"]
+
+
+# --- prefill/decode disaggregation: a topology, not a knob ---------------------
+
+QUAD = Hardware(
+    kind="nvidia",
+    name="4xH100",
+    total_bytes=320 * 1024**3,
+    usable_bytes=288 * 1024**3,
+    bandwidth_gbps=3350.0,
+    cores=1,
+    devices=4,
+)
+
+HEAVY = Requirements(
+    workload=Workload.INTERACTIVE,
+    concurrency=64,
+    context=32_768,
+    prefix_sharing=0.8,
+    ttft_ms=500,
+)
+
+
+def test_pd_disaggregation_is_raised_when_prefill_and_decode_collide():
+    hit = next(
+        (s for s in suggest(HEAVY, plan(QUAD, HEAVY)) if s.id == "consider-pd-disaggregation"),
+        None,
+    )
+    assert hit is not None
+    # It must be honest that this is operational weight, not a flag flip.
+    assert "experimental" in hit.expect
+    assert "proxy" in hit.expect
+
+
+def test_pd_disaggregation_does_not_fire_on_a_single_device():
+    """Splitting prefill from decode needs somewhere to put each half."""
+    got = {s.id for s in suggest(HEAVY, plan(HW, HEAVY))}
+    assert "consider-pd-disaggregation" not in got
+
+
+def test_pd_disaggregation_does_not_fire_at_low_concurrency_or_short_context():
+    """Both conditions must hold: short prompts have little prefill to move, and
+    low concurrency has nothing for it to collide with."""
+    short = replace(HEAVY, context=2048)
+    quiet = replace(HEAVY, concurrency=4)
+    for req in (short, quiet):
+        got = {s.id for s in suggest(req, plan(QUAD, req))}
+        assert "consider-pd-disaggregation" not in got, req
+
+
+def test_pd_disaggregation_is_never_suggested_for_batch():
+    """Nobody is waiting on a batch job's first token, so the variance this fixes
+    is not a cost worth operational weight."""
+    batch = replace(HEAVY, workload=Workload.BATCH)
+    got = {s.id for s in suggest(batch, plan(QUAD, batch))}
+    assert "consider-pd-disaggregation" not in got
