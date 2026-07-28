@@ -369,7 +369,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn the_kubernetes_name_is_a_valid_dns_label() {
         let plan = Sglang.plan(&gpu(80, 1), &model(), &workload(4)).unwrap();

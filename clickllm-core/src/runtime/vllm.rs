@@ -512,8 +512,6 @@ pub(crate) mod tests {
         }
     }
 
-
-
     #[test]
     fn the_systemd_unit_survives_a_slow_start_and_restarts() {
         let p = sample_plan();

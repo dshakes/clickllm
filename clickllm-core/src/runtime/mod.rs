@@ -207,7 +207,6 @@ pub(crate) fn provenance(runtime: &str, plan: &RuntimePlan, comment: &str) -> St
     s
 }
 
-
 /// A systemd unit for a plain VM.
 ///
 /// `Restart=always` with a backoff, because the thing this buys over `nohup` is
@@ -384,5 +383,4 @@ mod tests {
             "argument with bare double quotes must be wrapped and escaped: {exec}"
         );
     }
-
 }
