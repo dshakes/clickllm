@@ -95,6 +95,41 @@
   figure{margin:22px 0} figure img{width:100%;border-radius:12px;border:1px solid var(--line2)}
   figcaption{font-size:12.5px;color:var(--ink3);margin-top:8px}
 
+  /* --- the lab: things you can drag ---------------------------------------
+     A paragraph saying "KV cache grows with context times concurrency" is true
+     and forgettable. Dragging concurrency from 1 to 32 and watching the bar
+     cross the line is the same fact, learned instead of read. Every number here
+     runs the same arithmetic as `clickllm fit`, so the page cannot drift from
+     the tool. */
+  .lab{background:linear-gradient(180deg,var(--panel2),var(--panel));
+       border:1px solid var(--line2);border-radius:14px;padding:20px;margin:22px 0}
+  .lab h4{margin:0 0 4px;font-size:14.5px}
+  .lab .hint{color:var(--ink3);font-size:12.5px;margin:0 0 16px}
+  .ctrls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px 18px}
+  .ctrl label{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+              color:var(--ink3);margin-bottom:5px}
+  .ctrl .val{color:var(--cyan);font-family:var(--mono);text-transform:none;letter-spacing:0}
+  .ctrl select,.ctrl input[type=range]{width:100%}
+  .ctrl select{background:var(--void);color:var(--ink);border:1px solid var(--line2);
+               border-radius:7px;padding:6px 8px;font-family:inherit;font-size:13.5px}
+  .ctrl input[type=range]{accent-color:var(--cyan);margin:6px 0 0}
+  /* The stacked bar. 2px surface gaps between segments so adjacent fills read
+     as separate quantities rather than one gradient. */
+  .memtrack{position:relative;height:34px;border-radius:8px;background:var(--void);
+            border:1px solid var(--line2);margin:20px 0 6px;overflow:hidden;display:flex}
+  .memtrack i{display:block;height:100%;box-shadow:2px 0 0 var(--void)}
+  .memtrack i.w{background:var(--violet)} .memtrack i.k{background:var(--cyan)}
+  .memtrack i.o{background:var(--ink3)}
+  /* Where the machine runs out. A hard line, because it is one. */
+  .memtrack u{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--rose);
+              text-decoration:none}
+  .memkey{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--ink2)}
+  .memkey b{display:inline-block;width:9px;height:9px;border-radius:2.5px;margin-right:6px}
+  .verdict{margin-top:14px;font-family:var(--mono);font-size:13px}
+  .verdict.ok{color:var(--emerald)} .verdict.no{color:var(--rose)}
+  .lab pre{background:var(--void);border:1px solid var(--line);border-radius:8px;
+           padding:12px 14px;margin:12px 0 0;font-size:12.5px;overflow-x:auto}
+
   @media(max-width:900px){
     .shell{grid-template-columns:1fr;gap:0}
     /* Stacked above the content rather than beside it. Two things then go wrong
@@ -148,7 +183,10 @@
   <a href="#edu-prefill">Prefill vs decode</a>
   <a href="#edu-kv">KV cache, GQA, MLA</a>
   <a href="#edu-batch">Batching &amp; throughput</a>
+  <a href="#edu-caching">Caching &amp; eviction</a>
   <a href="#edu-quant">Quantization</a>
+  <a href="#edu-training">Pre- vs post-training</a>
+  <a href="#edu-lora">LoRA &amp; adapters</a>
   <a href="#edu-spec">Speculative decoding</a>
   <a href="#edu-engines">The serving stack</a>
   <a href="#edu-tpu">TPUs and other silicon</a>
@@ -286,6 +324,53 @@ language models on hardware you control.</p>
   constant; <em>KV is the variable that bites</em>.</p>
 </div>
 
+<div class="lab" id="memlab">
+  <h4>Try it: drag concurrency and watch what breaks</h4>
+  <p class="hint">Start at 1 user. Drag to 32. The purple block never moves — the
+    cyan one is what crosses the line. That is the entire lesson, and it is the
+    thing a table cannot show you.</p>
+
+  <div class="ctrls">
+    <div class="ctrl">
+      <label for="m-model">Model</label>
+      <select id="m-model"></select>
+    </div>
+    <div class="ctrl">
+      <label for="m-hw">Machine</label>
+      <select id="m-hw"></select>
+    </div>
+    <div class="ctrl">
+      <label for="m-quant">Precision <span class="val" id="m-quant-v">q8</span></label>
+      <select id="m-quant">
+        <option value="fp16">fp16 — full precision</option>
+        <option value="q8" selected>q8 — half the weights</option>
+        <option value="q4">q4 — a quarter</option>
+      </select>
+    </div>
+    <div class="ctrl">
+      <label for="m-ctx">Context <span class="val" id="m-ctx-v">32,768</span></label>
+      <input type="range" id="m-ctx" min="11" max="17" step="1" value="15">
+    </div>
+    <div class="ctrl">
+      <label for="m-conc">Users at once <span class="val" id="m-conc-v">1</span></label>
+      <input type="range" id="m-conc" min="0" max="7" step="1" value="0">
+    </div>
+  </div>
+
+  <div class="memtrack" id="m-track" role="img" aria-labelledby="m-verdict">
+    <i class="w" id="m-w"></i><i class="k" id="m-k"></i><i class="o" id="m-o"></i>
+    <u id="m-limit"></u>
+  </div>
+  <div class="memkey">
+    <span><b style="background:var(--violet)"></b>weights — fixed</span>
+    <span><b style="background:var(--cyan)"></b>KV cache — grows with context × users</span>
+    <span><b style="background:var(--ink3)"></b>overhead</span>
+    <span><b style="background:var(--rose)"></b>what the machine has</span>
+  </div>
+  <p class="verdict" id="m-verdict"></p>
+  <pre id="m-math"></pre>
+</div>
+
 <h2 id="edu-prefill">Learn: prefill vs decode</h2>
 <figure>
   <img src="../assets/edu-prefill-decode.svg" alt="One request, two phases: a wide compute-bound prefill then narrow bandwidth-bound decode steps" loading="lazy">
@@ -356,6 +441,69 @@ language models on hardware you control.</p>
 <p>Neither is "better". <code>clickllm fit --concurrency N</code> picks on the number you give it,
   which is why that flag matters more than it looks.</p>
 
+<h2 id="edu-caching">Learn: caching, and the three things people call "the cache"</h2>
+<p class="lede" style="font-size:15px">Say "the cache" in a room of three engineers and you
+  will get three different pictures. They are genuinely different mechanisms with different
+  costs, and conflating them is how people end up tuning the wrong one.</p>
+
+<p><b>Start with the everyday version.</b> A cache is a shelf by the door. Things you reach for
+  constantly live on the shelf instead of in the loft. The shelf is small and fast; the loft is
+  big and slow. Every cache question is the same two questions: <em>what earns a place on the
+  shelf</em>, and <em>what gets pushed off when it fills</em>.</p>
+
+<div class="tablewrap"><table>
+  <thead><tr><th>What</th><th>Holds</th><th>Lives for</th><th>Why you care</th></tr></thead>
+  <tbody>
+    <tr><td><b>KV cache</b></td>
+        <td>Your conversation so far, pre-chewed</td>
+        <td>One request</td>
+        <td>It <em>is</em> your memory bill. See <a href="#edu-kv">KV cache</a>.</td></tr>
+    <tr><td><b>Prefix cache</b></td>
+        <td>The shared start of many requests</td>
+        <td>Across requests</td>
+        <td>Free throughput if your prompts share a preamble — and almost nobody turns it on.</td></tr>
+    <tr><td><b>LRU eviction</b></td>
+        <td>Not a cache — the <em>rule</em> for what gets pushed off</td>
+        <td>—</td>
+        <td>Decides who gets evicted when memory runs out, and therefore who waits.</td></tr>
+  </tbody>
+</table></div>
+
+<h4>Why the prefix cache is the one you are probably wasting</h4>
+<p>Every request from an agent starts with the same system prompt — the tools, the rules, the
+  persona. Two thousand tokens of identical text, on every single call. Without a prefix cache
+  the server does that arithmetic again from scratch, every time, forever.</p>
+<p>With one, the server recognises "I have computed this exact prefix before", reuses the result,
+  and starts real work at token 2,001. The saving scales with how much of your prompt is shared —
+  which for an agent fleet is often most of it.</p>
+<div class="note">
+  <p><b>This is why <code>prefix_sharing</code> exists in the planner.</b> It is the single
+  most under-used number in LLM serving: nobody sets it, because no form asks for it, so the
+  default assumes every request is unique. <code>clickllm advise</code> raises it unprompted
+  for exactly that reason.</p>
+</div>
+
+<h4>LRU: what gets pushed off the shelf</h4>
+<p><b>L</b>east <b>R</b>ecently <b>U</b>sed. When the shelf is full and something new arrives,
+  throw out whatever you have not touched in the longest time. It is a bet — that what you used
+  recently you will use again soon — and for conversations it is usually a good one, because
+  an active chat gets touched every turn and an abandoned one never does.</p>
+<pre>  shelf full, "D" arrives:
+
+  <span class="c">before</span>   [ A(just now)  B(2s ago)  C(9 min ago) ]
+                                        <span class="u">↑ least recently used</span>
+  <span class="c">after</span>    [ D(now)  A(just now)  B(2s ago) ]        <span class="c">C is evicted</span></pre>
+<p>The failure mode is worth knowing because it does not look like an error. When an engine
+  evicts a conversation's KV to make room, that user's next message has to <em>recompute the
+  whole history</em>. Nothing crashes. No log line says "evicted". The only symptom is that
+  some requests are mysteriously slow — which is why
+  <a href="#edu-batch">KV pressure</a> is worth watching before it reaches 100%.</p>
+<div class="note warn">
+  <p><b>An eviction is a silent tax, not an error.</b> A server at 95% KV utilisation is not
+  "efficiently used" — it is one busy minute away from thrashing, and the symptom will arrive
+  as a latency complaint rather than an alert. <code>clickllm advise</code> flags it at 90%.</p>
+</div>
+
 <h2 id="edu-quant">Learn: quantization</h2>
 <figure>
   <img src="../assets/edu-quantization.svg" alt="Weight size for a 32B model at 16-, 8-, 6- and 4-bit" loading="lazy">
@@ -377,6 +525,104 @@ language models on hardware you control.</p>
   negligible at inference time. clickllm picks the highest precision <em>at or below 8 bits</em> that
   fits, and only goes to 16 when a model publishes nothing smaller.</p>
 </div>
+
+<h2 id="edu-training">Learn: pre-training vs post-training</h2>
+<p class="lede" style="font-size:15px">"Training" covers two activities with different costs,
+  different owners, and different answers to "should we?". One of them you will never do. The
+  other one you might, and it is the cheaper one.</p>
+
+<p><b>The everyday version.</b> Pre-training is raising someone from birth to graduate: years,
+  a fortune, and it gives you a person who knows an enormous amount and has no idea what job
+  they are in. Post-training is the first month at that job: comparatively trivial, and it is
+  what turns general knowledge into "answers the way we answer here".</p>
+
+<div class="tablewrap"><table>
+  <thead><tr><th></th><th>Pre-training</th><th>Post-training</th></tr></thead>
+  <tbody>
+    <tr><td>What it does</td><td>Learns language and world knowledge from a vast corpus</td>
+        <td>Shapes behaviour, format and tone</td></tr>
+    <tr><td>Data</td><td>Trillions of tokens</td><td>Thousands to millions of examples</td></tr>
+    <tr><td>Cost</td><td>Millions of dollars, thousands of GPUs</td>
+        <td>Often one machine, often hours</td></tr>
+    <tr><td>Who does it</td><td>Meta, Alibaba, DeepSeek, Mistral…</td><td><b>You, plausibly</b></td></tr>
+    <tr><td>Result</td><td>A <em>base</em> model</td><td>An <em>instruct</em> / <em>chat</em> model</td></tr>
+  </tbody>
+</table></div>
+<p class="sub">This is why "base" and "instruct" versions of the same model exist. The base model
+  completes text; the instruct model follows instructions. If you download a base model and it
+  rambles instead of answering, nothing is broken — you picked the one that never had the
+  first month on the job.</p>
+
+<h4>The post-training family, in the order they were invented</h4>
+<div class="tablewrap"><table>
+  <thead><tr><th>Name</th><th>In one sentence</th><th>Needs</th></tr></thead>
+  <tbody>
+    <tr><td><b>SFT</b><br><span class="sub">supervised fine-tuning</span></td>
+        <td>Show it good answers and have it imitate them.</td>
+        <td>Examples of the output you want</td></tr>
+    <tr><td><b>RLHF</b><br><span class="sub">RL from human feedback</span></td>
+        <td>Humans rank pairs of answers; the model learns to produce the preferred one.</td>
+        <td>Human rankings, plus a reward model — expensive and fiddly</td></tr>
+    <tr><td><b>DPO</b><br><span class="sub">direct preference optimisation</span></td>
+        <td>The same "learn what people preferred", without the reward model. Simpler, and
+            now the common default.</td>
+        <td>Pairs of better/worse answers</td></tr>
+    <tr><td><b>Distillation</b></td>
+        <td>Have a small model imitate a big one's outputs.</td>
+        <td>Outputs from the model you are replacing</td></tr>
+  </tbody>
+</table></div>
+
+<div class="note">
+  <p><b>Distillation is the one this product cares about, and it is a happy accident.</b>
+  If you are migrating off a closed API, you have been paying for that model's answers to your
+  own traffic — and a captured log of those answers <em>is</em> a distillation dataset. You
+  already bought the training data. That is what <code>clickllm</code>'s post-training module
+  proposes: train the open model on your incumbent's real answers to your real prompts.</p>
+</div>
+<div class="note warn">
+  <p><b>And the honest caveat.</b> Check the incumbent's terms — several closed providers
+  forbid using their outputs to train a competing model. Also, distillation narrows the gap; it
+  does not always close it. Where the gap is wide, the honest recommendation is to stay on the
+  incumbent, which is what the module actually returns.</p>
+</div>
+
+<h2 id="edu-lora">Learn: LoRA and adapters</h2>
+<p class="lede" style="font-size:15px">The cheapest personalisation there is: one copy of the
+  model, many behaviours, swapped per request.</p>
+
+<p><b>The everyday version.</b> Fine-tuning a whole model is repainting a house to change the
+  mood of one room. LoRA is hanging a different picture on the wall. The house is untouched and
+  shared; the picture is small, cheap, and you can swap it in seconds.</p>
+
+<p>Technically: instead of updating all 70 billion weights, you freeze them and train a pair of
+  much smaller matrices that <em>adjust</em> the result. The adjustment is a few megabytes
+  against tens of gigabytes of frozen base.</p>
+
+<pre>  full fine-tune    70B weights changed     ~140 GB per variant   hours-to-days on many GPUs
+  <span class="u">LoRA adapter</span>      70B weights <span class="u">frozen</span>       ~10-200 MB each       often minutes on one GPU</pre>
+
+<p>The consequence is the interesting bit. Because the base is shared and frozen, one server can
+  hold the base <em>once</em> and serve many adapters over it — support-voice, SQL, summariser —
+  choosing per request. Ten specialised models for barely more memory than one.</p>
+
+<div class="note">
+  <p><b>Rank is the one knob worth understanding.</b> It sets how much the adapter is allowed
+  to change: higher rank means more capacity and a bigger file. 8–16 is a normal starting point;
+  64+ is for genuinely hard shifts. vLLM only accepts specific values (1, 8, 16, 32, 64, 128,
+  256, 320, 512), so clickllm rounds <em>up</em> to the next accepted one — rounding down would
+  refuse to load your adapter rather than merely wasting a little memory.</p>
+</div>
+<div class="note warn">
+  <p><b>The trap that costs throughput silently.</b> Loading eight adapters does not mean eight
+  can run in one batch. Both engines cap adapters-per-batch, and both default it low — vLLM's
+  <code>--max-loras</code> defaults to <b>1</b>. Load eight, leave the cap alone, and seven of
+  them serialise. Nothing errors; throughput is just a fraction of what you paid for. clickllm
+  derives that cap from your concurrency instead of leaving it at the default.</p>
+</div>
+<p class="sub">SGLang counts the base model in the same budget, so N adapters need
+  <code>--max-loras-per-batch N+1</code> — set it to N and one adapter quietly starves. Same
+  intent, different arithmetic, which is why the flags are generated rather than remembered.</p>
 
 <h2 id="edu-spec">Learn: speculative decoding</h2>
 <figure>
@@ -758,6 +1004,87 @@ report.commercially_clean()   <span class="c"># permissive licence AND verified 
     }, { rootMargin: '-80px 0px -70% 0px' });
     heads.forEach(h => io.observe(h));
   }
+
+  /* --- the memory lab -----------------------------------------------------
+     Specs copied from src/clickllm/models.json; the arithmetic is the same as
+     clickllm.fit.solve. If these ever disagree with the CLI, the page is wrong
+     and this is the thing to fix — a teaching tool that contradicts the product
+     teaches the wrong lesson twice. */
+  (() => {
+    const lab = document.getElementById('memlab');
+    if (!lab) return;
+    const GB = 1024 ** 3, BITS = { fp16: 16, q8: 8, q4: 4.5 };
+
+    const MODELS = [
+      { id: 'llama-3.1-8b', name: 'Llama 3.1 8B', p: 8.03, layers: 32, kvh: 8, hd: 128, kv: 'gqa' },
+      { id: 'qwen3-32b', name: 'Qwen3 32B', p: 32.8, layers: 64, kvh: 8, hd: 128, kv: 'gqa' },
+      { id: 'qwen3-30b-a3b', name: 'Qwen3 30B-A3B (MoE)', p: 30.5, a: 3.3, layers: 48, kvh: 4, hd: 128, kv: 'gqa', moe: true },
+      { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', p: 70.6, layers: 80, kvh: 8, hd: 128, kv: 'gqa' },
+      { id: 'deepseek-v3', name: 'DeepSeek V3 (MLA)', p: 671, a: 37, layers: 61, kvh: 128, hd: 128, kv: 'mla', rank: 512, moe: true },
+    ];
+    const HW = [
+      { name: 'RTX 4090 · 24 GB', usable: 22 },
+      { name: 'Apple M4 Max · 128 GB', usable: 96 },
+      { name: 'NVIDIA H100 · 80 GB', usable: 72 },
+      { name: '8× H100 · 640 GB', usable: 576 },
+    ];
+
+    const $ = id => document.getElementById(id);
+    const fmt = b => (b / GB).toFixed(1) + ' GB';
+    MODELS.forEach((m, i) => $('m-model').add(new Option(m.name, i, i === 2, i === 2)));
+    HW.forEach((h, i) => $('m-hw').add(new Option(h.name, i, i === 1, i === 1)));
+
+    function draw() {
+      const m = MODELS[+$('m-model').value], hw = HW[+$('m-hw').value];
+      const quant = $('m-quant').value;
+      const ctx = 2 ** +$('m-ctx').value, conc = 2 ** +$('m-conc').value;
+
+      // MoE sizes on TOTAL params: sparsity cuts compute, not memory.
+      const weights = m.p * 1e9 * BITS[quant] / 8;
+      // MLA stores one compressed latent per layer; the GQA formula would
+      // overestimate it by ~50x.
+      const perTok = (m.kv === 'mla' ? m.rank : 2 * m.kvh * m.hd) * m.layers * 2;
+      const kvB = perTok * ctx * conc;
+      const over = weights * 0.08 + 1.5 * GB;
+      const total = weights + kvB + over, usable = hw.usable * GB;
+
+      $('m-quant-v').textContent = quant;
+      $('m-ctx-v').textContent = ctx.toLocaleString();
+      $('m-conc-v').textContent = conc;
+
+      // Scale to whichever is larger, so an over-budget bar visibly overflows
+      // the limit line instead of silently rescaling it out of view.
+      const span = Math.max(total, usable) * 1.05;
+      const pct = v => (100 * v / span).toFixed(2) + '%';
+      $('m-w').style.width = pct(weights);
+      $('m-k').style.width = pct(kvB);
+      $('m-o').style.width = pct(over);
+      $('m-limit').style.left = pct(usable);
+
+      const fits = total <= usable;
+      const v = $('m-verdict');
+      v.className = 'verdict ' + (fits ? 'ok' : 'no');
+      v.textContent = fits
+        ? `FITS — ${fmt(total)} of ${fmt(usable)}, ${fmt(usable - total)} to spare`
+        : `DOES NOT FIT — needs ${fmt(total)}, has ${fmt(usable)} (over by ${fmt(total - usable)})`;
+
+      const share = total > 0 ? Math.round(100 * kvB / total) : 0;
+      $('m-math').textContent =
+        `weights   ${m.p}B params x ${BITS[quant]} bits / 8`.padEnd(46) + `= ${fmt(weights)}` +
+        (m.moe ? '   (MoE: ALL experts resident)' : '') +
+        `\nkv cache  ${perTok.toLocaleString()} B/tok x ${ctx.toLocaleString()} x ${conc}`.padEnd(47) + `= ${fmt(kvB)}` +
+        `   (${m.kv.toUpperCase()})` +
+        `\noverhead  8% of weights + 1.5 GB floor`.padEnd(47) + `= ${fmt(over)}` +
+        `\n${'-'.repeat(62)}` +
+        `\nrequired`.padEnd(47) + `  ${fmt(total)}` +
+        `\nusable`.padEnd(47) + `  ${fmt(usable)}` +
+        `\n\nKV is ${share}% of the footprint at these settings.`;
+    }
+
+    lab.addEventListener('input', draw);
+    lab.addEventListener('change', draw);
+    draw();
+  })();
 </script>
 </body>
 </html>
