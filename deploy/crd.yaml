@@ -1,0 +1,184 @@
+# InferenceWorkload — declare what you need, not how to run it.
+#
+# Every other inference CRD asks for an image, a command, resource limits and a
+# set of engine flags. That is a Deployment with extra steps: the operator adds
+# nothing, because you already made every decision before you wrote the YAML.
+#
+# This one asks what the workload *is* — interactive or batch, how many requests
+# at once, how long the prompts are, how much of the prompt repeats — and derives
+# the engine and its flags from that plus the real capacity of your nodes.
+#
+# Two consequences worth understanding before you apply it:
+#
+#   1. `status` carries the *reasoning*, not just a phase. Every flag comes with
+#      the sentence that produced it, and anything the chosen engine could not
+#      express is reported as a gap rather than silently dropped.
+#
+#   2. `spec.phase` is yours. The controller will lower it on its own — that is
+#      a rollback, and it must work at 3am with nobody watching. It will never
+#      raise it. Moving more production traffic onto a candidate is a decision a
+#      human makes, and an operator that could do it unattended would be the most
+#      dangerous thing in this repo.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: inferenceworkloads.clickllm.dev
+spec:
+  group: clickllm.dev
+  scope: Namespaced
+  names:
+    kind: InferenceWorkload
+    listKind: InferenceWorkloadList
+    plural: inferenceworkloads
+    singular: inferenceworkload
+    shortNames: [iw, infw]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Model
+          type: string
+          jsonPath: .spec.model
+        - name: Engine
+          type: string
+          jsonPath: .status.engine
+          description: Derived, not requested
+        - name: Phase
+          type: string
+          jsonPath: .spec.phase
+        - name: Node
+          type: string
+          jsonPath: .status.node
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [model, workload]
+              properties:
+                model:
+                  type: string
+                  description: >-
+                    Model reference, e.g. Qwen/Qwen3-32B. Licence is checked
+                    before any bytes move; an unknown licence fails closed.
+                workload:
+                  type: string
+                  enum: [interactive, realtime, batch]
+                  description: >-
+                    What this is for. The single most consequential field: a
+                    stack tuned for throughput and one tuned for tail latency are
+                    configured in opposite directions on almost every knob.
+                concurrency:
+                  type: integer
+                  minimum: 1
+                  default: 8
+                  description: >-
+                    Expected simultaneous in-flight requests. Decides batch caps
+                    and whether speculative decoding helps or actively costs
+                    throughput.
+                context:
+                  type: integer
+                  minimum: 512
+                  default: 32768
+                  description: >-
+                    Context length to serve. KV memory is linear in this;
+                    over-provisioning it is the commonest way a model stops
+                    fitting.
+                prefixSharing:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                  default: 0
+                  description: >-
+                    Fraction of prompt tokens shared across requests. An agent
+                    fleet on one system prompt is routinely 0.8+, and above 0.55
+                    this selects SGLang for RadixAttention.
+                structuredOutput:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Whether outputs must be schema-valid. Constrains the sampler,
+                    which is a guarantee — retry-until-it-parses is not.
+                ttftMs:
+                  type: integer
+                  minimum: 1
+                  description: Time-to-first-token budget, milliseconds.
+                itlMs:
+                  type: integer
+                  minimum: 1
+                  description: Inter-token latency budget, milliseconds.
+                phase:
+                  type: string
+                  enum: [off, shadow, canary, cut]
+                  default: shadow
+                  description: >-
+                    Rollout state. Yours to raise. The controller lowers it on a
+                    quality or health regression and never raises it.
+                canaryPercent:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  default: 0
+                  description: Traffic percentage when phase is canary.
+                nodeSelector:
+                  type: object
+                  additionalProperties: {type: string}
+                  description: Restrict which nodes are considered for sizing.
+            status:
+              type: object
+              properties:
+                engine:
+                  type: string
+                  description: Derived engine — vllm, sglang, llm-d, vllm-tpu.
+                engineReason:
+                  type: string
+                  description: Why that engine, in one sentence.
+                node:
+                  type: string
+                  description: Node class this plan was sized against.
+                knobs:
+                  type: array
+                  description: >-
+                    Every setting with the reasoning that produced it. A number
+                    you cannot argue with is a number you cannot fix.
+                  items:
+                    type: object
+                    properties:
+                      setting: {type: string}
+                      value: {type: string}
+                      why: {type: string}
+                gaps:
+                  type: array
+                  description: >-
+                    Intents the chosen engine has no verified flag for. Present
+                    so a requested optimisation cannot silently fail to apply.
+                  items: {type: string}
+                warnings:
+                  type: array
+                  description: Requirements the hardware cannot meet.
+                  items: {type: string}
+                observedPhase:
+                  type: string
+                  description: Phase actually in effect.
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type: {type: string}
+                      status: {type: string, enum: ["True", "False", "Unknown"]}
+                      reason: {type: string}
+                      message: {type: string}
+                      lastTransitionTime: {type: string, format: date-time}
