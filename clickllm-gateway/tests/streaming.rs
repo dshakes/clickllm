@@ -81,6 +81,7 @@ fn state_pointing_at(addr: SocketAddr, phase: Phase) -> Arc<AppState> {
         incumbent: backend("incumbent"),
         candidate: backend("candidate"),
         phase,
+        failover: false,
     });
     Arc::new(AppState::new(router, reqwest::Client::new()))
 }
@@ -262,6 +263,7 @@ async fn an_unreachable_upstream_returns_502_in_the_openai_error_shape() {
             incumbent: backend.clone(),
             candidate: backend,
             phase: Phase::Off,
+            failover: false,
         }),
         reqwest::Client::new(),
     ));
@@ -437,6 +439,7 @@ async fn shadow_actually_sends_the_request_to_the_candidate_backend() {
                 model: None,
             },
             phase: Phase::Shadow,
+            failover: false,
         }),
         reqwest::Client::new(),
     ));
@@ -502,6 +505,7 @@ async fn a_dead_candidate_is_recorded_rather_than_silently_dropped() {
                 model: None,
             },
             phase: Phase::Shadow,
+            failover: false,
         }),
         reqwest::Client::new(),
     ));
@@ -550,6 +554,7 @@ async fn a_slow_candidate_does_not_delay_the_client() {
                 model: None,
             },
             phase: Phase::Shadow,
+            failover: false,
         }),
         reqwest::Client::new(),
     ));
@@ -600,4 +605,144 @@ async fn the_console_can_read_the_mirror_endpoint_it_renders() {
         .await
         .unwrap();
     assert!(m.is_array());
+}
+
+// --------------------------------------------------------------------------- //
+// Split routing and failover, over real TCP.
+// --------------------------------------------------------------------------- //
+
+fn split_state(local: SocketAddr, cloud: &str, failover: bool) -> Arc<AppState> {
+    Arc::new(AppState::new(
+        Router::new(Route {
+            incumbent: Backend {
+                name: "cloud".into(),
+                base_url: cloud.to_owned(),
+                model: None,
+            },
+            candidate: Backend {
+                name: "local".into(),
+                base_url: format!("http://{local}/v1"),
+                model: None,
+            },
+            phase: Phase::Split { to_candidate: true },
+            failover,
+        }),
+        reqwest::Client::new(),
+    ))
+}
+
+#[tokio::test]
+async fn a_split_serves_local_and_never_mirrors_to_the_cloud() {
+    let local_hits = Arc::new(AtomicUsize::new(0));
+    let cloud_hits = Arc::new(AtomicUsize::new(0));
+    let local = spawn(counting_upstream(Arc::clone(&local_hits))).await;
+    let cloud = spawn(counting_upstream(Arc::clone(&cloud_hits))).await;
+
+    let st = split_state(local, &format!("http://{cloud}/v1"), false);
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    for i in 0..8 {
+        let r = reqwest::Client::new()
+            .post(format!("http://{gw}/v1/chat/completions"))
+            .header("x-request-id", format!("r{i}"))
+            .json(&serde_json::json!({"model": "any"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.headers().get("x-clickllm-backend").unwrap(), "local");
+    }
+
+    assert_eq!(local_hits.load(Ordering::SeqCst), 8);
+    // A settled split gathers no evidence — the decision is already made, and
+    // mirroring to a paid API forever would be a permanent, invisible bill.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(
+        cloud_hits.load(Ordering::SeqCst),
+        0,
+        "split must not mirror"
+    );
+    assert!(st.mirrors().is_empty());
+}
+
+#[tokio::test]
+async fn failover_reaches_the_cloud_when_local_is_down() {
+    // A local model is one machine. When it is restarting, "the request failed"
+    // is a worse answer than "it cost a bit more this time".
+    let cloud_hits = Arc::new(AtomicUsize::new(0));
+    let cloud = spawn(counting_upstream(Arc::clone(&cloud_hits))).await;
+
+    // Port 1 is reserved; nothing listens there.
+    let st = split_state(
+        "127.0.0.1:1".parse().unwrap(),
+        &format!("http://{cloud}/v1"),
+        true,
+    );
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    let r = reqwest::Client::new()
+        .post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "any"}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.status(),
+        StatusCode::OK,
+        "failover should have rescued this"
+    );
+    assert_eq!(r.headers().get("x-clickllm-backend").unwrap(), "cloud");
+    assert_eq!(cloud_hits.load(Ordering::SeqCst), 1);
+
+    let rec = &st.records()[0];
+    assert!(
+        rec.failed_over,
+        "a degraded deployment must be visible, not merely working"
+    );
+    assert_eq!(rec.backend, "cloud");
+}
+
+#[tokio::test]
+async fn without_failover_a_dead_primary_is_an_error_not_a_surprise_bill() {
+    let cloud_hits = Arc::new(AtomicUsize::new(0));
+    let cloud = spawn(counting_upstream(Arc::clone(&cloud_hits))).await;
+    let st = split_state(
+        "127.0.0.1:1".parse().unwrap(),
+        &format!("http://{cloud}/v1"),
+        false,
+    );
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    let r = reqwest::Client::new()
+        .post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "any"}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(r.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        cloud_hits.load(Ordering::SeqCst),
+        0,
+        "traffic must not reach a paid API without failover being asked for"
+    );
+}
+
+#[tokio::test]
+async fn a_healthy_primary_is_not_marked_as_failed_over() {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let local = spawn(counting_upstream(Arc::clone(&hits))).await;
+    let st = split_state(local, "http://127.0.0.1:1/v1", true);
+    let gw = spawn(app(Arc::clone(&st))).await;
+
+    reqwest::Client::new()
+        .post(format!("http://{gw}/v1/chat/completions"))
+        .json(&serde_json::json!({"model": "any"}))
+        .send()
+        .await
+        .unwrap();
+
+    let rec = &st.records()[0];
+    assert!(!rec.failed_over);
+    assert_eq!(rec.backend, "local");
 }

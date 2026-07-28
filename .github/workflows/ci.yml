@@ -73,6 +73,43 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The `test` job above runs WITHOUT the compiled extension on purpose — it proves
+  # the zero-dependency path still works, which is the promise `uvx clickllm fit`
+  # rests on. This job is the other half: the same suite with the extension present,
+  # so the seam is actually exercised rather than skipped into a green tick.
+  seam:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - name: build and install the extension
+        run: |
+          uv tool install 'maturin>=1.7,<2'
+          uv venv
+          maturin build --release -m clickllm-py/Cargo.toml -o dist
+          uv pip install dist/*.whl pytest
+      # --no-sync throughout: a plain `uv run` re-resolves the project and would
+      # drop the wheel we just installed by hand, turning this job back into the
+      # skipping one it exists to complement.
+      - name: the seam tests must run, not skip
+        run: |
+          uv run --no-sync python -c "
+          from clickllm import core
+          assert core.available(), core.why_unavailable()
+          print('extension', core.version())
+          "
+          uv run --no-sync pytest tests/test_core.py -q
+        env:
+          PYTHONPATH: src
+
   lint:
     runs-on: ubuntu-latest
     steps:

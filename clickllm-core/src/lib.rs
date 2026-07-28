@@ -33,12 +33,14 @@
 pub mod error;
 pub mod licence;
 pub mod model_ref;
+pub mod pack;
 pub mod runtime;
 pub mod spec;
 
 pub use error::{Error, Result};
 pub use licence::{Intent, Policy, Verdict};
 pub use model_ref::{ModelRef, Source};
+pub use pack::{Arrival, HostClass, Manifest, on_arrival};
 pub use runtime::{Endpoint, Feasibility, Runtime, RuntimePlan, Target};
 pub use spec::{Accelerator, Hardware, KvScheme, ModelSpec, Workload};
 

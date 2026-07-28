@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clickllm docs — run open models properly, and understand why</title>
+<meta name="description" content="How to pick, deploy, tune and prove open-weight LLMs. Includes a from-scratch education module on GPUs, prefill/decode, KV cache, batching, quantization and the serving stack.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
+<style>
+  :root{
+    --void:#04060c; --panel:#0d1320; --panel2:#111827; --line:#1c2534; --line2:#243043;
+    --ink:#eef4ff; --ink2:#9fb0c8; --ink3:#64748b;
+    --cyan:#22d3ee; --violet:#a78bfa; --amber:#fbbf24; --emerald:#34d399; --rose:#fb7185;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;scroll-padding-top:80px}
+  body{background:var(--void);color:var(--ink);font-family:var(--sans);line-height:1.65;
+       -webkit-font-smoothing:antialiased}
+  body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background-image:linear-gradient(rgba(34,211,238,.035) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(34,211,238,.035) 1px,transparent 1px);
+    background-size:56px 56px;
+    mask-image:radial-gradient(ellipse 80% 40% at 50% 0%,#000 30%,transparent 75%)}
+  a{color:var(--cyan);text-decoration:none} a:hover{text-decoration:underline}
+  code,kbd{font-family:var(--mono);font-size:.88em;background:#0a0f1a;border:1px solid var(--line);
+           padding:1px 5px;border-radius:5px;color:#c7d5ea}
+  pre code{background:none;border:none;padding:0}
+
+  header{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+         background:rgba(4,6,12,.8);border-bottom:1px solid var(--line)}
+  nav{display:flex;align-items:center;height:60px;max-width:1400px;margin:0 auto;padding:0 24px;gap:22px}
+  .brand{font-weight:800;font-size:16px;letter-spacing:-.03em;color:var(--ink);display:flex;align-items:center}
+  .brand b{color:var(--cyan)}
+  .mark{width:8px;height:8px;background:var(--cyan);box-shadow:0 0 12px var(--cyan);
+        transform:rotate(45deg);border-radius:1px;margin-right:9px}
+  nav .sp{flex:1}
+  nav a.n{color:var(--ink2);font-size:13.5px}
+
+  .shell{display:grid;grid-template-columns:270px minmax(0,1fr);gap:44px;max-width:1400px;
+         margin:0 auto;padding:0 24px}
+  aside{position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;padding:30px 0 60px}
+  aside h4{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);
+           font-weight:700;margin:22px 0 8px}
+  aside h4:first-child{margin-top:0}
+  aside a{display:block;color:var(--ink2);font-size:13.5px;padding:5px 12px;border-radius:7px;
+          border-left:2px solid transparent}
+  aside a:hover{color:var(--ink);background:rgba(34,211,238,.06);text-decoration:none}
+  aside a.on{color:var(--cyan);border-left-color:var(--cyan);background:rgba(34,211,238,.08)}
+
+  main{padding:36px 0 120px;min-width:0}
+  h1{font-size:clamp(30px,4.4vw,46px);font-weight:800;letter-spacing:-.035em;line-height:1.06;margin-bottom:14px}
+  h2{font-size:26px;font-weight:800;letter-spacing:-.025em;margin:64px 0 12px;padding-top:8px;
+     scroll-margin-top:80px}
+  h3{font-size:17px;font-weight:700;margin:30px 0 8px;letter-spacing:-.01em}
+  h4{font-size:14.5px;font-weight:700;margin:20px 0 6px}
+  p{color:var(--ink2);margin:10px 0;max-width:78ch}
+  .lede{font-size:18px;color:var(--ink2);max-width:70ch}
+  ul,ol{color:var(--ink2);margin:10px 0 10px 22px;max-width:78ch}
+  li{margin:5px 0}
+  em{color:var(--ink);font-style:normal;font-weight:600}
+  hr{border:0;border-top:1px solid var(--line);margin:44px 0}
+
+  pre{background:linear-gradient(180deg,#080c15,#05080f);border:1px solid var(--line);
+      border-radius:12px;padding:18px 20px;overflow-x:auto;font-family:var(--mono);
+      font-size:12.6px;line-height:1.7;color:#c7d5ea;margin:16px 0}
+  pre .c{color:#4b5b73} pre .k{color:var(--cyan)} pre .g{color:var(--emerald)}
+  pre .r{color:var(--rose)} pre .w{color:var(--amber)} pre .v{color:var(--violet)}
+  pre .u{color:var(--ink);font-weight:700}
+
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px}
+  th,td{text-align:left;padding:10px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink3);font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;font-weight:700}
+  td{color:var(--ink2)} td strong{color:var(--ink)}
+
+  .note{border-left:3px solid var(--cyan);background:rgba(34,211,238,.05);padding:13px 17px;
+        border-radius:0 10px 10px 0;margin:18px 0}
+  .note.warn{border-color:var(--amber);background:rgba(251,191,36,.05)}
+  .note.stop{border-color:var(--rose);background:rgba(251,113,133,.05)}
+  .note p{margin:4px 0}
+  .note b{color:var(--ink)}
+
+  .cards{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin:18px 0}
+  .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+        border-radius:12px;padding:17px}
+  .card h4{margin:0 0 5px} .card p{font-size:13.5px;margin:0}
+
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.07em;padding:2px 8px;
+        border-radius:999px;border:1px solid var(--line2);color:var(--ink3);vertical-align:middle}
+  .pill.live{border-color:var(--emerald);color:var(--emerald)}
+  .pill.soon{border-color:var(--line2);color:var(--ink3)}
+
+  figure{margin:22px 0} figure img{width:100%;border-radius:12px;border:1px solid var(--line2)}
+  figcaption{font-size:12.5px;color:var(--ink3);margin-top:8px}
+
+  @media(max-width:900px){
+    .shell{grid-template-columns:1fr;gap:0}
+    aside{position:static;height:auto;border-bottom:1px solid var(--line);padding-bottom:18px}
+  }
+</style>
+</head>
+<body>
+
+<header><nav>
+  <a class="brand" href="../"><i class="mark"></i>click<b>llm</b></a>
+  <span style="color:var(--ink3);font-size:13.5px">docs</span>
+  <span class="sp"></span>
+  <a class="n" href="../">Home</a>
+  <a class="n" href="https://github.com/dshakes/clickllm">GitHub</a>
+</nav></header>
+
+<div class="shell">
+<aside>
+  <h4>Start</h4>
+  <a href="#what">What this is</a>
+  <a href="#kiosk">The kiosk walkthrough</a>
+  <a href="#install">Install</a>
+
+  <h4>Learn — inference from scratch</h4>
+  <a href="#edu-why">Why a GPU at all</a>
+  <a href="#edu-memory">Where the memory goes</a>
+  <a href="#edu-prefill">Prefill vs decode</a>
+  <a href="#edu-kv">KV cache, GQA, MLA</a>
+  <a href="#edu-batch">Batching &amp; throughput</a>
+  <a href="#edu-quant">Quantization</a>
+  <a href="#edu-spec">Speculative decoding</a>
+  <a href="#edu-engines">The serving stack</a>
+
+  <h4>Use</h4>
+  <a href="#recommend">Getting a recommendation</a>
+  <a href="#models">Managing models</a>
+  <a href="#deploy">Deploying</a>
+  <a href="#tuning">Optimization controls</a>
+  <a href="#gateway">Gateway &amp; routing</a>
+
+  <h4>Reference</h4>
+  <a href="#cli">CLI</a>
+  <a href="#sdk">Python SDK</a>
+  <a href="#mcp">MCP &amp; agents</a>
+  <a href="#arch">Architecture</a>
+</aside>
+
+<main>
+
+<h1>Run open models properly —<br>and understand why.</h1>
+<p class="lede">Two audiences, one tool. If you've never sized a KV cache, the
+  <a href="#edu-why">Learn</a> section teaches the whole stack from first principles. If you have,
+  skip to <a href="#tuning">optimization controls</a> and drive it directly.</p>
+
+<div class="note">
+  <p><b>Status legend.</b> <span class="pill live">LIVE</span> works today ·
+  <span class="pill soon">PLANNED</span> specified, not built. Every section is marked. We would
+  rather lose you at the legend than at the terminal.</p>
+</div>
+
+<!-- ══════════ WHAT ══════════ -->
+<h2 id="what">What this is</h2>
+<p>clickllm helps you <em>choose</em>, <em>deploy</em>, <em>tune</em>, and <em>trust</em> open-weight
+language models on hardware you control.</p>
+<div class="cards">
+  <div class="card"><h4>Choose</h4><p>What actually runs on your silicon, at your context and
+    concurrency, with licences that survive legal review.</p></div>
+  <div class="card"><h4>Deploy</h4><p>Native config for vLLM, SGLang, llm-d, llama.cpp or MLX —
+    tuned, benchmarked, and runnable without us.</p></div>
+  <div class="card"><h4>Tune</h4><p>Every knob derived from your hardware and traffic, then
+    measured and reverted if it didn't help.</p></div>
+  <div class="card"><h4>Trust</h4><p>Your traffic becomes a private benchmark, so switching is a
+    decision with evidence rather than a leap.</p></div>
+</div>
+
+<!-- ══════════ KIOSK ══════════ -->
+<h2 id="kiosk">The kiosk walkthrough <span class="pill soon">PLANNED</span></h2>
+<p>One command drives everything. It asks only when it genuinely cannot decide, and it explains
+  every choice it made on your behalf.</p>
+
+<pre><span class="u">$ clickllm switch</span>
+
+<span class="k">clickllm</span> · no prior state found, starting from scratch
+
+  <span class="c">Scanning hardware…</span>
+  <span class="g">✓</span> Apple M4 Max · 16 cores · 128 GB unified · 546 GB/s
+    usable for inference: 96 GB  <span class="c">(raise to ~118 GB — I'll show you how later)</span>
+
+  <span class="c">What are you trying to do?</span>
+    <span class="u">1)</span> Replace an API I'm already paying for
+    <span class="u">2)</span> Run a model locally for the first time
+    <span class="u">3)</span> I know what I want, just deploy it
+  <span class="u">&gt; 2</span>
+
+  <span class="c">What kind of work?</span>  <span class="u">&gt; coding assistant, mostly, plus some summarising</span>
+
+  <span class="c">Checking leaderboards…</span>  <span class="c">(cached 4h ago, --refresh to update)</span>
+  <span class="g">✓</span> 41 models considered · 7 fit your machine · 4 have clean commercial licences
+
+  <span class="u">Recommended: Qwen3 30B-A3B (MoE) at q8</span>
+    ~119 tok/s   <span class="c">roofline estimate, not measured — we'll benchmark it in a moment</span>
+    56 GB of 96  <span class="c">40 GB spare, so you can raise context later</span>
+    Apache-2.0   <span class="c">no usage caps, no review needed</span>
+
+    <span class="c">Why not the bigger Qwen3 32B?  It's dense — every token reads all 32.8B</span>
+    <span class="c">parameters, so it decodes ~5x slower for similar quality on your tasks.</span>
+    <span class="c">Run `clickllm explain qwen3-30b-a3b` for the full arithmetic.</span>
+
+  <span class="c">Proceed?</span> <span class="u">[Y/n/other]</span> <span class="u">&gt; Y</span>
+
+  <span class="g">✓</span> Licence check   Apache-2.0 — clean, nothing to accept
+  <span class="g">✓</span> Downloaded      28.4 GB · resumable · sha256 verified
+  <span class="g">✓</span> Runtime         vllm-mlx  <span class="c">(continuous batching; llama.cpp is faster</span>
+                                   <span class="c">single-stream but you asked for an agent fleet)</span>
+  <span class="c">Benchmarking on your machine…</span>
+  <span class="g">✓</span> Measured        <span class="u">104 tok/s</span>, TTFT 180ms  <span class="c">(estimate said 119 — now corrected)</span>
+  <span class="w">↺</span> Reverted        speculative decoding — it cost 8% here. Kept off.
+
+  <span class="g">✓</span> <span class="u">Serving at http://localhost:8080/v1</span>
+    OPENAI_BASE_URL=http://localhost:8080/v1
+    Console: http://localhost:8080
+
+  <span class="c">Next:  clickllm guard watch    — tell me when something better ships</span></pre>
+
+<div class="note">
+  <p><b>Nothing above is a wizard.</b> Each stage is an agent with tools that can skip ahead when the
+  answer is already known — re-running after a hardware change re-solves only what changed.</p>
+</div>
+
+<!-- ══════════ EDUCATION ══════════ -->
+<hr>
+<h2 id="edu-why">Learn: why a GPU at all</h2>
+<p>Generating one token means multiplying your input by every weight in the model. A 30-billion
+  parameter model at 8 bits is ~30 GB of numbers, and you read <em>all of them</em> to produce
+  <em>one</em> token. Do that 50 times a second and you need to move 1.5 TB/s.</p>
+<p>That is the whole story: <strong>LLM decoding is limited by memory bandwidth, not arithmetic.</strong>
+  A GPU is not faster because it computes harder — it's faster because its memory feeds the
+  computation ~20× quicker than a CPU's does.</p>
+<table>
+  <thead><tr><th>Hardware</th><th>Bandwidth</th><th>What that means</th></tr></thead>
+  <tbody>
+    <tr><td>Typical desktop CPU + DDR5</td><td>~60 GB/s</td><td>a 30 GB model → ~2 tok/s</td></tr>
+    <tr><td>Apple M4 Max (unified)</td><td>546 GB/s</td><td>same model → ~15 tok/s</td></tr>
+    <tr><td>NVIDIA H100</td><td>~3,350 GB/s</td><td>same model → ~90 tok/s</td></tr>
+  </tbody>
+</table>
+<p class="lede" style="font-size:15px">Divide bandwidth by model size and you have a ceiling nobody
+  can beat. That single division is what <code>clickllm fit</code> reports, and why it calls the
+  number an <em>estimate</em>: reality lands below the ceiling, never above it.</p>
+
+<h2 id="edu-memory">Learn: where the memory goes</h2>
+<p>Three things occupy your GPU, and people usually forget the second one.</p>
+<pre>  <span class="u">weights</span>      parameters × bits ÷ 8            <span class="c">fixed, the obvious one</span>
+  <span class="u">KV cache</span>     grows with context × concurrency <span class="c">the one that surprises people</span>
+  <span class="u">overhead</span>     activations, workspace, frag     <span class="c">~8% + a fixed floor</span></pre>
+<div class="note warn">
+  <p><b>The mistake everyone makes.</b> A 32B model at 4-bit is ~18 GB, so it "fits" in 24 GB —
+  until you serve 8 users at 32K context and the KV cache alone wants 64 GB. Weights are a
+  constant; <em>KV is the variable that bites</em>.</p>
+</div>
+
+<h2 id="edu-prefill">Learn: prefill vs decode</h2>
+<p>Every request has two phases with completely different characteristics, and almost every
+  performance question comes down to which one you're talking about.</p>
+<table>
+  <thead><tr><th></th><th>Prefill</th><th>Decode</th></tr></thead>
+  <tbody>
+    <tr><td><strong>What</strong></td><td>read the prompt, build the KV cache</td><td>emit tokens, one at a time</td></tr>
+    <tr><td><strong>Parallel?</strong></td><td>yes — all prompt tokens at once</td><td>no — each token needs the previous</td></tr>
+    <tr><td><strong>Limited by</strong></td><td>compute (FLOPs)</td><td>memory bandwidth</td></tr>
+    <tr><td><strong>You feel it as</strong></td><td>time to first token</td><td>tokens per second</td></tr>
+  </tbody>
+</table>
+<p>They're so different that large deployments run them on <em>separate machines</em> — that's what
+  "disaggregated prefill/decode" means in <a href="#edu-engines">llm-d</a>. A long prompt with a short
+  answer is a prefill problem; a short prompt with a long answer is a decode problem. Optimizing the
+  wrong one does nothing.</p>
+
+<h2 id="edu-kv">Learn: KV cache, GQA, and MLA</h2>
+<p>To avoid re-reading the whole conversation for every new token, the model caches its intermediate
+  keys and values. That cache is the KV cache, and it grows linearly with context <em>and</em> with
+  the number of simultaneous users.</p>
+<pre>  KV bytes per token  =  2 × layers × <span class="k">kv_heads</span> × head_dim × dtype_bytes
+  total KV            =  that × context_length × concurrent_requests</pre>
+<h4>Three attention schemes, three very different bills</h4>
+<table>
+  <thead><tr><th>Scheme</th><th>What it stores</th><th>Relative KV size</th></tr></thead>
+  <tbody>
+    <tr><td><strong>MHA</strong> — multi-head</td><td>one K,V per attention head</td><td>baseline (largest)</td></tr>
+    <tr><td><strong>GQA</strong> — grouped-query</td><td>heads share K,V groups</td><td>4–8× smaller</td></tr>
+    <tr><td><strong>MLA</strong> — latent (DeepSeek)</td><td>one compressed latent per layer</td><td>~50× smaller</td></tr>
+  </tbody>
+</table>
+<div class="note stop">
+  <p><b>Three silent errors, all of them common.</b></p>
+  <p>① Using <em>attention heads</em> instead of <em>kv_heads</em> for a GQA model overestimates KV by
+    up to 8×. ② Using the GQA formula on an MLA model overestimates by ~50×. ③ Sizing a
+    Mixture-of-Experts model on <em>active</em> parameters instead of <em>total</em>: Kimi K3 activates
+    50B of 2.8T per token, so people assume 50B of memory. All 2.8T must be resident.
+    <em>Sparsity cuts compute, not memory.</em></p>
+  <p>clickllm gets all three right, and <code>--explain</code> shows the arithmetic so you can check.</p>
+</div>
+
+<h2 id="edu-batch">Learn: batching and throughput</h2>
+<p>Because decode is bandwidth-bound, serving one user wastes the machine — you read 30 GB of weights
+  to produce a single token. Serve 32 users and you read the same 30 GB to produce 32 tokens.</p>
+<p><strong>Continuous batching</strong> means new requests join the running batch instead of waiting
+  for it to drain. It is the single biggest throughput lever in serving, and it's why
+  <em>aggregate</em> throughput and <em>single-stream</em> speed pull in opposite directions:</p>
+<table>
+  <thead><tr><th>Runtime</th><th>Single stream</th><th>32 concurrent</th></tr></thead>
+  <tbody>
+    <tr><td>llama.cpp (Metal)</td><td><strong>faster</strong></td><td>much slower</td></tr>
+    <tr><td>vllm-mlx (Metal)</td><td>~15% slower</td><td><strong>~27× higher aggregate</strong></td></tr>
+  </tbody>
+</table>
+<p>Neither is "better". <code>clickllm fit --concurrency N</code> picks on the number you give it,
+  which is why that flag matters more than it looks.</p>
+
+<h2 id="edu-quant">Learn: quantization</h2>
+<p>Storing weights in fewer bits shrinks the model and — because decode is bandwidth-bound —
+  <em>speeds it up proportionally</em>. Halving the bits roughly doubles tokens/sec.</p>
+<table>
+  <thead><tr><th>Level</th><th>Size vs fp16</th><th>Quality</th><th>Use when</th></tr></thead>
+  <tbody>
+    <tr><td>fp16 / bf16</td><td>100%</td><td>reference</td><td>you have memory to burn — rarely worth it</td></tr>
+    <tr><td>q8 / fp8</td><td>50%</td><td>near-indistinguishable</td><td><strong>the default sweet spot</strong></td></tr>
+    <tr><td>q4</td><td>~28%</td><td>small but real degradation</td><td>the model otherwise won't fit</td></tr>
+    <tr><td>q3 and below</td><td>&lt;25%</td><td>noticeable</td><td>last resort; re-prove before trusting</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <p><b>Why we cap at 8-bit by default.</b> fp16 doubles bandwidth cost for quality gains that are
+  negligible at inference time. clickllm picks the highest precision <em>at or below 8 bits</em> that
+  fits, and only goes to 16 when a model publishes nothing smaller.</p>
+</div>
+
+<h2 id="edu-spec">Learn: speculative decoding</h2>
+<p>A small "draft" model guesses several tokens ahead; the real model verifies them in one pass.
+  Accepted guesses are free. Output is <em>identical</em> — it's a speed trick, not a quality
+  trade-off.</p>
+<div class="note warn">
+  <p><b>It is not free at scale.</b> EAGLE-3's headline "2–3×" is a <em>single-stream</em> figure. At
+  realistic serving concurrency expect ~1.3–1.8×, and past batch ~32 the acceptance rate falls far
+  enough that you pay for two forward passes and <em>go slower</em>.</p>
+  <p>clickllm disables it above that cliff automatically and prints why. In the walkthrough above,
+  it was enabled, measured, found to cost 8%, and reverted.</p>
+</div>
+
+<h2 id="edu-engines">Learn: the serving stack</h2>
+<p>An "inference engine" is the program that actually runs the model. They differ in what they
+  optimize and, critically, in what hardware they support.</p>
+<table>
+  <thead><tr><th>Engine</th><th>Hardware</th><th>Best at</th></tr></thead>
+  <tbody>
+    <tr><td><strong>vLLM</strong></td><td>CUDA / ROCm</td><td>the default. PagedAttention, continuous batching, widest support</td></tr>
+    <tr><td><strong>SGLang</strong></td><td>CUDA</td><td>RadixAttention — reuses shared prompt prefixes, ideal for agents</td></tr>
+    <tr><td><strong>llm-d</strong></td><td>CUDA, multi-node</td><td>disaggregated prefill/decode + KV-cache-aware routing at fleet scale</td></tr>
+    <tr><td><strong>llama.cpp</strong></td><td>everything</td><td>best single-stream, widest model coverage, runs anywhere</td></tr>
+    <tr><td><strong>vllm-mlx</strong></td><td>Apple Metal</td><td>continuous batching on Apple Silicon</td></tr>
+    <tr><td><strong>MLC-LLM</strong></td><td>broad</td><td>steadiest throughput at 64K+ context</td></tr>
+  </tbody>
+</table>
+<div class="note stop">
+  <p><b>vLLM, SGLang and llm-d do not run on Apple Silicon.</b> They are CUDA/ROCm-first. On a Mac
+  the real options are vllm-mlx, llama.cpp, and MLC-LLM. Any guide telling a Mac user to
+  <code>pip install vllm</code> has not checked.</p>
+</div>
+
+<!-- ══════════ USE ══════════ -->
+<hr>
+<h2 id="recommend">Getting a recommendation <span class="pill live">LIVE</span></h2>
+<p>Recommendations combine three inputs: <em>your hardware</em>, <em>your workload</em>, and
+  <em>current capability rankings</em>. None alone is enough — a leaderboard doesn't know your GPU,
+  and your GPU doesn't know which model is good.</p>
+<pre><span class="u">$ clickllm fit --context 32k --concurrency 8</span>
+
+  <span class="k">M4 Max</span> · 16 cores · 128 GB · 546 GB/s
+  usable for inference: 96 GB
+
+  FEASIBLE at 32,768 context, concurrency 8
+
+  model                     quant   weights      kv   total    free  ~tok/s  license
+  ----------------------------------------------------------------------------------
+  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      21  <span class="g">Apache-2.0</span>
+  <span class="g">Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0</span>
+  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      27  <span class="g">MIT</span>
+
+  <span class="r">NOT FEASIBLE</span>
+  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity
+                            (50B of 2800B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+
+  runtime -> <span class="k">vllm-mlx</span></pre>
+<p>The <strong>NOT FEASIBLE</strong> block is the useful half — it tells you <em>why</em>, which is
+  usually the thing you actually needed to know.</p>
+
+<h3>Seeing the arithmetic</h3>
+<pre><span class="u">$ clickllm fit --explain qwen3-30b-a3b --concurrency 8</span>
+
+  weights   30.5B params × 8 bits / 8      =   28.4 GB   <span class="c">(MoE: ALL experts resident)</span>
+  kv cache  98,304 B/tok × 32,768 × 8      =   24.0 GB   <span class="c">(GQA)</span>
+  overhead  8% of weights + 1.5 GB floor   =    3.8 GB
+  --------------------------------------------------------------
+  required                                     56.2 GB
+  usable                                       96.0 GB
+  headroom                                     39.8 GB
+
+  decode is bandwidth-bound: 3.1 GB read/token (3.3B active) at 72% of peak
+  ~119 tok/s single-stream <span class="c">(roofline estimate, not measured)</span></pre>
+
+<h3>Leaderboard awareness <span class="pill soon">PLANNED</span></h3>
+<p>Capability rankings move weekly. clickllm tracks published leaderboards and release feeds, then
+  filters them through <em>your</em> constraints — a model topping every chart is irrelevant if it
+  needs 1.4 TB of memory.</p>
+<div class="note">
+  <p><b>Leaderboards build a shortlist, never a decision.</b> Public benchmarks are not your traffic.
+  They narrow 41 models to 7; <a href="#">stage ④</a> decides between those 7 using your own prompts.</p>
+</div>
+
+<h2 id="models">Managing models <span class="pill soon">PLANNED</span></h2>
+<pre><span class="u">$ clickllm models</span>          <span class="c"># the catalogue, with licences</span>
+<span class="u">$ clickllm pull glm-5.2 --quant q4</span>   <span class="c"># resumable, checksummed, licence-gated</span>
+<span class="u">$ clickllm local</span>           <span class="c"># what you have on disk</span>
+
+  <span class="u">NAME                  QUANT   SIZE     RUNTIME     LAST USED   STATUS</span>
+  qwen3-30b-a3b         q8      28.4 GB  vllm-mlx    2m ago      <span class="g">● serving :8080</span>
+  glm-5.2               q4      58.1 GB  —           3d ago      idle
+  phi-4-14b             q8      13.7 GB  llama.cpp   —           idle
+
+  disk: 100.2 GB of 400 GB budget · <span class="c">LRU eviction at 90%</span></pre>
+<h4>Licence gating happens before bytes move</h4>
+<pre><span class="u">$ clickllm pull llama-3.3-70b</span>
+
+<span class="r">error</span>: licence "llama3.3" requires acknowledgement:
+       Meta Llama licence: a 700M monthly-active-user cap measured at the
+       parent corporate entity, plus naming and acceptable-use terms
+
+       re-run with --accept-licence llama3.3 if that is acceptable</pre>
+<p>Unknown licences <strong>fail closed</strong>. A missing licence field is not permission.</p>
+
+<h2 id="deploy">Deploying <span class="pill soon">PLANNED</span></h2>
+<p>You name a model and a target. Every knob is derived — see <a href="#tuning">optimization
+  controls</a> for the full list and how to override any of them.</p>
+<pre><span class="u">$ clickllm deploy --model glm-5.2 --target k8s --out ./deploy/</span>
+
+  <span class="g">✓</span> wrote deploy/inferencepool.yaml   <span class="c">llm-d + Gateway API Inference Extension</span>
+  <span class="g">✓</span> wrote deploy/deployment.yaml      <span class="c">4× H100, tensor-parallel 4</span>
+  <span class="g">✓</span> wrote deploy/README.md            <span class="c">what was chosen and why</span>
+
+  <span class="c">These run with clickllm uninstalled. kubectl apply -f ./deploy/</span></pre>
+<h4>Inference in a box</h4>
+<p>A <em>box</em> is a portable, tuned artifact: manifest, weights lock, per-target bindings, and the
+  benchmark evidence behind the tuning. It ships as a standard OCI artifact through any registry.</p>
+<pre><span class="u">$ clickllm pack --model glm-5.2 --out triage.box</span>
+<span class="u">$ clickllm push ghcr.io/acme/triage:v3</span>
+<span class="u">$ clickllm run  ghcr.io/acme/triage:v3</span>
+
+  <span class="c">On arrival it re-profiles the host and re-solves if the hardware differs.</span>
+  <span class="w">↺</span> packed for 4× H100, landed on 1× L40S (24 GB)
+  <span class="w">↺</span> re-quantized fp8 → q4, context 32k → 16k
+  <span class="g">✓</span> serving at http://localhost:8080/v1</pre>
+<div class="note">
+  <p><b>Why a box isn't just a container.</b> A Linux container on macOS cannot reach the Apple GPU —
+  the GPU is on-die behind unified memory, Metal has no Linux driver, and no compute-passthrough API
+  exists. So the box is an <em>OCI artifact</em> with a per-host execution binding: a container on
+  Linux/Windows/k8s, a supervised native runtime on macOS. One artifact, one command, one endpoint.</p>
+</div>
+
+<h2 id="tuning">Optimization controls <span class="pill soon">PLANNED</span></h2>
+<p><strong>No tuning flag is ever required.</strong> Everything below is derived from your hardware
+  and observed traffic, benchmarked, and reverted if it didn't help on your machine.</p>
+<table>
+  <thead><tr><th>Knob</th><th>Derived from</th><th>Override</th></tr></thead>
+  <tbody>
+    <tr><td>quantization</td><td>memory solve, re-validated against evals</td><td><code>--set quant=q4</code></td></tr>
+    <tr><td>speculative decoding</td><td>observed concurrency; off past the acceptance cliff</td><td><code>--set spec=off</code></td></tr>
+    <tr><td>prefix / radix caching</td><td>measured prefix-sharing rate in your traffic</td><td><code>--set prefix_cache=on</code></td></tr>
+    <tr><td>tensor / pipeline parallel</td><td>device count and topology</td><td><code>--set tp=4</code></td></tr>
+    <tr><td><code>max_model_len</code></td><td>your observed p95, not the model's maximum</td><td><code>--set max_len=32768</code></td></tr>
+    <tr><td><code>max_num_seqs</code></td><td>concurrency and KV headroom</td><td><code>--set max_seqs=64</code></td></tr>
+    <tr><td>KV dtype, memory utilization</td><td>headroom after the solve</td><td><code>--set kv_dtype=fp8</code></td></tr>
+  </tbody>
+</table>
+<pre><span class="u">$ clickllm tune --explain</span>
+
+  <span class="g">✓</span> quant q8              highest precision that fits at 32k × 8
+  <span class="w">↺</span> spec decode OFF       measured -8% here; estimate said +1.4x. Reverted.
+  <span class="g">✓</span> prefix cache ON       61% of your requests share a system prompt
+  <span class="g">✓</span> max_model_len 18432   your p95 is 18k; the model allows 131k
+  <span class="c">Estimates pick the candidates. Measurement decides.</span></pre>
+
+<h2 id="gateway">Gateway &amp; routing <span class="pill live">LIVE</span></h2>
+<p>An OpenAI-compatible proxy that streams through without buffering, meters tokens in flight, and
+  can mirror traffic to a candidate model that is scored but never served.</p>
+<pre><span class="u">$ export OPENAI_BASE_URL=http://localhost:4000/v1</span>   <span class="c"># the whole integration</span></pre>
+<table>
+  <thead><tr><th>Phase</th><th>Serves</th><th>Mirrors</th></tr></thead>
+  <tbody>
+    <tr><td><code>off</code></td><td>incumbent</td><td>—</td></tr>
+    <tr><td><code>shadow</code></td><td>incumbent</td><td>candidate — genuinely dispatched, never served</td></tr>
+    <tr><td><code>canary N%</code></td><td>N% candidate</td><td>the rest, for comparison</td></tr>
+    <tr><td><code>cut</code></td><td>candidate</td><td>—</td></tr>
+  </tbody>
+</table>
+<p>The local console at <code>http://localhost:4000</code> shows request volume, per-backend rollup,
+  p95 latency, and shadow outcomes — including an explicit warning when the candidate is failing,
+  because a rollout gated on evidence that isn't arriving would otherwise stall silently.</p>
+<div class="note">
+  <p><b>Token counts are never fabricated.</b> When an upstream reports no usage, the console says
+  <em>unreported</em> rather than showing zero. Understating spend is the one direction a cost ledger
+  must not err in.</p>
+</div>
+
+<!-- ══════════ REFERENCE ══════════ -->
+<hr>
+<h2 id="cli">CLI reference</h2>
+<pre><span class="u">clickllm fit</span>          what runs here            <span class="pill live">LIVE</span>
+  --context 32k        plan for this context length
+  --concurrency 8      plan for this many simultaneous requests
+  --explain MODEL      show the arithmetic
+  --json               machine-readable
+<span class="u">clickllm models</span>       the catalogue with licences   <span class="pill live">LIVE</span>
+<span class="u">clickllm switch</span>       drive the whole loop          <span class="pill soon">PLANNED</span>
+<span class="u">clickllm pull</span>         acquire weights               <span class="pill soon">PLANNED</span>
+<span class="u">clickllm deploy</span>       emit native config            <span class="pill soon">PLANNED</span>
+<span class="u">clickllm pack/run</span>     inference in a box            <span class="pill soon">PLANNED</span>
+<span class="u">clickllm cutover</span>      shadow → canary → cut         <span class="pill soon">PLANNED</span>
+<span class="u">clickllm guard</span>        watch for better models       <span class="pill soon">PLANNED</span></pre>
+
+<h2 id="sdk">Python SDK <span class="pill live">LIVE</span></h2>
+<pre><span class="k">from</span> clickllm <span class="k">import</span> sdk
+
+report = sdk.fit(context=<span class="g">"32k"</span>, concurrency=<span class="v">8</span>)
+report.best()                 <span class="c"># highest-capability candidate that isn't slow</span>
+report.commercially_clean()   <span class="c"># permissive licence AND verified architecture</span>
+<span class="k">print</span>(sdk.explain(<span class="g">"glm-5.2"</span>))  <span class="c"># the arithmetic</span></pre>
+<p>Every candidate carries <code>estimate_basis</code>, so a roofline projection cannot be reported as
+  a measurement anywhere downstream.</p>
+
+<h2 id="mcp">MCP &amp; agents <span class="pill live">LIVE</span></h2>
+<pre><span class="u">$ clickllm-mcp</span>   <span class="c"># JSON-RPC 2.0 over stdio, zero dependencies</span>
+
+  tools: clickllm_fit · clickllm_explain · clickllm_catalog</pre>
+<div class="note">
+  <p><b>Read-only by design.</b> <code>cutover_advance</code> and <code>deploy_apply</code> are not
+  exposed, and a test asserts no tool name contains <em>cutover</em>, <em>apply</em>, <em>deploy</em>,
+  <em>promote</em> or <em>rollback</em>. An agent may analyse and recommend a migration; a human
+  presses the button that moves production traffic. That's a trust boundary, not friction.</p>
+</div>
+
+<h2 id="arch">Architecture</h2>
+<figure>
+  <img src="../assets/e2e.svg" alt="End-to-end: request path through the gateway and the control loop that decides what it may hit">
+  <figcaption>Purple is the live request; green is the control loop. They never cross.</figcaption>
+</figure>
+<figure>
+  <img src="../assets/architecture.svg" alt="Thin datapath gateway, multi-model fleet, control plane, weights registry and local store">
+  <figcaption>The datapath is deliberately thin. Everything expensive happens off it.</figcaption>
+</figure>
+<p>Rust for the datapath and weights path — no GC pauses against a p95 budget, and explicit accounting
+  for GB-scale fleet memory. Python for the control plane, where the ML ecosystem lives.
+  <a href="https://github.com/dshakes/clickllm/blob/main/docs/adr/0007-tech-stack.md">ADR-0007</a>
+  has the reasoning, including what was rejected.</p>
+
+<hr>
+<p class="muted" style="color:var(--ink3);font-size:13px">
+  Something wrong or unclear here? <a href="https://github.com/dshakes/clickllm/issues">Open an issue</a> —
+  documentation bugs are bugs.</p>
+
+</main>
+</div>
+
+<script>
+  // Highlight the section currently in view.
+  const links = [...document.querySelectorAll('aside a')];
+  const byId = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const heads = [...document.querySelectorAll('h2[id]')];
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        links.forEach(a => a.classList.remove('on'));
+        byId.get(e.target.id)?.classList.add('on');
+      });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    heads.forEach(h => io.observe(h));
+  }
+</script>
+</body>
+</html>

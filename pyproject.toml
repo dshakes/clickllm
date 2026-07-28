@@ -10,6 +10,13 @@ clickllm = "clickllm.cli:main"
 clickllm-mcp = "clickllm.mcp:serve"
 
 [project.optional-dependencies]
+# No `core` extra yet, deliberately. The compiled bindings ship as their own
+# distribution (`clickllm-core`, built from clickllm-py/), and until that is on
+# PyPI an extra naming it makes THIS package unresolvable — uv solves every
+# extra before it will run anything, so a forward reference breaks `uv run` for
+# people who never wanted the extension. Install it directly instead:
+#     pip install clickllm-core
+# The extra goes back the day the wheel is published. See ADR-0009.
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
@@ -18,6 +25,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clickllm"]
+artifacts = ["src/clickllm/*.html", "src/clickllm/*.json"]
 
 [tool.ruff]
 line-length = 100

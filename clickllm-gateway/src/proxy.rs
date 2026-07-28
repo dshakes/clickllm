@@ -21,6 +21,7 @@ use axum::{Json, Router as AxumRouter};
 use futures_util::StreamExt;
 use parking_lot::Mutex;
 
+use crate::capture::store::{self, Capture, CaptureStore};
 use crate::meter::{Meter, Metered};
 use crate::router::{Decision, Router};
 use crate::sse::Decoder;
@@ -28,7 +29,12 @@ use crate::sse::Decoder;
 /// Shared server state.
 pub struct AppState {
     /// Routing policy.
-    pub router: Router,
+    ///
+    /// Behind a lock because M9 changes it on a *running* gateway — a rollback
+    /// that needed a restart would not be a rollback. Reads dominate by many
+    /// orders of magnitude and an uncontended `parking_lot` read is tens of
+    /// nanoseconds, which is nothing against the 15ms budget.
+    pub router: parking_lot::RwLock<Router>,
     /// Upstream HTTP client. Cloning is cheap and shares the connection pool —
     /// building one per request would dominate the latency budget.
     pub client: reqwest::Client,
@@ -38,6 +44,15 @@ pub struct AppState {
     mirrors: Mutex<Vec<MirrorRecord>>,
     /// Cap on retained records before the oldest are dropped.
     pub max_records: usize,
+    /// Every phase change applied to this process, oldest first.
+    transitions: Mutex<Vec<crate::control::Transition>>,
+    /// Shared secret for the control surface, resolved once at startup. `None`
+    /// leaves it open — see [`crate::control`] for why that is stated loudly.
+    pub admin_token: Option<String>,
+    /// Where captured traffic is persisted. `None` — the default — means nothing
+    /// is written. Recording a customer's production prompts is a decision
+    /// someone makes, never something that happens because they started a proxy.
+    capture: Option<Arc<CaptureStore>>,
 }
 
 /// What one request cost and where it went.
@@ -45,6 +60,9 @@ pub struct AppState {
 pub struct Record {
     /// Backend that served the response.
     pub backend: String,
+    /// True when the primary was unreachable and the fallback answered. Surfaced
+    /// so a quietly-degraded deployment is visible rather than merely working.
+    pub failed_over: bool,
     /// Backend the request was mirrored to, if any.
     pub mirrored_to: Option<String>,
     /// Why the router chose this path.
@@ -85,12 +103,49 @@ impl AppState {
     /// New state with a default record cap.
     pub fn new(router: Router, client: reqwest::Client) -> Self {
         Self {
-            router,
+            router: parking_lot::RwLock::new(router),
             client,
             records: Mutex::new(Vec::new()),
             mirrors: Mutex::new(Vec::new()),
             max_records: 10_000,
+            transitions: Mutex::new(Vec::new()),
+            admin_token: crate::control::token_from_env(),
+            capture: None,
         }
+    }
+
+    /// Persist redacted traffic to `store`.
+    ///
+    /// Off unless called. See [`crate::capture::store`] for what encryption here
+    /// does and does not protect against.
+    #[must_use]
+    pub fn with_capture(mut self, store: Arc<CaptureStore>) -> Self {
+        self.capture = Some(store);
+        self
+    }
+
+    /// Whether traffic is being persisted.
+    pub fn capturing(&self) -> bool {
+        self.capture.is_some()
+    }
+
+    /// Write one exchange, off the request path.
+    ///
+    /// Spawned rather than awaited for the same reason the mirror is: capture is
+    /// evidence-gathering, and a slow disk must never become a slow response. A
+    /// failed write is logged and dropped — refusing to serve because we could
+    /// not record would trade an outage for a missing sample.
+    fn capture(&self, c: Capture) {
+        let Some(store) = self.capture.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            match tokio::task::spawn_blocking(move || store.append(c)).await {
+                Ok(Ok(report)) => tracing::debug!(redacted = report.total(), "capture stored"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "capture not stored"),
+                Err(e) => tracing::warn!(error = %e, "capture task failed"),
+            }
+        });
     }
 
     /// Record a completed request, dropping the oldest once the cap is reached.
@@ -136,6 +191,18 @@ impl AppState {
     pub fn mirrors(&self) -> Vec<MirrorRecord> {
         self.mirrors.lock().clone()
     }
+
+    /// Record an applied phase change. Unbounded on purpose: these are rare, and
+    /// dropping the oldest would discard exactly the entry an incident review
+    /// needs — the first change, made before anyone was watching.
+    pub fn record_transition(&self, t: crate::control::Transition) {
+        self.transitions.lock().push(t);
+    }
+
+    /// Every phase change applied to this process, oldest first.
+    pub fn transitions(&self) -> Vec<crate::control::Transition> {
+        self.transitions.lock().clone()
+    }
 }
 
 /// Dispatch a copy of the request to the candidate backend.
@@ -157,6 +224,9 @@ fn dispatch_mirror(
         let decision = Decision {
             serve: backend.clone(),
             mirror: None,
+            // A mirror is evidence-gathering, not service. If the candidate is
+            // unreachable that IS the finding; falling back would hide it.
+            fallback: None,
             reason: "mirror",
         };
         let mut rec = MirrorRecord {
@@ -168,7 +238,7 @@ fn dispatch_mirror(
             error: None,
         };
 
-        match send(&st, &decision, &parsed, &headers, &body).await {
+        match send(&st, &decision.serve, &parsed, &headers, &body).await {
             Ok(resp) => {
                 rec.status = Some(resp.status().as_u16());
                 let mut meter = Meter::new();
@@ -211,6 +281,11 @@ pub fn app(state: Arc<AppState>) -> AxumRouter {
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics/requests", get(records))
         .route("/metrics/mirrors", get(mirrors))
+        .route(
+            "/control/phase",
+            get(crate::control::get_phase).post(crate::control::set_phase),
+        )
+        .route("/control/history", get(crate::control::history))
         .route("/", get(console))
         .with_state(state)
 }
@@ -293,7 +368,9 @@ async fn chat_completions(
         .and_then(|v| v.to_str().ok())
         .unwrap_or(&model);
 
-    let decision = st.router.decide(cluster, key);
+    // Cloned out immediately: holding a routing lock across an upstream await
+    // would let one slow backend stall every phase change on the gateway.
+    let decision = st.router.read().decide(cluster, key);
     let span = tracing::info_span!(
         "chat_completions",
         backend = %decision.serve.name,
@@ -315,7 +392,27 @@ async fn chat_completions(
         );
     }
 
-    let upstream = send(&st, &decision, &parsed, &headers, &body).await?;
+    let mut served_by = decision.serve.name.clone();
+    let mut failed_over = false;
+    let upstream = match send(&st, &decision.serve, &parsed, &headers, &body).await {
+        Ok(r) => r,
+        Err(primary_err) => match &decision.fallback {
+            // Only a transport failure falls over. A 4xx is bad at both backends,
+            // and retrying it just bills the request twice.
+            Some(alt) => {
+                tracing::warn!(
+                    primary = %decision.serve.name,
+                    fallback = %alt.name,
+                    error = %primary_err,
+                    "primary unreachable, falling over"
+                );
+                failed_over = true;
+                served_by = alt.name.clone();
+                send(&st, alt, &parsed, &headers, &body).await?
+            }
+            None => return Err(primary_err),
+        },
+    };
     let status = upstream.status();
 
     let mut out_headers = HeaderMap::new();
@@ -329,12 +426,34 @@ async fn chat_completions(
     }
     out_headers.insert(
         "x-clickllm-backend",
-        HeaderValue::from_str(&decision.serve.name)
-            .unwrap_or_else(|_| HeaderValue::from_static("unknown")),
+        HeaderValue::from_str(&served_by).unwrap_or_else(|_| HeaderValue::from_static("unknown")),
     );
 
+    // Everything capture needs, gathered before `base` takes ownership of `model`.
+    // `None` when capture is off, so a proxy that is not recording pays nothing
+    // for the machinery — not a clone, not an allocation.
+    let pending_capture = st.capturing().then(|| Capture {
+        request_id: headers
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned(),
+        model: model.clone(),
+        backend: served_by.clone(),
+        messages: parsed
+            .get("messages")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        response: String::new(),
+        prompt_tokens: None,
+        completion_tokens: None,
+        duration_ms: 0,
+        redacted: crate::capture::Report::default(),
+    });
+
     let base = Record {
-        backend: decision.serve.name.clone(),
+        backend: served_by.clone(),
+        failed_over,
         mirrored_to: decision.mirror.as_ref().map(|m| m.name.clone()),
         reason: decision.reason,
         model,
@@ -351,9 +470,16 @@ async fn chat_completions(
         })?;
         let mut meter = Meter::new();
         meter.observe_body(&bytes);
+        let metered = meter.finish();
+        if let Some(mut c) = pending_capture {
+            c.response = store::body_text(&bytes);
+            c.duration_ms = elapsed_ms(started);
+            (c.prompt_tokens, c.completion_tokens) = tokens(&metered);
+            st.capture(c);
+        }
         st.record(Record {
             duration_ms: elapsed_ms(started),
-            metered: meter.finish(),
+            metered,
             ..base
         });
         return Ok((status, out_headers, bytes).into_response());
@@ -366,6 +492,13 @@ async fn chat_completions(
     // streamed request reports no usage — caught by tests/streaming.rs.
     let meter = Arc::new(Mutex::new(Meter::new()));
     let meter_for_stream = Arc::clone(&meter);
+    // Only allocated when capture is on: reassembling the response costs memory
+    // proportional to its length, which a proxy that is not recording should not
+    // pay. `None` here means the deltas are observed for metering and discarded.
+    let transcript = pending_capture
+        .is_some()
+        .then(|| Arc::new(Mutex::new(String::new())));
+    let transcript_for_stream = transcript.clone();
     let mut decoder = Decoder::new();
     let stream = upstream.bytes_stream().map(move |chunk| match chunk {
         Ok(bytes) => {
@@ -374,6 +507,14 @@ async fn chat_completions(
                 let mut m = meter_for_stream.lock();
                 for ev in &events {
                     m.observe(ev);
+                }
+                if let Some(t) = &transcript_for_stream {
+                    let mut t = t.lock();
+                    for ev in &events {
+                        if let Some(s) = store::delta_text(ev) {
+                            t.push_str(&s);
+                        }
+                    }
                 }
             }
             // The decoder enforces its own cap and logs what it discarded; the
@@ -395,6 +536,8 @@ async fn chat_completions(
         record: Mutex::new(Some(base)),
         meter,
         started,
+        capture: Mutex::new(pending_capture),
+        transcript,
     };
     let body = Body::from_stream(stream.chain(futures_util::stream::once(async move {
         drop(counted);
@@ -407,22 +550,47 @@ async fn chat_completions(
 /// Writes the request record when the response stream finishes or is dropped.
 ///
 /// A client that disconnects mid-stream still produced cost upstream, so the
-/// record must be written on drop rather than only on clean completion.
+/// record must be written on drop rather than only on clean completion. The same
+/// applies to the capture: a truncated answer is still evidence of what the
+/// backend produced, and silently discarding it would bias the eval set toward
+/// requests that happened to finish.
 struct FinishOnDrop {
     state: Arc<AppState>,
     record: Mutex<Option<Record>>,
     meter: Arc<Mutex<Meter>>,
     started: Instant,
+    capture: Mutex<Option<Capture>>,
+    transcript: Option<Arc<Mutex<String>>>,
 }
 
 impl Drop for FinishOnDrop {
     fn drop(&mut self) {
+        let metered = self.meter.lock().snapshot();
         if let Some(mut r) = self.record.lock().take() {
             r.duration_ms = elapsed_ms(self.started);
-            r.metered = self.meter.lock().snapshot();
+            r.metered = metered;
             self.state.record(r);
         }
+        if let Some(mut c) = self.capture.lock().take() {
+            if let Some(t) = &self.transcript {
+                c.response = t.lock().clone();
+            }
+            c.duration_ms = elapsed_ms(self.started);
+            (c.prompt_tokens, c.completion_tokens) = tokens(&metered);
+            self.state.capture(c);
+        }
     }
+}
+
+/// Split reported usage into the two counts a capture records.
+///
+/// `None` when the upstream reported nothing — the same rule the meter follows.
+/// A zero here would read as "this request was free", which is the one direction
+/// a cost figure must never err in.
+fn tokens(m: &Metered) -> (Option<u64>, Option<u64>) {
+    m.usage().map_or((None, None), |u| {
+        (Some(u.prompt_tokens), Some(u.completion_tokens))
+    })
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -431,13 +599,13 @@ fn elapsed_ms(started: Instant) -> u64 {
 
 async fn send(
     st: &AppState,
-    decision: &Decision,
+    backend: &crate::router::Backend,
     parsed: &serde_json::Value,
     headers: &HeaderMap,
     body: &Bytes,
 ) -> Result<reqwest::Response, ProxyError> {
     // Rewrite the model only when the backend names a different one.
-    let payload = match &decision.serve.model {
+    let payload = match &backend.model {
         Some(m) => {
             let mut v = parsed.clone();
             if let Some(obj) = v.as_object_mut() {
@@ -452,7 +620,7 @@ async fn send(
         .client
         .post(format!(
             "{}/chat/completions",
-            decision.serve.base_url.trim_end_matches('/')
+            backend.base_url.trim_end_matches('/')
         ))
         .header(header::CONTENT_TYPE, "application/json")
         .body(payload);
@@ -464,7 +632,7 @@ async fn send(
     }
 
     req.send().await.map_err(|e| ProxyError::Upstream {
-        backend: decision.serve.name.clone(),
+        backend: backend.name.clone(),
         source: e,
     })
 }

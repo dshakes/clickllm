@@ -38,6 +38,8 @@ class ModelSpec:
     quants: tuple[str, ...]
     verified: bool
     kv_lora_rank: int | None = None
+    #: Hugging Face repo. `None` when unknown — never guessed.
+    repo: str | None = None
 
     @property
     def is_moe(self) -> bool:

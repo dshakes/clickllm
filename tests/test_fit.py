@@ -250,3 +250,408 @@ def test_mcp_tool_schemas_are_well_formed():
     for name, (_, schema) in mcp.TOOLS.items():
         assert schema["description"].strip(), f"{name} needs a description"
         assert schema["inputSchema"]["type"] == "object", name
+
+
+# --------------------------------------------------------------------------- #
+# M7 distill / M8 prove
+# --------------------------------------------------------------------------- #
+
+
+def test_distill_and_prove_self_checks():
+    from clickllm.distill import cluster as dcluster
+    from clickllm.distill import shape as dshape
+    from clickllm.prove import equivalence, graders, judge, stats
+
+    dshape.demo()
+    dcluster.demo()
+    stats.demo()
+    graders.demo()
+    judge.demo()
+    equivalence.demo()
+
+
+def test_a_perfect_score_on_few_samples_is_not_certainty():
+    from clickllm.prove.stats import wilson
+
+    i = wilson(8, 8)
+    assert i.point == 1.0
+    assert i.low < 0.75, "8/8 must not read as near-certain"
+    assert not i.clearly_above(0.95), "a 95% gate must not open on 8 samples"
+
+
+def test_ungraded_items_never_count_as_passes():
+    """The single most dangerous failure mode in the grader stack."""
+    from clickllm.prove.graders import EvalItem, grade
+
+    r = grade(EvalItem("i", "c", "prompt", baseline="", candidate=""))
+    assert not r.graded
+    assert not r.passed
+
+
+def test_position_bias_is_flagged_not_averaged():
+    from clickllm.prove.graders import EvalItem
+    from clickllm.prove.judge import Reply, Verdict, judge_item
+
+    item = EvalItem("i", "c", "p", baseline="A", candidate="B")
+    biased = judge_item(item, lambda c: Reply("a"), model="m")
+    assert biased.position_bias
+    assert biased.verdict is Verdict.UNCERTAIN
+    # An ambiguous instrument must not be scored against the candidate.
+    assert not biased.to_score().applicable
+
+
+def test_judge_requires_disclosure():
+    from clickllm.prove.graders import EvalItem
+    from clickllm.prove.judge import Reply, judge_item
+
+    with pytest.raises(ValueError):
+        judge_item(EvalItem("i", "c", "p", "a", "b"), lambda c: Reply("tie"), model="")
+
+
+def test_unmeasured_judge_agreement_is_not_assumed_perfect():
+    from clickllm.prove.judge import Agreement
+
+    a = Agreement(0, 0, "m")
+    assert a.rate is None and not a.trustworthy
+    assert "UNMEASURED" in a.render()
+
+
+def test_regret_excludes_merely_unproven_clusters():
+    """Thin evidence means gather more, not give up — otherwise traffic never moves."""
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore
+    from clickllm.prove.stats import wilson
+
+    regressed = ClusterScore("a", "bad", 0.3, wilson(20, 100), 0)
+    thin = ClusterScore("b", "thin", 0.3, wilson(3, 4), 0)
+    good = ClusterScore("c", "good", 0.4, wilson(98, 100), 0)
+    cand = CandidateReport("m", (regressed, thin, good))
+
+    assert [c.name for c in cand.regret()] == ["bad"]
+    assert "thin" in [c.name for c in cand.unproven()]
+    assert cand.movable_share() == pytest.approx(0.4)
+
+
+def test_no_cost_rate_means_no_fabricated_saving():
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from clickllm.prove.stats import wilson
+
+    c = ClusterScore("a", "x", 1.0, wilson(99, 100), 0)
+    cand = CandidateReport("m", (c,))  # no monthly_cost
+    policy = Matrix([cand], incumbent_cost=1000.0).hybrid_for(cand)
+    assert policy.monthly_saving is None
+
+
+def test_matrix_puts_regret_before_the_table():
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from clickllm.prove.stats import wilson
+
+    bad = ClusterScore("a", "long-ctx", 0.2, wilson(10, 100), 0)
+    ok = ClusterScore("b", "codegen", 0.8, wilson(98, 100), 0)
+    text = Matrix([CandidateReport("m", (bad, ok))]).render()
+    assert text.index("REGRET") < text.index("codegen")
+
+
+def test_clustering_is_deterministic_regardless_of_arrival_order():
+    from clickllm.distill.cluster import cluster
+    from clickllm.distill.shape import Capture
+
+    caps = [
+        Capture(
+            f"r{i}",
+            "gpt-5",
+            ({"role": "system", "content": "s" + str(i % 3)},),
+            response="x" * (i + 1),
+            prompt_tokens=500,
+        )
+        for i in range(30)
+    ]
+    a = [c.key for c in cluster(caps)]
+    b = [c.key for c in cluster(list(reversed(caps)))]
+    assert a == b
+    names = [c.name for c in cluster(caps)]
+    assert len(set(names)) == len(names), "cluster names must be unique"
+
+
+# --------------------------------------------------------------------------- #
+# Model -> hardware ("where")
+# --------------------------------------------------------------------------- #
+
+
+def test_hardware_catalog_self_check():
+    from clickllm import hardware_catalog
+
+    hardware_catalog.demo()
+
+
+def test_tensor_parallel_aggregates_bandwidth():
+    """Treating a 4-GPU node as one device understates decode ~3.5x."""
+    from clickllm.hardware_catalog import get
+
+    one, four = get("h100"), get("h100-x4")
+    assert four.effective_bandwidth_gbps > one.bandwidth_gbps * 3
+    assert four.effective_bandwidth_gbps < one.bandwidth_gbps * 4, "all-reduce is not free"
+
+    m = catalog.get("qwen3-32b")
+    p1 = [p for p in fit.where(m, 8192) if p.profile_id == "h100"][0]
+    p4 = [p for p in fit.where(m, 8192) if p.profile_id == "h100-x4"][0]
+    assert p4.tokens_per_sec > p1.tokens_per_sec * 3
+
+
+def test_where_sorts_feasible_first_then_by_price():
+    m = catalog.get("qwen3-32b")
+    places = fit.where(m, 32768)
+    feasible = [p for p in places if p.feasible]
+    assert feasible, "a 32B model must run somewhere"
+    assert not places[-1].feasible, "infeasible must sort last"
+    priced = [p.hourly_usd for p in feasible if p.hourly_usd is not None]
+    assert priced == sorted(priced), "cheapest capable first"
+
+
+def test_where_explains_every_rejection():
+    places = fit.where(catalog.get("kimi-k3"), 8192)
+    assert not any(p.feasible for p in places), "a 2.8T model fits nothing here"
+    for p in places:
+        assert p.reason, f"{p.profile_id} rejected with no reason"
+        assert "weights alone" in p.reason
+
+
+def test_where_distinguishes_weights_too_big_from_kv_too_big():
+    """'Buy a different card' and 'lower your context' are different answers."""
+    m = catalog.get("qwen3-32b")
+    tight = fit.where(m, 131072, concurrency=16)
+    kv_bound = [p for p in tight if not p.feasible and "short by" in p.reason]
+    assert kv_bound, "a huge-context request should be KV-bound somewhere, not weight-bound"
+
+
+def test_cost_per_mtok_rewards_bandwidth_not_just_capacity():
+    m = catalog.get("qwen3-32b")
+    by_id = {p.profile_id: p for p in fit.where(m, 8192)}
+    l4, r5090 = by_id["l4"], by_id["rtx-5090"]
+    if l4.feasible and r5090.feasible:
+        # Same capacity class, 6x the bandwidth — cost per token must reflect it.
+        assert r5090.cost_per_mtok_usd < l4.cost_per_mtok_usd
+
+
+def test_where_cli(capsys):
+    assert cli.main(["where", "qwen3-32b", "--quiet"]) == 0
+    out = capsys.readouterr().out
+    assert "$/Mtok" in out and "roofline estimates" in out
+
+    assert cli.main(["where", "qwen3-32b", "--json"]) == 0
+    import json
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["model"] == "qwen3-32b"
+    assert any(p["feasible"] for p in payload["placements"])
+    assert all(p["reason"] for p in payload["placements"] if not p["feasible"])
+
+    assert cli.main(["where", "no-such-model"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Catalogue verification and discovery
+# --------------------------------------------------------------------------- #
+
+
+def test_catalog_update_self_check():
+    from clickllm import catalog_update
+
+    catalog_update.demo()
+
+
+def test_config_parsing_never_guesses_a_missing_field():
+    """A guessed geometry produces a confident, wrong memory figure."""
+    from clickllm.catalog_update import ConfigError, parse_config
+
+    for broken in (
+        {},
+        {"num_hidden_layers": 4},
+        {"num_hidden_layers": 4, "num_attention_heads": 8},
+    ):
+        with pytest.raises(ConfigError):
+            parse_config(broken)
+
+
+def test_mla_is_detected_from_its_rank_not_inferred():
+    from clickllm.catalog_update import parse_config
+
+    base = {
+        "num_hidden_layers": 61,
+        "num_attention_heads": 128,
+        "num_key_value_heads": 128,
+        "head_dim": 128,
+        "max_position_embeddings": 131072,
+    }
+    assert parse_config(base).kv_scheme == "mha"
+    assert parse_config({**base, "kv_lora_rank": 512}).kv_scheme == "mla"
+
+
+def test_significant_changes_are_the_ones_that_move_memory():
+    from clickllm.catalog_update import FieldChange
+
+    assert FieldChange("kv_heads", 8, 4).significant
+    assert FieldChange("kv_scheme", "gqa", "mla").significant
+    assert not FieldChange("max_context", 1, 2).significant
+
+
+def test_module_import_opens_no_socket():
+    """Air-gapped installs must be able to import this without reaching out."""
+    import json
+
+    from clickllm import catalog_update as cu
+
+    called = []
+
+    def spy(url):
+        called.append(url)
+        return json.dumps(
+            {
+                "num_hidden_layers": 4,
+                "num_attention_heads": 8,
+                "head_dim": 64,
+                "max_position_embeddings": 128,
+            }
+        )
+
+    spec = catalog.get("qwen3-32b")
+    cu.propose(spec, "a/b", spy)
+    assert called, "the injected fetcher is the only path to the network"
+    assert called[0].startswith("https://")
+
+
+def test_a_fetch_failure_is_data_not_an_exception():
+    from clickllm.catalog_update import propose
+
+    def dead(_):
+        raise OSError("offline")
+
+    p = propose(catalog.get("qwen3-32b"), "a/b", dead)
+    assert p.error and not p.has_changes
+
+
+def test_discovery_excludes_known_repos_and_is_deterministic():
+    import json
+
+    from clickllm.catalog_update import discover
+
+    index = json.dumps(
+        [
+            {"modelId": "org/known", "trendingScore": 9, "downloads": 1},
+            {"modelId": "org/b", "trendingScore": 5, "downloads": 10},
+            {"modelId": "org/a", "trendingScore": 5, "downloads": 99},
+        ]
+    )
+    got = [d.repo for d in discover({"org/known"}, lambda _: index)]
+    assert got == ["org/a", "org/b"]
+    assert discover(set(), lambda _: index) == discover(set(), lambda _: index)
+
+
+def test_catalog_repos_are_absent_rather_than_guessed():
+    """Verifying against the wrong repo is worse than not verifying."""
+    with_repo = [m for m in catalog.load() if m.repo]
+    assert with_repo, "some entries should be verifiable"
+    assert any(m.repo is None for m in catalog.load()), "unknown repos stay unknown"
+    for m in with_repo:
+        assert "/" in m.repo
+
+
+def test_catalog_cli_requires_explicit_network_optin(capsys):
+    assert cli.main(["catalog"]) == 0
+    assert "opt-in" in capsys.readouterr().out
+    assert cli.main(["discover"]) == 0
+    assert "opt-in" in capsys.readouterr().out
+    assert cli.main(["catalog", "--model", "no-such"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Workbench
+# --------------------------------------------------------------------------- #
+
+
+def test_workbench_self_check():
+    from clickllm import ui
+
+    ui.demo()
+
+
+def test_workbench_is_read_only():
+    """It shows and explains. Downloading, deploying and moving traffic stay in
+    the CLI, where a human runs them deliberately."""
+    from clickllm import ui
+
+    for verb in ("deploy", "apply", "promote", "cutover", "rollback", "pull", "delete"):
+        assert not any(verb in route for route in ui.ROUTES)
+
+
+def test_workbench_html_only_reads_fields_the_sdk_exposes():
+    """The first render showed '—' for every throughput and 'unverified' for
+    every model, because the HTML read field names the SDK does not have."""
+    import re
+
+    from clickllm import sdk, ui
+
+    html = ui.ASSET.read_text()
+    known = set(sdk.Candidate.__slots__) | {
+        "model_id",
+        "name",
+        "id",
+        "feasible",
+        "quant",
+        "total_gb",
+        "reason",
+        "tokens_per_sec",
+        "hourly_usd",
+        "usd_per_mtok",
+        "placements",
+        "params_b",
+        "active_b",
+        "license",
+        "license_ok",
+        "verified",
+        "model",
+        "arithmetic",
+        "models",
+        "is_moe",
+        "max_context",
+        "repo",
+        "hardware",
+        "context",
+        "concurrency",
+        "rejected",
+        "runtime",
+        "warnings",
+        "usable_gb",
+        "bandwidth_gbps",
+        "note",
+        "why",
+        "headroom_gb",
+        "length",
+        "map",
+        "join",
+        "filter",
+        "sort",
+        "slice",
+        "toLocaleString",
+        "toFixed",
+    }
+    # Field accesses on a candidate row inside the fit table.
+    used = set(re.findall(r"\bc\.([a-z_]+)\b", html))
+    unknown = used - known
+    assert not unknown, f"workbench reads fields the SDK does not expose: {sorted(unknown)}"
+
+
+def test_workbench_routes_all_serialise():
+    import json
+
+    from clickllm import ui
+
+    for path, fn in ui.ROUTES.items():
+        q = {"model": ["qwen3-32b"]} if path.endswith(("where", "explain")) else {}
+        json.dumps(fn(q), default=ui._json_default)
+
+
+def test_workbench_reports_unknown_models_as_data_not_a_crash():
+    from clickllm import ui
+
+    with pytest.raises(KeyError):
+        ui.ROUTES["/api/where"]({"model": ["no-such-model"]})

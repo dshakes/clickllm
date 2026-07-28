@@ -1,5 +1,5 @@
 [workspace]
-members = ["clickllm-core", "clickllm-gateway"]
+members = ["clickllm-core", "clickllm-gateway", "clickllm-py", "clickllm-weights"]
 resolver = "3"
 
 [workspace.package]
@@ -27,6 +27,8 @@ http = "1"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "timeout"] }
 parking_lot = "0.12"
+regex = "1"
+chacha20poly1305 = "0.10"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

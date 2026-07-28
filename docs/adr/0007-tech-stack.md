@@ -1,6 +1,6 @@
 # ADR-0007 — Rust datapath, Python control plane
 
-**Status:** accepted · **Amended by:** [ADR-0008](0008-build-from-scratch.md) (removes the crate-linkage argument; the decision stands on the other two) · **Date:** 2026-07-27 · **Supersedes:** the "Technical assumptions" section of [`20-prd.md`](../20-prd.md)
+**Status:** accepted · **Amended by:** [ADR-0008](0008-build-from-scratch.md) (removes the crate-linkage argument; the decision stands on the other two) · **Extended by:** [ADR-0009](0009-rust-python-seam.md) (what crosses the split) · **Date:** 2026-07-27 · **Supersedes:** the "Technical assumptions" section of [`20-prd.md`](../20-prd.md)
 
 ## Context
 
