@@ -1256,7 +1256,10 @@ def silicon() -> None:
     for i in range(SMS):
         cx, cy = gx + (i % cols) * pitch, gy + (i // cols) * pitch
         if i < LIT:
-            p.append(bar(cx, cy, cell, cell, 2, r=4))
+            p.append(
+                f'<rect class="pulse" x="{cx}" y="{cy}" width="{cell}" '
+                f'height="{cell}" rx="4" fill="var(--s2)"/>'
+            )
         else:
             p.append(
                 f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="4" '
@@ -1293,7 +1296,10 @@ def silicon() -> None:
     ry, rh2 = by + 18, 46
     # The widths carry the argument: an enormous read, a sliver of maths, one
     # word out. Drawn to scale against each other rather than labelled as such.
-    p.append(bar(28, ry, 470, rh2, 1))
+    p.append(
+        f'<rect class="pop" style="animation-delay:0s" x="28" y="{ry}" width="470" '
+        f'height="{rh2}" rx="4" fill="var(--s1)"/>'
+    )
     p.append(
         f'<text x="{28 + 235}" y="{ry + 28}" class="lb" text-anchor="middle" '
         f'style="fill:var(--bg)">read all {WEIGHTS_GB} GB of the model</text>'
@@ -1302,7 +1308,10 @@ def silicon() -> None:
         f'<path d="M 508 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
         f'stroke-width="1.5"/>'
     )
-    p.append(bar(530, ry, 66, rh2, 3))
+    p.append(
+        f'<rect class="pop" style="animation-delay:.55s" x="530" y="{ry}" width="66" '
+        f'height="{rh2}" rx="4" fill="var(--s3)"/>'
+    )
     p.append(
         f'<text x="563" y="{ry + 28}" class="ax" text-anchor="middle" '
         f'style="fill:var(--bg)">a little</text>'
@@ -1311,7 +1320,10 @@ def silicon() -> None:
         f'<path d="M 606 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
         f'stroke-width="1.5"/>'
     )
-    p.append(bar(628, ry, 54, rh2, 2))
+    p.append(
+        f'<rect class="pop" style="animation-delay:1.1s" x="628" y="{ry}" width="54" '
+        f'height="{rh2}" rx="4" fill="var(--s2)"/>'
+    )
     p.append(
         f'<text x="655" y="{ry + 28}" class="ax" text-anchor="middle" '
         f'style="fill:var(--bg)">1 word</text>'
