@@ -25,6 +25,7 @@
 
 pub mod capture;
 pub mod control;
+pub mod host;
 pub mod meter;
 pub mod proxy;
 pub mod router;
@@ -33,6 +34,7 @@ pub mod telemetry;
 
 pub use capture::{Capture, CaptureStore, Report as RedactionReport, redact};
 pub use control::{PhaseChange, Transition};
+pub use host::{Device, Support};
 pub use meter::{Meter, Metered, Usage};
 pub use proxy::{AppState, Record, app};
 pub use router::{Backend, Decision, Phase, Route, Router};

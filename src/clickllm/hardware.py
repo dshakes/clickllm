@@ -14,7 +14,7 @@ import subprocess
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-Kind = Literal["apple", "nvidia", "amd", "cpu"]
+Kind = Literal["apple", "nvidia", "amd", "tpu", "cpu"]
 
 GB = 1024**3
 

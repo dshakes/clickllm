@@ -99,6 +99,46 @@ PROFILES: tuple[Profile, ...] = (
         60,
         note="no accelerator — expect single-digit tok/s on anything large",
     ),
+    # --- TPU ------------------------------------------------------------------
+    # Specs verified against Google Cloud's per-generation pages (2026-07-27):
+    #   v5e   16 GB HBM · 800 GiB/s ·  8 chips/host   docs.cloud.google.com/tpu/docs/v5e
+    #   v6e   32 GB HBM · 1638 GB/s ·  8 chips/host   docs.cloud.google.com/tpu/docs/v6e
+    #   v5p   95 GiB HBM · 2765 GB/s · 4 chips/host   docs.cloud.google.com/tpu/docs/v5p
+    #
+    # Modelled per *host*, not per chip, because a TPU is not rented by the chip
+    # and a single v6e chip's 32 GB would misrepresent what you can actually
+    # deploy on. `devices` carries the chip count so the tensor-parallel
+    # bandwidth model applies — ICI is fast but still sub-linear.
+    Profile(
+        "tpu-v5e-8",
+        "TPU v5e (8 chips)",
+        "tpu",
+        16,
+        859,  # 800 GiB/s expressed in GB/s, to match every other row here
+        devices=8,
+        hourly_usd=1.20,
+        note="cheapest TPU per unit memory; 16 GB a chip means sharding early",
+    ),
+    Profile(
+        "tpu-v6e-8",
+        "TPU v6e Trillium (8 chips)",
+        "tpu",
+        32,
+        1638,
+        devices=8,
+        hourly_usd=2.70,
+        note="the volume inference TPU; 256 GB a host without leaving one machine",
+    ),
+    Profile(
+        "tpu-v5p-4",
+        "TPU v5p (4 chips)",
+        "tpu",
+        95,
+        2765,
+        devices=4,
+        hourly_usd=4.20,
+        note="highest bandwidth per chip, but vLLM lists v5p as experimental",
+    ),
     Profile("m4-pro-48", "Apple M4 Pro 48 GB", "apple", 48, 273),
     Profile("rtx-4090", "NVIDIA RTX 4090", "nvidia", 24, 1008, hourly_usd=0.35),
     Profile(
