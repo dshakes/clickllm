@@ -407,12 +407,40 @@ def state_path(path: Path | None = None) -> Path:
     return path or state_dir() / "cache.json"
 
 
-def load_state(path: Path | None = None) -> State:
-    """The saved pins and budget. A corrupt or missing file is empty state."""
+def _root_key(root: Path | None = None) -> str:
+    """The cache root a pin belongs to, resolved and absolute.
+
+    Pins used to be stored flat, so a pin made against one cache root applied to
+    every other — including a scratch `HF_HOME` used for a test, which then wrote
+    into the developer's real state and protected a repo they never pinned. A pin
+    is a statement about one cache, so it is filed under that cache.
+    """
+    return str((root or hub_dir()).expanduser().resolve())
+
+
+def _all_states(path: Path | None = None) -> dict:
+    """Every root's state, migrating the old flat file if that is what is there.
+
+    The format changed when pins became per-root. A file written before that has
+    `pinned` at the top level; reading it as a root-keyed map would find nothing
+    and silently drop protection somebody deliberately set — the one outcome a
+    pin exists to prevent. So the old shape is recognised and attributed to the
+    default cache root, which is the only cache it could have meant.
+    """
     try:
         raw = json.loads(state_path(path).read_text())
     except (OSError, json.JSONDecodeError):
-        return State()
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    if "pinned" in raw or "budget_bytes" in raw:
+        return {_root_key(): raw}
+    return raw
+
+
+def load_state(path: Path | None = None, root: Path | None = None) -> State:
+    """The saved pins and budget for one cache root. Corrupt or missing is empty."""
+    raw = _all_states(path).get(_root_key(root))
     if not isinstance(raw, dict):
         return State()
     pins = raw.get("pinned")
@@ -423,7 +451,7 @@ def load_state(path: Path | None = None) -> State:
     )
 
 
-def save_state(state: State, path: Path | None = None) -> None:
+def save_state(state: State, path: Path | None = None, root: Path | None = None) -> None:
     """Write pins and budget, beside the old file and renamed.
 
     Raises:
@@ -433,25 +461,29 @@ def save_state(state: State, path: Path | None = None) -> None:
     """
     p = state_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    body = {"pinned": sorted(state.pinned), "budget_bytes": state.budget_bytes}
+    body = _all_states(path)
+    body[_root_key(root)] = {
+        "pinned": sorted(state.pinned),
+        "budget_bytes": state.budget_bytes,
+    }
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(body, indent=2) + "\n")
     tmp.replace(p)
 
 
-def pin(repo: str, path: Path | None = None) -> State:
+def pin(repo: str, path: Path | None = None, root: Path | None = None) -> State:
     """Protect `repo` from every future eviction plan."""
     if not repo.strip():
         raise ValueError(f"not a repo id: {repo!r}")
-    st = load_state(path)
+    st = load_state(path, root)
     if any(p.casefold() == repo.casefold() for p in st.pinned):
         return st
     st = State(pinned=(*st.pinned, repo), budget_bytes=st.budget_bytes)
-    save_state(st, path)
+    save_state(st, path, root)
     return st
 
 
-def unpin(repo: str, path: Path | None = None) -> State:
+def unpin(repo: str, path: Path | None = None, root: Path | None = None) -> State:
     """Drop a pin.
 
     Raises:
@@ -459,12 +491,12 @@ def unpin(repo: str, path: Path | None = None) -> State:
             common cause is a typo and a silent no-op would leave someone
             believing a repo is evictable when it is still protected.
     """
-    st = load_state(path)
+    st = load_state(path, root)
     kept = tuple(p for p in st.pinned if p.casefold() != repo.casefold())
     if len(kept) == len(st.pinned):
         raise ValueError(f"not pinned: {repo}")
     st = State(pinned=kept, budget_bytes=st.budget_bytes)
-    save_state(st, path)
+    save_state(st, path, root)
     return st
 
 

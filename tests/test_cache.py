@@ -357,3 +357,120 @@ def test_a_bad_budget_carries_its_value(text):
 
 def test_demo_runs():
     cache.demo()
+
+
+# --- hostile cache layouts -----------------------------------------------------
+#
+# This module deletes user data, and the HF cache is full of symlinks: snapshots/
+# is entirely symlinks into blobs/. Reading the guard is not enough — these build
+# layouts designed to make it delete something it must not.
+
+
+def _hostile(tmp_path):
+    """A hub with a symlinked repo, a traversal-shaped name, and a bystander."""
+    hub, outside = tmp_path / "hub", tmp_path / "OUTSIDE"
+    hub.mkdir()
+    outside.mkdir()
+    (outside / "precious.txt").write_text("irreplaceable\n")
+
+    # A "repo" that is really a symlink to a directory outside the cache.
+    (hub / "models--evil--escape").symlink_to(outside, target_is_directory=True)
+
+    # A repo whose snapshot symlink points outside, as the real layout's do inside.
+    repo = hub / "models--acme--normal"
+    (repo / "snapshots" / "abc").mkdir(parents=True)
+    (repo / "blobs").mkdir()
+    (repo / "blobs" / "b1").write_bytes(b"x" * 4096)
+    (repo / "snapshots" / "abc" / "config.json").symlink_to(outside / "precious.txt")
+
+    # A directory whose name parses to a traversal-shaped repo id.
+    weird = hub / "models--..--..--etc"
+    weird.mkdir()
+    (weird / "blob").write_bytes(b"y" * 65536)
+    return hub, outside, weird
+
+
+def test_a_symlinked_repo_is_never_listed_and_never_deleted(tmp_path):
+    """`entries` skips symlinks on purpose (cache.py). Following one would put
+    rmtree on a directory the user never put in their cache."""
+    hub, outside, _ = _hostile(tmp_path)
+    assert "evil/escape" not in {e.repo for e in cache.entries(root=hub)}
+
+    plan = cache.plan_eviction(cache.entries(root=hub), 0)
+    cache.apply_eviction(plan, confirm=True, root=hub)
+    assert (outside / "precious.txt").exists(), "deleted a target outside the cache"
+    assert outside.is_dir()
+
+
+def test_a_snapshot_symlink_pointing_outside_is_unlinked_not_followed(tmp_path):
+    """rmtree unlinks symlinks rather than recursing through them. If that ever
+    changed, evicting one repo would delete whatever its snapshots point at."""
+    hub, outside, _ = _hostile(tmp_path)
+    ents = [e for e in cache.entries(root=hub) if e.repo == "acme/normal"]
+    cache.apply_eviction(cache.plan_eviction(ents, 0), confirm=True, root=hub)
+
+    assert not (hub / "models--acme--normal").exists()
+    assert (outside / "precious.txt").read_text() == "irreplaceable\n"
+
+
+def test_a_traversal_shaped_repo_name_stays_inside_the_cache(tmp_path):
+    """`models--..--..--etc` is one literal directory name, not a path. It is
+    evicted like any other repo — and nothing outside the root moves."""
+    hub, outside, weird = _hostile(tmp_path)
+    ents = cache.entries(root=hub)
+    assert "../../etc" in {e.repo for e in ents}, "the display id is genuinely odd"
+
+    cache.apply_eviction(cache.plan_eviction(ents, 0), confirm=True, root=hub)
+    assert not weird.exists()
+    assert hub.is_dir() and outside.is_dir()
+    assert (outside / "precious.txt").exists()
+
+
+def test_the_guard_raises_rather_than_skipping_a_target_outside_the_root(tmp_path):
+    """Fail-stop. A path outside the cache reaching deletion is a defect in this
+    module, and stopping is the only response that cannot lose data."""
+    hub, outside, _ = _hostile(tmp_path)
+    stray = cache.Entry(repo="evil/outside", kind="model", path=outside, bytes=1, last_used=0.0)
+    plan = cache.Plan(evict=(stray,), kept_pins=(), budget_bytes=0, before_bytes=1)
+    with pytest.raises(ValueError, match="outside the hub cache"):
+        cache.apply_eviction(plan, confirm=True, root=hub)
+    assert (outside / "precious.txt").exists()
+
+
+def test_a_pin_belongs_to_the_cache_it_was_made_against(tmp_path):
+    """Pins were stored flat, so one made against a scratch `HF_HOME` applied to
+    every other cache — including the developer's real one, which it silently
+    wrote into during a test.
+
+    A pin is a statement about one cache root. Filing it anywhere else means a
+    repo you never pinned survives an eviction somewhere you never looked.
+    """
+    state = tmp_path / "cache.json"
+    a, b = tmp_path / "hub-a", tmp_path / "hub-b"
+    a.mkdir()
+    b.mkdir()
+
+    cache.pin("acme/incumbent", state, a)
+    assert cache.load_state(state, a).pinned == ("acme/incumbent",)
+    assert cache.load_state(state, b).pinned == (), "the pin leaked to another cache"
+
+    cache.pin("other/model", state, b)
+    assert cache.load_state(state, a).pinned == ("acme/incumbent",), "b clobbered a"
+    assert cache.load_state(state, b).pinned == ("other/model",)
+
+    cache.unpin("acme/incumbent", state, a)
+    assert cache.load_state(state, a).pinned == ()
+    assert cache.load_state(state, b).pinned == ("other/model",), "unpin crossed roots"
+
+
+def test_pins_written_before_roots_existed_are_not_silently_dropped(tmp_path, monkeypatch):
+    """The state format changed when pins became per-root. Reading an old flat
+    file as a root-keyed map finds nothing — and a pin that quietly stops
+    applying is the one failure a pin exists to prevent."""
+    state = tmp_path / "cache.json"
+    state.write_text('{"pinned": ["acme/incumbent-70b"], "budget_bytes": 200}')
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+
+    loaded = cache.load_state(state)
+    assert loaded.pinned == ("acme/incumbent-70b",), "an existing pin was dropped"
+    assert loaded.budget_bytes == 200
