@@ -91,13 +91,19 @@ def _build(
     from .session import Session
 
     s = Session.from_json(_json.dumps(state)) if state else Session()
+    # Mutate state directly rather than calling tell()/on()/set() (which each
+    # call step() internally) — a worth-asking question gets committed to
+    # `s.asked` inside step(), and if that commit fires on an intermediate
+    # call whose Turn is then discarded, the single most valuable question is
+    # silently lost before it ever reaches whoever is having this conversation.
+    # One step() call at the end means exactly one commit, in priority order.
     if description:
-        s.tell(description)
+        s._apply_text(description)
     if machine or s.hw is None:
-        s.on(machine or None)
+        s._apply_hardware(machine or None)
     known = {k: v for k, v in overrides.items() if v is not None}
     if known:
-        s.set(**known)
+        s._apply_fields(**known)
 
     turn = s.step()
     return {

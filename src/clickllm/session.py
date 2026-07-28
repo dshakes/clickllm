@@ -140,6 +140,17 @@ class Session:
 
     def tell(self, text: str) -> Turn:
         """Feed plain language. Re-reads requirements, keeping anything you stated."""
+        self._apply_text(text)
+        return self.step()
+
+    def _apply_text(self, text: str) -> None:
+        """State mutation only — no `step()`, so no `_worth_asking` side effect.
+
+        Split out so a caller that chains several inputs together before
+        deciding what to show the user (`cmd_build`, `mcp._build`) can mutate
+        state repeatedly and call `step()` exactly once at the end. See
+        `_apply_hardware` and `_apply_fields` for why this matters.
+        """
         self.text = f"{self.text} {text}".strip()
         read = intent.read(self.text)
         # An explicit answer outranks a re-reading of the prose: the user said
@@ -149,10 +160,14 @@ class Session:
         self.evidence = tuple(i.render() for i in read.inferred)
         if self.stage is Stage.UNDERSTAND:
             self.stage = Stage.HARDWARE
-        return self.step()
 
     def set(self, **fields: object) -> Turn:
         """Answer directly. `set(concurrency=32)` is worth ten sentences."""
+        self._apply_fields(**fields)
+        return self.step()
+
+    def _apply_fields(self, **fields: object) -> None:
+        """State mutation only. See `_apply_text`."""
         unknown = set(fields) - set(Requirements.__slots__)
         if unknown:
             raise ValueError(
@@ -161,10 +176,14 @@ class Session:
             )
         self.requirements = replace(self.requirements, **fields)
         self.stated |= set(fields)
-        return self.step()
 
     def on(self, machine: str | Hardware | None = None) -> Turn:
         """Pick the hardware. A profile id, a `Hardware`, or None to detect local."""
+        self._apply_hardware(machine)
+        return self.step()
+
+    def _apply_hardware(self, machine: str | Hardware | None = None) -> None:
+        """State mutation only. See `_apply_text`."""
         if isinstance(machine, Hardware):
             self.hw, self.hw_source = machine, "supplied"
         elif machine:
@@ -174,7 +193,6 @@ class Session:
             self.hw, self.hw_source = hardware.detect(), "detected locally"
         if self.stage is Stage.HARDWARE:
             self.stage = Stage.CHOOSE
-        return self.step()
 
     # --- the part that makes it not a wizard ---------------------------------
 
@@ -215,6 +233,16 @@ class Session:
         Computed, not curated: each candidate answer is re-planned, and the
         question is only raised when the outcomes actually differ. This is the
         difference between a product that respects attention and a form.
+
+        Mutates `self.asked` — this is the "commit" for a question that is about
+        to be shown to someone. It must be called at most once per *external*
+        turn, which is exactly why `tell()`, `on()` and `set()` no longer call
+        `step()` internally: a caller that chains `_apply_text` -> `_apply_hardware`
+        -> `_apply_fields` and reads only the final `step()` gets one commit: the
+        true highest-priority question. The old design called `step()` — and
+        therefore this — on every intermediate mutator too, so the best question
+        was marked asked and discarded by whichever call happened to run first,
+        and the Turn a user actually saw showed a lower-priority one instead.
         """
         if self.hw is None:
             return None

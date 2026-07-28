@@ -291,19 +291,25 @@ def cmd_build(args: argparse.Namespace) -> int:
     s = Session()
     if args.resume:
         s = Session.from_json(pathlib.Path(args.resume).read_text())
+    # Apply every input as a state mutation, WITHOUT calling step() in between —
+    # step() is where a worth-asking question gets committed to `s.asked`, and
+    # committing it on an intermediate call whose Turn we then discard is how
+    # the single most valuable question got silently lost before a user ever
+    # saw it. One step() call at the end means exactly one commit, in the
+    # correct priority order.
     if args.description:
-        s.tell(" ".join(args.description))
+        s._apply_text(" ".join(args.description))
     # Only touch hardware when a profile was named or none is known yet — a
     # bare --resume must not silently re-detect the local machine and discard
     # a previously saved --on profile (e.g. a remote "h100"). mcp._build guards
     # the same way; this was a real inconsistency between the two surfaces.
     if args.on or s.hw is None:
-        s.on(args.on)
+        s._apply_hardware(args.on)
 
     for name in ("concurrency", "context", "ttft_ms", "itl_ms", "prefix_sharing"):
         v = getattr(args, name, None)
         if v is not None:
-            s.set(**{name: _parse_size(v) if name == "context" else v})
+            s._apply_fields(**{name: _parse_size(v) if name == "context" else v})
 
     turn = s.step()
     if args.json:

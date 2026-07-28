@@ -7,6 +7,7 @@ the answer, it never asks twice, it survives a restart, and it stops at the door
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -295,3 +296,74 @@ def test_the_agent_surface_always_carries_an_answer():
     out = mcp._build(description="anything at all", machine="h100")
     assert out["answer"]
     assert "not an action" in out["advisory"]
+
+
+# --- chaining several inputs into one turn must not swallow the best question ---
+
+
+def test_a_single_build_call_surfaces_the_highest_priority_question():
+    """Caught by automated review on PR #16: cmd_build and mcp._build each call
+    tell() then on() (and set() for any flags given) before looking at a Turn.
+    tell()/on()/set() each end in step(), and step() commits the winning
+    candidate to `self.asked` as a side effect of computing it — so whichever of
+    those internal calls ran first silently claimed and discarded the single
+    most valuable question, and the Turn actually shown to a user carried a
+    lower-priority one instead, with no error and no way to tell.
+
+    `_apply_text`/`_apply_hardware`/`_apply_fields` mutate state without calling
+    step(), so a caller that applies several inputs and then calls step() once
+    gets exactly one commit — the true first candidate in priority order.
+    """
+    s = Session()
+    s._apply_text("coding assistant for about 20 engineers, needs to feel snappy")
+    s._apply_hardware(M4)
+    assert s.asked == set(), "state mutation alone must never commit a question"
+
+    turn = s.step()
+    # concurrency is the first probe in _worth_asking and nothing here stated
+    # it, so it must be the question that survives — not context, which is
+    # what the old chain-and-discard bug produced instead.
+    assert turn.question == "How many requests will be in flight at once?", turn.question
+    assert s.asked == {"concurrency"}
+
+
+def test_cmd_build_asks_the_same_question_the_session_would():
+    """End to end through the real CLI, not just the Session class.
+
+    Passes --on explicitly: hardware.detect() under a subprocess with a
+    restricted PATH cannot find the system tools it needs and falls back to a
+    0-byte "no accelerator" profile, at which nothing fits and no question is
+    asked — a real difference in *this test's* environment, not a session bug.
+    Naming a profile removes that variable, matching the direct verification.
+    """
+    import subprocess
+    import sys
+
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "clickllm.cli",
+            "build",
+            "coding assistant for about 20 engineers, needs to feel snappy",
+            "--on",
+            "h100",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": src, "PATH": "/usr/bin:/bin"},
+        check=True,
+    )
+    payload = json.loads(r.stdout)
+    assert payload["question"] == "How many requests will be in flight at once?"
+
+
+def test_mcp_build_asks_the_same_question_in_one_call():
+    """The multi-turn agent surface must not have the same discard bug."""
+    out = mcp._build(
+        description="coding assistant for about 20 engineers, needs to feel snappy",
+        machine="h100",
+    )
+    assert out["question"] == "How many requests will be in flight at once?"
