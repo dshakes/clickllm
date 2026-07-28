@@ -252,3 +252,37 @@ def test_no_diagram_sets_a_fill_attribute_that_its_class_overrides():
             if styled.search(s) and re.search(r'\sfill="', s):
                 offenders.append(f"{f.name}: {s[:70]}")
     assert not offenders, "fill attribute will be ignored — use style=:\n" + "\n".join(offenders)
+
+
+# --- animated diagrams must not be embedded with <img> -------------------------
+
+
+def test_animated_diagrams_are_inlined_not_referenced_with_img():
+    """An SVG loaded via <img> becomes its own image/svg+xml document, and that
+    document's animation timeline never starts — measured at 0 while the host
+    page's advanced normally. Neither CSS keyframes nor SMIL survive it.
+
+    So any diagram carrying animation classes must be inlined (a `.anim
+    [data-svg]` host), never referenced with <img> outside a <noscript>
+    fallback. Getting this wrong produces a page that looks completely fine and
+    silently shows a still frame, which is how it went unnoticed the first time.
+    """
+    assets = Path(__file__).resolve().parents[1] / "docs" / "assets"
+    animated = {
+        f.stem
+        for f in assets.glob("*.svg")
+        if re.search(r'class="(pop|stream|light|flow|pulse)"', f.read_text())
+    }
+    assert animated, "no animated diagrams found — has the motion been removed?"
+
+    html = (Path(__file__).resolve().parents[1] / "site" / "docs" / "index.html").read_text()
+    # Strip <noscript> blocks: a static <img> in there is the correct fallback.
+    live = re.sub(r"<noscript>.*?</noscript>", "", html, flags=re.S)
+
+    offenders = [
+        name for name in animated if re.search(rf'<img[^>]+src="[^"]*{re.escape(name)}\.svg', live)
+    ]
+    assert not offenders, (
+        "animated diagrams embedded with <img> will render as a frozen first "
+        f"frame: {sorted(offenders)}"
+    )
