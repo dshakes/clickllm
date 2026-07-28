@@ -344,6 +344,134 @@ def cmd_guard(args: argparse.Namespace) -> int:
     return 0 if proposal.valid else 1
 
 
+def cmd_advise(args: argparse.Namespace) -> int:
+    """What to change about a deployment, unprompted — and what production says.
+
+    Prints proposals with their evidence. Applies nothing: the whole point is
+    that a suggestion you cannot argue with is one you cannot trust.
+    """
+    from .advise import Observed, reconcile, suggest
+    from .plan import Requirements, Workload, plan
+
+    hw = hardware.detect()
+    req = Requirements(
+        workload=Workload(args.workload),
+        concurrency=args.concurrency,
+        context=_parse_size(args.context),
+        ttft_ms=args.ttft_ms,
+        itl_ms=args.itl_ms,
+        prefix_sharing=args.prefix_sharing,
+        structured_output=args.structured_output,
+    )
+    p = plan(hw, req)
+
+    seen = Observed(
+        concurrency=args.seen_concurrency,
+        prefix_sharing=args.seen_prefix_sharing,
+        ttft_ms=args.seen_ttft_ms,
+        peak_context=_parse_size(args.seen_peak_context) if args.seen_peak_context else None,
+        kv_utilisation=args.seen_kv_utilisation,
+    )
+    drift = reconcile(req, p, seen)
+    ideas = suggest(req, p)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "engine": p.engine.value,
+                    "suggestions": [s.__dict__ | {"impact": s.impact.value} for s in ideas],
+                    "drift": [s.__dict__ | {"impact": s.impact.value} for s in drift],
+                },
+                default=str,
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"\n  {hw.name} · {p.engine.value}\n")
+    if drift:
+        print("  PRODUCTION DIVERGED FROM THE PLAN\n")
+        for s in drift:
+            print(f"  {s.render()}\n")
+    if ideas:
+        print("  WORTH CHANGING\n")
+        for s in ideas:
+            print(f"  {s.render()}\n")
+    if not drift and not ideas:
+        print("  Nothing to suggest — the plan matches the requirements as stated.\n")
+
+    # Nonzero only when production has diverged, so this is usable as a probe.
+    return 1 if drift else 0
+
+
+def cmd_prove(args: argparse.Namespace) -> int:
+    """Run the eval suite over an eval set and print the verdict.
+
+    The kiosk over `clickllm.prove`. Deliberately has no flag that moves traffic:
+    it prints a proposal, and a human runs the thing that acts on it.
+    """
+    from datetime import date
+
+    from .mcp import SERVER_INFO
+    from .prove import EvalItem, suite
+
+    raw = json.loads(pathlib.Path(args.evalset).read_text())
+    if isinstance(raw, dict):
+        rows, shares, names = raw.get("items", []), raw.get("shares", {}), raw.get("names", {})
+    else:  # a bare list of items — shares fall back to equal weight
+        rows, shares, names = raw, {}, {}
+
+    if not rows:
+        raise ValueError(f"{args.evalset} contains no eval items")
+
+    items = [
+        EvalItem(
+            item_id=str(r.get("item_id", i)),
+            cluster=str(r.get("cluster", "all")),
+            prompt=str(r.get("prompt", "")),
+            baseline=str(r.get("baseline", "")),
+            candidate=str(r.get("candidate", "")),
+            baseline_tool_calls=tuple(r.get("baseline_tool_calls", ()) or ()),
+            candidate_tool_calls=tuple(r.get("candidate_tool_calls", ()) or ()),
+            response_format=r.get("response_format"),
+        )
+        for i, r in enumerate(rows)
+    ]
+
+    # No shares given means every cluster weighs the same. Said out loud, because
+    # an unweighted verdict on unevenly-distributed traffic is a different claim.
+    if not shares:
+        keys = sorted({i.cluster for i in items})
+        shares = {k: 1 / len(keys) for k in keys}
+        print(f"\n  no traffic shares supplied — weighting {len(keys)} clusters equally")
+
+    result = suite(
+        items,
+        shares=shares,
+        names=names,
+        issued=args.issued or date.today().isoformat(),
+        candidate=args.candidate,
+        incumbent=args.incumbent,
+        bar=args.bar,
+        tool_version=SERVER_INFO["version"],
+    )
+
+    if args.json:
+        print(result.receipt.to_json())
+        return 0
+
+    print()
+    print(result.render())
+    print()
+    if args.out:
+        pathlib.Path(args.out).write_text(result.receipt.to_json())
+        print(f"  receipt written to {args.out}\n")
+
+    # Nonzero when nothing can move, so this is usable as a CI gate.
+    return 0 if result.policy.moved_share > 0 else 1
+
+
 def cmd_receipt(args: argparse.Namespace) -> int:
     """Render or verify a receipt someone handed you."""
     from .prove.receipt import Receipt, verify
@@ -369,10 +497,57 @@ def cmd_receipt(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_desktop(args: argparse.Namespace) -> int:
+    """Install a double-clickable launcher for the workbench."""
+    from . import desktop
+
+    lz = desktop.install(port=args.port)
+    print(f"\n  installed {lz.path}")
+    print(f"  uninstall with:  {lz.uninstall}\n")
+    print("  It starts `clickllm ui` and opens it. Nothing is bundled and")
+    print("  nothing auto-updates — this only adds the icon.\n")
+    return 0
+
+
+def _plugin_kinds() -> list[str]:
+    """vLLM entry-point group names, imported lazily to keep `fit` stdlib-only."""
+    from .kernels import PluginKind
+
+    return [k.value for k in PluginKind]
+
+
+def cmd_kernel(args: argparse.Namespace) -> int:
+    """Scaffold a vLLM plugin package, and the plan for proving it."""
+    from .kernels import KernelClaim, Plugin, PluginKind, scaffold
+
+    plugin = Plugin(
+        name=args.name,
+        kind=PluginKind(args.kind),
+        target=f"{args.name.replace('-', '_')}:register",
+    )
+    claim = KernelClaim(
+        name=args.name,
+        claimed_speedup=args.speedup,
+        bit_identical=args.bit_identical,
+        expected_drift=args.drift or "",
+    )
+    out = pathlib.Path(args.out or args.name)
+    if out.exists() and any(out.iterdir()):
+        print(f"error: {out} exists and is not empty", file=sys.stderr)
+        return 2
+    for rel, body in scaffold(plugin, claim).items():
+        dest = out / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body)
+        print(f"  wrote {dest}")
+    print(f"\n  Loading is the easy half. {out}/PROVING.md is the other one.\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="clickllm",
-        description="Prove which open model can replace your closed one.",
+        description="Run open models properly on your own hardware — and prove they hold.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -423,10 +598,62 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--json", action="store_true")
     g.set_defaults(fn=cmd_guard)
 
+    ad = sub.add_parser("advise", help="what to change, and where production diverged")
+    ad.add_argument("--context", default="32k")
+    ad.add_argument("--concurrency", type=int, default=1)
+    ad.add_argument(
+        "--workload", default="interactive", choices=["interactive", "realtime", "batch"]
+    )
+    ad.add_argument("--ttft-ms", type=int, dest="ttft_ms")
+    ad.add_argument("--itl-ms", type=int, dest="itl_ms")
+    ad.add_argument("--prefix-sharing", type=float, default=0.0, dest="prefix_sharing")
+    ad.add_argument("--structured-output", action="store_true", dest="structured_output")
+    # Observed reality — any subset. Telemetry arrives in pieces.
+    ad.add_argument("--seen-concurrency", type=int, dest="seen_concurrency")
+    ad.add_argument("--seen-prefix-sharing", type=float, dest="seen_prefix_sharing")
+    ad.add_argument("--seen-ttft-ms", type=int, dest="seen_ttft_ms")
+    ad.add_argument("--seen-peak-context", dest="seen_peak_context")
+    ad.add_argument("--seen-kv-utilisation", type=float, dest="seen_kv_utilisation")
+    ad.add_argument("--json", action="store_true")
+    ad.set_defaults(fn=cmd_advise)
+
+    pv = sub.add_parser("prove", help="run the eval suite and print the verdict")
+    pv.add_argument("evalset", help="path to an eval-set JSON file")
+    pv.add_argument("--candidate", default="candidate", help="the open model under test")
+    pv.add_argument("--incumbent", default="incumbent", help="the model being replaced")
+    pv.add_argument("--issued", default="", help="ISO date stamped on the receipt")
+    pv.add_argument(
+        "--bar",
+        type=float,
+        default=0.90,
+        help="equivalence bar; a cluster moves only when the whole interval clears it",
+    )
+    pv.add_argument("--out", help="write the receipt to this path")
+    pv.add_argument("--json", action="store_true", help="print the receipt as JSON")
+    pv.set_defaults(fn=cmd_prove)
+
     rc = sub.add_parser("receipt", help="render or verify a migration receipt")
     rc.add_argument("receipt", help="path to a receipt JSON file")
     rc.add_argument("--against", help="a second receipt to verify this one against")
     rc.set_defaults(fn=cmd_receipt)
+
+    d = sub.add_parser("desktop", help="install a double-clickable launcher")
+    d.add_argument("--port", type=int, default=7171)
+    d.set_defaults(fn=cmd_desktop)
+
+    kn = sub.add_parser("kernel", help="scaffold a vLLM plugin and its proof plan")
+    kn.add_argument("name", help="plugin name, e.g. fused-rmsnorm")
+    kn.add_argument(
+        "--kind",
+        default="vllm.general_plugins",
+        choices=_plugin_kinds(),
+        help="vLLM entry-point group",
+    )
+    kn.add_argument("--speedup", type=float, default=1.0, help="the speedup you claim")
+    kn.add_argument("--bit-identical", action="store_true", help="claims byte-for-byte output")
+    kn.add_argument("--drift", help="what you expect to change, if not bit-identical")
+    kn.add_argument("--out", help="output directory (default: the plugin name)")
+    kn.set_defaults(fn=cmd_kernel)
 
     args = p.parse_args(argv)
     try:

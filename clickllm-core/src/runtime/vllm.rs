@@ -225,6 +225,10 @@ impl Runtime for Vllm {
                     plan.tensor_parallel,
                 ),
             }]),
+            Target::Systemd => Ok(vec![Artifact {
+                path: "clickllm-vllm.service".into(),
+                contents: super::systemd_unit(&plan.model.id, &args, plan),
+            }]),
         }
     }
 }
@@ -273,7 +277,12 @@ fn serve_args(plan: &RuntimePlan) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 pub(crate) mod tests {
     use super::*;
     use crate::spec::{GIB, KvScheme};
@@ -438,9 +447,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn renders_all_three_targets_with_provenance() {
+    fn renders_every_target_with_provenance() {
         let p = sample_plan();
-        for target in [Target::LocalProcess, Target::Container, Target::Kubernetes] {
+        for target in Target::ALL {
             let arts = Vllm::new().render(&p, target).unwrap();
             assert_eq!(arts.len(), 1, "{target:?}");
             let a = &arts[0];
@@ -500,6 +509,46 @@ pub(crate) mod tests {
             "--gpu-memory-utilization",
         ] {
             assert!(a.iter().any(|x| x == flag), "{flag} missing from {a:?}");
+        }
+    }
+
+    #[test]
+    fn the_systemd_unit_survives_a_slow_start_and_restarts() {
+        let p = sample_plan();
+        let u = &Vllm::new().render(&p, Target::Systemd).unwrap()[0].contents;
+        assert!(u.contains("Restart=always"), "{u}");
+        // Weights are tens of GiB; systemd's default 90s would kill a healthy start.
+        assert!(u.contains("TimeoutStartSec=1800"), "{u}");
+        assert!(u.contains("clickllm"), "provenance header missing");
+        // systemd splits ExecStart on whitespace, so an argument containing
+        // spaces — `--speculative-config {"method": "eagle3"}` — must arrive
+        // quoted or the unit starts with four broken arguments and dies.
+        let exec = u
+            .lines()
+            .find(|l| l.starts_with("ExecStart="))
+            .expect("no ExecStart");
+        assert!(exec.contains("vllm"), "{exec}");
+        if exec.contains("eagle3") {
+            assert!(
+                exec.contains("\"{\\\"method\\\""),
+                "the nested JSON argument must be quoted and escaped: {exec}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_target_renders_something_runnable() {
+        let p = sample_plan();
+        for t in Target::ALL {
+            let arts = Vllm::new()
+                .render(&p, t)
+                .expect("vllm supports every target");
+            assert_eq!(arts.len(), 1, "{t:?}");
+            assert!(!arts[0].contents.is_empty(), "{t:?} rendered nothing");
+            assert!(
+                arts[0].contents.contains("clickllm"),
+                "{t:?} lacks provenance"
+            );
         }
     }
 }

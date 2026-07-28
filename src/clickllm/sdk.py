@@ -24,6 +24,8 @@ from . import catalog, hardware
 from . import fit as _fit
 from .catalog import QUANT_BITS, ModelSpec
 from .hardware import Hardware
+from .prove import EvalItem, SuiteResult
+from .prove import suite as _suite
 
 GB = 1024**3
 
@@ -212,6 +214,29 @@ def models(
     if license_filter == "permissive":
         return [m for m in all_models if m.license_ok]
     return all_models
+
+
+def prove(
+    items: list[EvalItem],
+    *,
+    shares: dict[str, float],
+    issued: str,
+    **kw: object,
+) -> SuiteResult:
+    """Run the eval suite: score a candidate, propose a split, issue a receipt.
+
+    A thin pass-through to [`clickllm.prove.suite`] so the SDK, the CLI, the MCP
+    server and the agent skill all reach the same implementation. See that
+    function for the full argument list.
+
+    >>> from clickllm import sdk
+    >>> result = sdk.prove(items, shares=shares, issued="2026-07-27")  # doctest: +SKIP
+    >>> print(result.render())                                        # doctest: +SKIP
+
+    It returns a verdict and never applies one — advancing traffic lives behind
+    [`clickllm.prove.gate`] and ends at a human.
+    """
+    return _suite(items, shares=shares, issued=issued, **kw)  # type: ignore[arg-type]
 
 
 def demo() -> None:

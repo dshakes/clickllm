@@ -74,6 +74,137 @@ def _explain(model_id: str, context: str = "32k", concurrency: int = 1) -> dict[
     return {"model": model_id, "fits": f.feasible, "arithmetic": f.explain()}
 
 
+def _advise(
+    context: str = "32k",
+    concurrency: int = 1,
+    workload: str = "interactive",
+    ttft_ms: int | None = None,
+    itl_ms: int | None = None,
+    prefix_sharing: float = 0.0,
+    structured_output: bool = False,
+    observed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Proactive suggestions for a deployment, and drift against observed reality.
+
+    Read-only: it proposes, with the evidence for each proposal, and applies
+    nothing.
+    """
+    from .advise import Observed, reconcile, suggest
+    from .cli import _parse_size
+    from .plan import Requirements, Workload, plan
+
+    hw = hardware.detect()
+    req = Requirements(
+        workload=Workload(workload),
+        concurrency=concurrency,
+        context=_parse_size(context),
+        ttft_ms=ttft_ms,
+        itl_ms=itl_ms,
+        prefix_sharing=prefix_sharing,
+        structured_output=structured_output,
+    )
+    p = plan(hw, req)
+
+    def _out(s: Any) -> dict[str, Any]:
+        return {
+            "id": s.id,
+            "impact": s.impact.value,
+            "action": s.action,
+            "because": s.because,
+            "expect": s.expect,
+            "setting": s.setting.value if s.setting else None,
+        }
+
+    drift = reconcile(req, p, Observed(**observed)) if observed else []
+    return {
+        "engine": p.engine.value,
+        "engine_why": p.engine_why,
+        "suggestions": [_out(s) for s in suggest(req, p)],
+        "drift": [_out(s) for s in drift],
+        "cannot_meet": list(p.warnings),
+        "advisory": (
+            "Proposals with evidence, not actions. Effects are estimates unless "
+            "labelled otherwise; nothing here has been applied."
+        ),
+    }
+
+
+def _prove(
+    eval_set: str,
+    candidate: str = "candidate",
+    incumbent: str = "incumbent",
+    issued: str = "",
+    bar: float = 0.90,
+) -> dict[str, Any]:
+    """Score a candidate over an eval set and return the verdict and receipt.
+
+    Read-only by construction: it returns a *proposal* and touches nothing. The
+    tool that would act on it does not exist — see the boundary assertion in
+    :func:`demo`.
+    """
+    import json as _json
+    import pathlib
+    from datetime import date
+
+    from .prove import EvalItem, suite
+
+    raw = _json.loads(pathlib.Path(eval_set).read_text())
+    rows = raw.get("items", []) if isinstance(raw, dict) else raw
+    shares = raw.get("shares", {}) if isinstance(raw, dict) else {}
+    names = raw.get("names", {}) if isinstance(raw, dict) else {}
+    if not rows:
+        raise ValueError(f"{eval_set} contains no eval items")
+
+    items = [
+        EvalItem(
+            item_id=str(r.get("item_id", i)),
+            cluster=str(r.get("cluster", "all")),
+            prompt=str(r.get("prompt", "")),
+            baseline=str(r.get("baseline", "")),
+            candidate=str(r.get("candidate", "")),
+            baseline_tool_calls=tuple(r.get("baseline_tool_calls", ()) or ()),
+            candidate_tool_calls=tuple(r.get("candidate_tool_calls", ()) or ()),
+            response_format=r.get("response_format"),
+        )
+        for i, r in enumerate(rows)
+    ]
+    equal_weighted = not shares
+    if equal_weighted:
+        keys = sorted({i.cluster for i in items})
+        shares = {k: 1 / len(keys) for k in keys}
+
+    result = suite(
+        items,
+        shares=shares,
+        names=names,
+        issued=issued or date.today().isoformat(),
+        candidate=candidate,
+        incumbent=incumbent,
+        bar=bar,
+        tool_version=SERVER_INFO["version"],
+    )
+    # to_json() nests the document under {digest, receipt}. Flattened here so an
+    # agent reads `receipt.regret` rather than `receipt.receipt.regret` — a shape
+    # that invites exactly one silent KeyError per integration.
+    doc = _json.loads(result.receipt.to_json())
+    return {
+        "report": result.render(),
+        "movable_share": result.policy.moved_share,
+        "regret_clusters": list(result.policy.regret_clusters),
+        "unproven_clusters": list(result.policy.unproven_clusters),
+        # Stated so an agent cannot present an equal-weighted verdict as a
+        # traffic-weighted one — a different and much stronger claim.
+        "traffic_weighted": not equal_weighted,
+        "judge_used": result.receipt.judge_model is not None,
+        "receipt": doc["receipt"],
+        "receipt_digest": doc["digest"],
+        "advisory": (
+            "This is a proposal, not an action. Moving production traffic is a "
+            "human decision and no tool here performs it."
+        ),
+    }
+
+
 def _catalog() -> dict[str, Any]:
     """The model catalogue with licences and architecture-verification flags."""
     return {
@@ -135,6 +266,73 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                     "concurrency": {"type": "integer", "minimum": 1},
                 },
                 "required": ["model_id"],
+            },
+        },
+    ),
+    "clickllm_advise": (
+        _advise,
+        {
+            "description": (
+                "What a careful reviewer would raise about a deployment unprompted: the "
+                "knob nobody set, the headroom nobody spent, the budget nobody stated. "
+                "Pass 'observed' with real telemetry to also get drift — where production "
+                "diverged from what the plan assumed. Every item carries the observation "
+                "that triggered it; report that, not just the action. Proposals only: "
+                "nothing here is applied."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "context": {"type": "string", "description": "e.g. '8k', '32k'."},
+                    "concurrency": {"type": "integer", "minimum": 1},
+                    "workload": {"enum": ["interactive", "realtime", "batch"]},
+                    "ttft_ms": {"type": "integer", "description": "Time-to-first-token budget."},
+                    "itl_ms": {"type": "integer", "description": "Inter-token latency budget."},
+                    "prefix_sharing": {"type": "number", "minimum": 0, "maximum": 1},
+                    "structured_output": {"type": "boolean"},
+                    "observed": {
+                        "type": "object",
+                        "description": (
+                            "Measured reality: concurrency, prefix_sharing, ttft_ms, "
+                            "itl_ms, peak_context, kv_utilisation. Any subset."
+                        ),
+                    },
+                },
+            },
+        },
+    ),
+    "clickllm_prove": (
+        _prove,
+        {
+            "description": (
+                "Run the eval suite over an eval set and return the equivalence verdict, "
+                "the traffic split it supports, and a reproducible receipt. Report the "
+                "regret clusters and the confidence intervals, never the point estimate "
+                "alone. If 'traffic_weighted' is false the clusters were weighted equally "
+                "and the verdict is weaker than a traffic-weighted one. This returns a "
+                "proposal only — moving production traffic is a human decision."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "eval_set": {
+                        "type": "string",
+                        "description": "Path to an eval-set JSON file.",
+                    },
+                    "candidate": {"type": "string", "description": "Open model under test."},
+                    "incumbent": {"type": "string", "description": "Model being replaced."},
+                    "issued": {"type": "string", "description": "ISO date for the receipt."},
+                    "bar": {
+                        "type": "number",
+                        "description": (
+                            "Equivalence bar. A cluster moves only when its whole "
+                            "confidence interval clears this."
+                        ),
+                        "minimum": 0,
+                        "maximum": 1,
+                    },
+                },
+                "required": ["eval_set"],
             },
         },
     ),
@@ -264,8 +462,12 @@ def demo() -> None:
 
     listed = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
     assert {t["name"] for t in listed} == set(TOOLS)
-    # Write-side tools must never appear: a human presses the button that moves traffic.
-    assert not any("cutover" in t["name"] or "apply" in t["name"] for t in listed)
+    # Write-side tools must never appear: a human presses the button that moves
+    # traffic. The vocabulary is broad on purpose — the failure this guards is
+    # someone adding a helpful-looking `clickllm_promote` and nothing objecting.
+    forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
+    leaked = [t["name"] for t in listed if any(w in t["name"] for w in forbidden)]
+    assert not leaked, f"write-side tools exposed to agents: {leaked}"
 
     called = handle(
         {
@@ -276,6 +478,40 @@ def demo() -> None:
         }
     )["result"]
     assert "hardware" in called["structuredContent"]
+
+    # The eval suite over a real file, through the real transport — an agent's
+    # path to a verdict, exercised end to end rather than asserted about.
+    import json as _json
+    import tempfile
+
+    items = [
+        {"item_id": f"c{i}", "cluster": "codegen", "prompt": f"p{i}"}
+        | {"baseline": '{"a": 1}', "candidate": '{"a": 1}'}
+        for i in range(45)
+    ] + [
+        {"item_id": f"r{i}", "cluster": "rare-json", "prompt": f"q{i}"}
+        | {"baseline": '{"a": 1}', "candidate": '{"b": 1}'}
+        for i in range(15)
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        p = f"{d}/evalset.json"
+        with open(p, "w") as fh:
+            _json.dump({"items": items, "shares": {"codegen": 0.75, "rare-json": 0.25}}, fh)
+        proved = handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": {"name": "clickllm_prove", "arguments": {"eval_set": p}},
+            }
+        )["result"]["structuredContent"]
+
+    assert proved["movable_share"] == 0.75, proved["movable_share"]
+    assert proved["regret_clusters"] == ["rare-json"], proved["regret_clusters"]
+    assert proved["traffic_weighted"] is True
+    assert not proved["judge_used"], "no judge was supplied; it must not claim one"
+    # The regret cluster must survive into the receipt, not just the summary.
+    assert any(c["name"] == "rare-json" for c in proved["receipt"]["regret"])
 
     assert handle({"jsonrpc": "2.0", "id": 4, "method": "nope"})["error"]["code"] == -32601
     assert handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None

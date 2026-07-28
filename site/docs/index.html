@@ -74,6 +74,7 @@
   th{color:var(--ink3);font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;font-weight:700}
   td{color:var(--ink2)} td strong{color:var(--ink)}
 
+  .sub{color:var(--ink3);font-size:.93rem;}
   .note{border-left:3px solid var(--cyan);background:rgba(34,211,238,.05);padding:13px 17px;
         border-radius:0 10px 10px 0;margin:18px 0}
   .note.warn{border-color:var(--amber);background:rgba(251,191,36,.05)}
@@ -136,6 +137,7 @@
   <a href="#edu-spec">Speculative decoding</a>
   <a href="#edu-engines">The serving stack</a>
   <a href="#edu-tpu">TPUs and other silicon</a>
+  <a href="#edu-kernels">Kernel-level work</a>
 
   <h4>Use</h4>
   <a href="#recommend">Getting a recommendation</a>
@@ -431,6 +433,87 @@ language models on hardware you control.</p>
 </div>
 <p class="sub">SGLang, llm-d and llama.cpp have no TPU path at all, so clickllm will never
   offer them there — emitting a command that cannot start is worse than emitting none.</p>
+
+
+<h2 id="edu-kernels">Learn: kernel-level work</h2>
+<p>Below the engine there is one more layer: the CUDA kernels that actually do the arithmetic.
+  clickllm <strong>does not write them</strong> — out-engineering vLLM's kernel authors is not the
+  gap, and a custom attention kernel maintained against upstream churn is a permanent tax whose
+  failure mode is subtle numerical drift that presents as a <em>model quality</em> problem.</p>
+<p>What it does give you is the seam and the thing nobody else does: <strong>a way to prove your
+  kernel actually helped.</strong></p>
+<figure>
+  <img src="../assets/edu-kernels.svg" loading="lazy"
+       alt="The request path from HTTP down to HBM with the kernel layer highlighted and the vLLM
+            plugin entry point marked, beside a decomposition of one decode step by bytes moved
+            and a comparison of fused against unfused HBM round trips">
+  <figcaption>Left to right is where a kernel sits; below is what it moves. Decode is
+    memory-bound, so bytes moved — not FLOPs — is the honest unit, and in those units the
+    elementwise ops everyone reaches for first are almost nothing at batch&nbsp;1.</figcaption>
+</figure>
+
+<h4>Where a kernel plugs in</h4>
+<p>vLLM discovers plugins through standard Python entry points, so a kernel arrives as a normal
+  package rather than a fork or a patched image. The group you pick decides what your callable
+  must return, and getting it wrong means a plugin that loads and does nothing:</p>
+<div class="tablewrap"><table>
+  <tr><th>Entry-point group</th><th>Registers</th><th>Your function returns</th></tr>
+  <tr><td><code>vllm.general_plugins</code></td><td>custom ops, out-of-tree models</td>
+      <td>nothing — side effects only</td></tr>
+  <tr><td><code>vllm.platform_plugins</code></td><td>a whole out-of-tree device</td>
+      <td>the platform class's FQN, or <code>None</code> if it can't run here</td></tr>
+  <tr><td><code>vllm.stat_logger_plugins</code></td><td>a metrics logger</td>
+      <td>the entry point <em>is</em> the class</td></tr>
+  <tr><td><code>vllm.io_processor_plugins</code></td><td>prompt/output processing</td>
+      <td>the IOProcessor class's FQN</td></tr>
+  <tr><td><code>vllm.endpoint_plugins</code></td><td>extra HTTP routes</td>
+      <td>routes — <b>not loaded by default</b></td></tr>
+</table></div>
+<pre><span class="u">$ clickllm kernel fused-rmsnorm --speedup 1.18 --drift "fp16 reduction order"</span>
+  <span class="g">✓</span> pyproject.toml          <span class="c">entry point in the right group</span>
+  <span class="g">✓</span> fused_rmsnorm/__init__  <span class="c">a re-entrant register()</span>
+  <span class="g">✓</span> PROVING.md              <span class="c">the half that decides whether it ships</span></pre>
+
+<div class="note warn">
+  <p><b>The constraint that catches everyone: <code>register()</code> must be re-entrant.</b>
+    vLLM loads plugins in <em>every</em> process it spawns, so under tensor parallelism your
+    function runs once per worker. A <code>register()</code> that appends to a list, or raises on a
+    second call, breaks the moment <code>--tensor-parallel-size</code> exceeds 1 — and the error
+    surfaces far from the cause.</p>
+</div>
+
+<h4>The three things people get wrong</h4>
+<div class="tablewrap"><table>
+  <tr><th>Mistake</th><th>Why it bites</th></tr>
+  <tr><td><strong>Benchmarking at batch 1</strong></td>
+      <td>A kernel that is 1.4× faster single-stream routinely delivers nothing under real
+        batching, because the bottleneck moved. Exactly the trap
+        <a href="#edu-spec">speculative decoding</a> sets. Measure at <em>your</em> concurrency.</td></tr>
+  <tr><td><strong>Measuring speed, not output</strong></td>
+      <td>A kernel that is 1.4× faster and changes one logit in ten thousand is not a 1.4× win —
+        it is an unreviewed model change. Almost anything touching floating-point reduction order
+        changes results; the question is whether it changes them <em>enough to matter</em>, and
+        that is a statistical question with a confidence interval, not a diff.</td></tr>
+  <tr><td><strong>Mismatched CUDA</strong></td>
+      <td>A PyTorch built against a different CUDA than the <code>nvcc</code> on your PATH will
+        compile your op and then fail to load it with an undefined symbol naming nothing useful.
+        The devcontainer checks this on first run rather than letting you debug the wrong thing.</td></tr>
+</table></div>
+
+<h4>A development environment that checks itself</h4>
+<p><code>.devcontainer/</code> brings up NVIDIA's PyTorch image with Nsight Compute and Nsight
+  Systems, and on first run verifies the toolkit matches torch, warns if it doesn't, and reports
+  whether the profilers are present. It also sets <code>--shm-size=16g</code>, because Docker's
+  64&nbsp;MB default produces a bus error that looks convincingly like a kernel bug.</p>
+<pre><span class="c"># the workflow the environment exists for</span>
+<span class="u">clickllm kernel my-kernel</span>              <span class="c">a package, not a fork</span>
+<span class="c"># …write the kernel…</span>
+<span class="u">ncu --set full python bench.py</span>       <span class="c">measure, don't guess</span>
+<span class="u">clickllm prove --against base.json</span>   <span class="c">did it change the OUTPUT?</span></pre>
+<p class="sub">The last step is the one usually skipped, and the only one that can tell a
+  genuine 1.4× win from an unreviewed model change. It is the same machinery that decides whether
+  an entirely different model is equivalent — and a kernel is a far smaller perturbation than that,
+  so if the loop can settle the big question it can certainly settle this one.</p>
 
 <h2 id="recommend">Getting a recommendation <span class="pill live">LIVE</span></h2>
 <p>Recommendations combine three inputs: <em>your hardware</em>, <em>your workload</em>, and

@@ -1,0 +1,46 @@
+{
+  "name": "clickllm — kernel development",
+  "//": [
+    "A CUDA toolchain plus the tools that tell you whether a kernel helped.",
+    "clickllm does not ship kernels (CLAUDE.md invariant 1); it ships the seam",
+    "and the proof loop. This container is for the seam's users."
+  ],
+  "image": "nvcr.io/nvidia/pytorch:25.06-py3",
+  "//image": [
+    "NVIDIA's PyTorch image rather than a bare CUDA one: it already carries a",
+    "PyTorch built against this CUDA, which is the thing that is painful to",
+    "match by hand and the commonest reason a custom op fails to load."
+  ],
+  "runArgs": ["--gpus", "all", "--shm-size=16g"],
+  "//runArgs": [
+    "--shm-size matters: PyTorch dataloaders and NCCL use /dev/shm, and the",
+    "Docker default of 64m produces a bus error that looks like a kernel bug."
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": ".devcontainer/setup.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.cpptools",
+        "nvidia.nsight-vscode-edition",
+        "rust-lang.rust-analyzer",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "C_Cpp.default.includePath": ["/usr/local/cuda/include", "${workspaceFolder}/**"],
+        "python.analysis.extraPaths": ["${workspaceFolder}/src"]
+      }
+    }
+  },
+  "remoteEnv": {
+    "TORCH_CUDA_ARCH_LIST": "8.0;8.6;9.0",
+    "//TORCH_CUDA_ARCH_LIST": "Ampere through Hopper. Building for every arch triples compile time; building for none makes the op silently fall back to eager.",
+    "CUDA_LAUNCH_BLOCKING": "0",
+    "//CUDA_LAUNCH_BLOCKING": "Set to 1 while debugging — async launches report errors at the *next* sync, so the stack trace points at innocent code.",
+    "PYTHONPATH": "/workspaces/clickllm/src"
+  }
+}

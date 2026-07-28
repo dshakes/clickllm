@@ -98,7 +98,12 @@ impl Runtime for LlmD {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
     use crate::runtime::vllm::tests::{h100, model};
@@ -165,10 +170,12 @@ mod tests {
         let p = LlmD::new()
             .plan(&multi(4), &model(), &Workload::default())
             .unwrap();
-        for t in [Target::LocalProcess, Target::Container] {
+        // Every non-Kubernetes target, from the canonical list — so a new
+        // target added to the enum is covered here without anyone remembering.
+        for t in Target::ALL.into_iter().filter(|t| *t != Target::Kubernetes) {
             assert!(
                 LlmD::new().render(&p, t).is_err(),
-                "{t:?} should be refused"
+                "{t:?} should be refused: llm-d is a Kubernetes-native stack"
             );
         }
     }

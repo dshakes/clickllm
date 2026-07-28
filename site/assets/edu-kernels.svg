@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 664" width="900" height="664" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>Where a kernel sits, and what it moves</title><desc id='d'>Top: the request path from HTTP down to HBM, with the kernel layer highlighted and the vLLM plugin entry point marked as the only seam into it. Bottom left: one decode step decomposed by bytes moved. Bottom right: what fusing two elementwise kernels actually saves.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="900" height="664" fill="var(--bg)"/>
+<text x="28" y="30" class="t">Where a kernel sits, and what it moves</text>
+<text x="28" y="50" class="sub">You do not fork the engine to change a kernel — you register one. The hard part is proving it did not change the output.</text>
+<rect x="27" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="90" y="104" class="lb" text-anchor="middle">request</text>
+<text x="90" y="126" class="ax" text-anchor="middle">OpenAI-shaped</text>
+<text x="90" y="143" class="ax" text-anchor="middle">HTTP</text>
+<rect x="171" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="234" y="104" class="lb" text-anchor="middle">API server</text>
+<text x="234" y="126" class="ax" text-anchor="middle">tokenize</text>
+<text x="234" y="143" class="ax" text-anchor="middle">admit</text>
+<path d="M 158 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+<rect x="315" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="378" y="104" class="lb" text-anchor="middle">scheduler</text>
+<text x="378" y="126" class="ax" text-anchor="middle">paged KV</text>
+<text x="378" y="143" class="ax" text-anchor="middle">form the batch</text>
+<path d="M 302 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+<rect x="459" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="522" y="104" class="lb" text-anchor="middle">model forward</text>
+<text x="522" y="126" class="ax" text-anchor="middle">torch graph</text>
+<text x="522" y="143" class="ax" text-anchor="middle">layer by layer</text>
+<path d="M 446 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+<rect x="603" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--s0)" stroke-width="2"/>
+<text x="666" y="104" class="lb" text-anchor="middle" fill="var(--s0)">KERNELS</text>
+<text x="666" y="126" class="ax" text-anchor="middle">attention · GEMM</text>
+<text x="666" y="143" class="ax" text-anchor="middle">norm · sampling</text>
+<path d="M 590 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+<rect x="747" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="810" y="104" class="lb" text-anchor="middle">GPU</text>
+<text x="810" y="126" class="ax" text-anchor="middle">SMs</text>
+<text x="810" y="143" class="ax" text-anchor="middle">read / write HBM</text>
+<path d="M 734 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+<path d="M 666 162 V 214" fill="none" stroke="var(--s0)" stroke-width="1.5" stroke-dasharray="4 3"/>
+<rect x="440" y="214" width="433" height="64" rx="10" fill="var(--panel)" stroke="var(--s0)"/>
+<text x="458" y="239" class="m" fill="var(--s0)">vllm.general_plugins</text>
+<text x="458" y="260" class="ax">An entry point vLLM imports in every process it spawns.</text>
+<text x="28" y="226" class="ax">clickllm generates the config behind boxes 2–3. Box 4 is</text>
+<text x="28" y="243" class="ax">vLLM's, and forking it is a permanent tax. Box 5 is the only</text>
+<text x="28" y="260" class="ax">sanctioned seam — and register() runs once per worker, so it</text>
+<text x="28" y="277" class="ax">must be idempotent or tensor parallelism breaks it on rank 1.</text>
+<rect x="28" y="300" width="496" height="248" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="548" y="300" width="325" height="248" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="46" y="326" class="lb">One decode step, by bytes moved</text>
+<text x="46" y="344" class="ax">7B-class layer · 8 kv-heads · 32k context · fp16 · batch 1</text>
+<text x="170" y="372" class="ax" text-anchor="end">QKV projections</text>
+<rect x="182.0" y="358.0" width="58.6" height="18.0" rx="4" fill="var(--s1)"/>
+<text x="251" y="371" class="m">10.3%</text>
+<text x="170" y="399" class="ax" text-anchor="end">attention · KV read</text>
+<rect x="182.0" y="385.0" width="156.2" height="18.0" rx="4" fill="var(--s0)"/>
+<text x="348" y="398" class="m">27.5%</text>
+<text x="170" y="426" class="ax" text-anchor="end">O projection</text>
+<rect x="182.0" y="412.0" width="39.1" height="18.0" rx="4" fill="var(--s1)"/>
+<text x="231" y="425" class="m">6.9%</text>
+<text x="170" y="453" class="ax" text-anchor="end">gate + up</text>
+<rect x="182.0" y="439.0" width="210.0" height="18.0" rx="4" fill="var(--s1)"/>
+<text x="402" y="452" class="m">36.9%</text>
+<text x="170" y="480" class="ax" text-anchor="end">down</text>
+<rect x="182.0" y="466.0" width="105.0" height="18.0" rx="4" fill="var(--s1)"/>
+<text x="297" y="479" class="m">18.5%</text>
+<text x="170" y="507" class="ax" text-anchor="end">RMSNorm + SiLU</text>
+<rect x="182.0" y="493.0" width="2.0" height="18.0" rx="4" fill="var(--s3)"/>
+<text x="194" y="506" class="m">&lt;0.1%</text>
+<text x="170" y="534" class="ax" text-anchor="end">total</text>
+<text x="182" y="534" class="m" fill="var(--ink)">489 MB moved per layer</text>
+<text x="566" y="326" class="lb">What fusion actually saves</text>
+<text x="566" y="346" class="m">y = silu(gate) * up</text>
+<text x="566" y="374" class="ax">unfused · 2 kernels · 5 HBM trips</text>
+<rect x="566.0" y="382.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<rect x="620.0" y="382.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<rect x="674.0" y="382.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<rect x="728.0" y="382.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<rect x="782.0" y="382.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<text x="566" y="428" class="ax">fused · 1 kernel · 3 HBM trips</text>
+<rect x="566.0" y="436.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<rect x="620.0" y="436.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<rect x="674.0" y="436.0" width="50.0" height="16.0" rx="3" fill="var(--s3)"/>
+<text x="566" y="496" class="ax">Three HBM round trips instead of five —</text>
+<text x="566" y="513" class="ax">a 40% cut, on the one term that is under</text>
+<text x="566" y="530" class="ax">0.1% of the step at batch 1.</text>
+<rect x="28" y="571" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="42" y="579" class="lb">weight reads</text><rect x="133" y="571" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="147" y="579" class="lb">KV cache read</text><rect x="244" y="571" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="258" y="579" class="lb">elementwise / activations</text>
+<text x="28" y="606" class="note">This is why a kernel is measured at real concurrency or not at all. At batch 1 the weights dominate and fusion is</text>
+<text x="28" y="622" class="note">noise; at batch 64 the weight read is amortised across every sequence, the activation traffic scales with the batch,</text>
+<text x="28" y="638" class="note">and the same fusion becomes the whole win. Benchmark at the wrong batch size and you will ship the opposite</text>
+<text x="28" y="654" class="note">conclusion — the identical trap speculative decoding sets.</text>
+</svg>

@@ -132,6 +132,21 @@ pub enum Target {
     Container,
     /// Kubernetes manifests.
     Kubernetes,
+    /// A systemd unit, for a plain VM or a Mac mini under launchd's cousin.
+    ///
+    /// The answer to "I have an EC2 box" — which is not a platform, it is a
+    /// machine, and what it needs is a supervisor that restarts the process.
+    Systemd,
+}
+
+impl Target {
+    /// Every target, for callers that render all of them.
+    pub const ALL: [Target; 4] = [
+        Target::LocalProcess,
+        Target::Container,
+        Target::Kubernetes,
+        Target::Systemd,
+    ];
 }
 
 /// One generated file.
@@ -192,8 +207,55 @@ pub(crate) fn provenance(runtime: &str, plan: &RuntimePlan, comment: &str) -> St
     s
 }
 
+/// A systemd unit for a plain VM.
+///
+/// `Restart=always` with a backoff, because the thing this buys over `nohup` is
+/// that the process comes back. `TimeoutStartSec` is generous: loading tens of
+/// gigabytes of weights from disk is not a hung service, and the default would
+/// kill a healthy start.
+pub(crate) fn systemd_unit(name: &str, argv: &[String], plan: &RuntimePlan) -> String {
+    // systemd requires ExecStart='s first token to be an absolute path — a bare
+    // command name like `vllm` or `python3` is rejected at load with "Executable
+    // path is not absolute". `/usr/bin/env` is itself absolute and resolves the
+    // real executable from $PATH, same trick as a `#!/usr/bin/env` shebang.
+    let exec = std::iter::once("/usr/bin/env".to_string())
+        .chain(argv.iter().cloned())
+        .map(|a| {
+            // systemd splits ExecStart on whitespace, so `--speculative-config
+            // {"method": "eagle3"}` becomes four arguments and the unit fails to
+            // start. Quoting is triggered by whitespace *or* any character that
+            // is special to systemd's own quoted-argument parser (`"`, `'`,
+            // `\`) — a lone quote elsewhere in the argument would otherwise be
+            // read as an unbalanced quote or silently stripped.
+            if a.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '\\') {
+                format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\""))
+            } else {
+                a
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "# clickllm — {}, {} @ {} context. Runs with clickllm uninstalled.\n\
+         [Unit]\nDescription=clickllm inference — {}\nAfter=network-online.target\n\
+         Wants=network-online.target\n\n[Service]\nType=simple\n\
+         ExecStart={exec}\nRestart=always\nRestartSec=10\n\
+         # Weights can be tens of GiB; the default 90s would kill a healthy start.\n\
+         TimeoutStartSec=1800\n\
+         # An OOM here should restart the service, not take the box with it.\n\
+         OOMPolicy=stop\nLimitNOFILE=65536\n\n\
+         [Install]\nWantedBy=multi-user.target\n",
+        plan.model.id, plan.quant, plan.max_model_len, name,
+    )
+}
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
 
@@ -268,5 +330,57 @@ mod tests {
         for line in &plan.rationale {
             assert!(p.contains(line.as_str()), "rationale {line:?} must survive");
         }
+    }
+
+    #[test]
+    fn systemd_exec_start_is_an_absolute_path() {
+        // systemd rejects a unit at load time with "Executable path is not
+        // absolute" unless ExecStart='s first token starts with `/`.
+        let plan = crate::runtime::vllm::tests::sample_plan();
+        let u = systemd_unit("model", &["vllm".into(), "serve".into()], &plan);
+        let exec = u
+            .lines()
+            .find(|l| l.starts_with("ExecStart="))
+            .expect("no ExecStart");
+        let first_token = exec
+            .trim_start_matches("ExecStart=")
+            .split_whitespace()
+            .next()
+            .unwrap();
+        assert!(
+            first_token.starts_with('/'),
+            "ExecStart must start with an absolute path: {exec}"
+        );
+        assert_eq!(first_token, "/usr/bin/env");
+    }
+
+    #[test]
+    fn systemd_quotes_arguments_with_bare_quotes_or_backslashes() {
+        // Whitespace is not the only character systemd's ExecStart parser treats
+        // specially. A lone `'` without surrounding whitespace produces an
+        // unbalanced quote and the unit fails to load; a lone `"` gets silently
+        // stripped, corrupting the argument the model runtime receives.
+        let plan = crate::runtime::vllm::tests::sample_plan();
+        let u = systemd_unit(
+            "model",
+            &[
+                "vllm".into(),
+                "--user-model=user's-model".into(),
+                "--flag=\"quoted\"".into(),
+            ],
+            &plan,
+        );
+        let exec = u
+            .lines()
+            .find(|l| l.starts_with("ExecStart="))
+            .expect("no ExecStart");
+        assert!(
+            exec.contains("\"--user-model=user's-model\""),
+            "argument with a bare single quote must be wrapped in quotes: {exec}"
+        );
+        assert!(
+            exec.contains(r#""--flag=\"quoted\"""#),
+            "argument with bare double quotes must be wrapped and escaped: {exec}"
+        );
     }
 }

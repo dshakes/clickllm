@@ -161,6 +161,10 @@ impl Runtime for Sglang {
                     name = k8s_name_for(&plan.model.id),
                 ),
             }],
+            Target::Systemd => vec![Artifact {
+                path: "clickllm-sglang.service".into(),
+                contents: super::systemd_unit(&plan.model.id, &args, plan),
+            }],
         })
     }
 }
@@ -211,7 +215,12 @@ fn launch_args(plan: &RuntimePlan) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
     use crate::spec::{Accelerator, Hardware, Workload};
