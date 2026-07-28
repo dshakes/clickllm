@@ -279,6 +279,51 @@ def _drop_in_dir() -> pathlib.Path:
     return pathlib.Path(base) / "clickllm" / "models.d"
 
 
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Notice new models without being asked. Stages; never publishes."""
+    from . import watch
+
+    if args.list:
+        rows = watch.pending()
+        if not rows:
+            print("\n  nothing staged\n")
+            return 0
+        print(f"\n  {len(rows)} staged, waiting on a parameter count and a licence read:\n")
+        for m in rows:
+            print(f"  {m.get('id', '?'):<28}{m.get('layers', '?')} layers  {m.get('repo', '')}")
+        print("\n  clickllm catalog-add <repo> --params-b <N> --network   # promote\n")
+        return 0
+
+    if args.install:
+        fragment, where = watch.install_schedule(interval_hours=args.every_hours)
+        print(f"\n  Save this as {where}\n")
+        print(fragment)
+        print(
+            "  Not installed for you: a recurring job that reaches the network is\n"
+            "  your decision, and a tool that scheduled itself would be doing the\n"
+            "  opposite of what this project promises.\n"
+        )
+        return 0
+
+    if not args.network:
+        print(
+            "\n  Discovery reads a public index, which needs network access.\n"
+            "  Re-run with --network. Nothing is ever sent — only fetched.\n"
+        )
+        return 0
+
+    from . import catalog_update as cu
+
+    report = watch.run(cu.http_fetch, limit=args.limit, max_add=args.max_add)
+    if args.json:
+        print(report.to_json())
+        return 0
+    print()
+    print(report.render())
+    print()
+    return 0
+
+
 def cmd_catalog_sources(args: argparse.Namespace) -> int:
     """Where the catalogue's models came from."""
     models = catalog.load()
@@ -690,6 +735,16 @@ def main(argv: list[str] | None = None) -> int:
 
     cs = sub.add_parser("catalog-sources", help="where the catalogue's models come from")
     cs.set_defaults(fn=cmd_catalog_sources)
+
+    w = sub.add_parser("watch", help="discover new models on a schedule; stages, never publishes")
+    w.add_argument("--list", action="store_true", help="show what is staged and waiting")
+    w.add_argument("--install", action="store_true", help="print the scheduler fragment")
+    w.add_argument("--every-hours", type=int, default=24, dest="every_hours")
+    w.add_argument("--limit", type=int, default=40, help="how many index entries to consider")
+    w.add_argument("--max-add", type=int, default=5, dest="max_add", help="cap per run")
+    w.add_argument("--network", action="store_true", help="allow network access (required)")
+    w.add_argument("--json", action="store_true")
+    w.set_defaults(fn=cmd_watch)
 
     d = sub.add_parser("discover", help="trending models not yet in the catalogue")
     d.add_argument("--network", action="store_true", help="allow network access (required)")
