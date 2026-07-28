@@ -415,3 +415,94 @@ def test_every_setting_the_adapter_supports_is_reachable_from_some_plan():
     assert reachable == set(Setting), (
         f"never emitted: {sorted(x.value for x in set(Setting) - reachable)}"
     )
+
+
+# --- the kernel seam and the launcher ------------------------------------------
+
+
+def test_every_vllm_plugin_group_documents_what_it_returns():
+    # A wrong return is a plugin that loads and silently does nothing, so the
+    # contract per group is the thing worth pinning.
+    from clickllm.kernels import ENTRY_POINT_GROUPS, PluginKind
+
+    assert set(ENTRY_POINT_GROUPS) == set(PluginKind)
+    assert all(len(v) > 20 for v in ENTRY_POINT_GROUPS.values())
+    # These are literal entry-point group names vLLM reads; a typo means a
+    # plugin that is never discovered.
+    assert PluginKind.GENERAL.value == "vllm.general_plugins"
+    assert PluginKind.PLATFORM.value == "vllm.platform_plugins"
+
+
+def test_a_scaffolded_plugin_declares_the_group_vllm_actually_reads():
+    from clickllm.kernels import Plugin, PluginKind, scaffold
+
+    p = Plugin("fused-rmsnorm", PluginKind.GENERAL, "fused_rmsnorm:register")
+    files = scaffold(p)
+    assert "vllm.general_plugins" in files["pyproject.toml"]
+    assert 'fused-rmsnorm = "fused_rmsnorm:register"' in files["pyproject.toml"]
+
+
+def test_the_scaffold_warns_about_re_entrancy():
+    # register() runs once per worker under tensor parallelism; one that appends
+    # to a list breaks the moment TP > 1, far from the cause.
+    from clickllm.kernels import Plugin, PluginKind, scaffold
+
+    src = scaffold(Plugin("k", PluginKind.GENERAL, "k:register"))["k/__init__.py"]
+    assert "re-entrant" in src and "already registered" in src
+
+
+def test_a_platform_plugin_returns_none_rather_than_raising_when_absent():
+    from clickllm.kernels import Plugin, PluginKind, scaffold
+
+    src = scaffold(Plugin("npu", PluginKind.PLATFORM, "npu:register"))["npu/__init__.py"]
+    assert "return None" in src
+    assert "not a failure" in src, "absence must be distinguished from breakage"
+
+
+def test_a_bit_identical_claim_is_falsifiable_and_a_drifting_one_is_statistical():
+    from clickllm.kernels import KernelClaim, verification_plan
+
+    exact = " ".join(verification_plan(KernelClaim("e", 1.1, bit_identical=True)))
+    fuzzy = " ".join(verification_plan(KernelClaim("f", 1.1, expected_drift="fp16 order")))
+    assert "bit-identical output" in exact
+    assert "lower bound" in fuzzy and "bit-identical output" not in fuzzy
+
+
+def test_every_verification_plan_measures_at_real_concurrency():
+    # Single-stream kernel wins routinely vanish under batching.
+    from clickllm.kernels import KernelClaim, verification_plan
+
+    for claim in (
+        KernelClaim("a", 1.4, bit_identical=True),
+        KernelClaim("b", 1.4, expected_drift="x"),
+    ):
+        plan_steps = " ".join(verification_plan(claim))
+        assert "not at batch 1" in plan_steps
+        assert "receipt" in plan_steps
+
+
+def test_the_launcher_reuses_clickllm_ui_and_stays_on_loopback():
+    from clickllm.desktop import launch_script
+
+    s = launch_script("/usr/bin/python3", 7171)
+    assert "clickllm.cli ui" in s, "must not reimplement serving"
+    assert "127.0.0.1" in s and "0.0.0.0" not in s, "the workbench is loopback-only"
+    # Double-clicking twice must open the running instance, not clash on the port.
+    assert "exit 0" in s
+
+
+def test_the_launcher_says_how_to_remove_itself(tmp_path):
+    from clickllm.desktop import _macos
+
+    lz = _macos(tmp_path, "/usr/bin/python3", 7171)
+    assert lz.uninstall.startswith("rm -rf ")
+    assert str(tmp_path) in lz.uninstall
+    assert (lz.path / "Contents" / "Info.plist").exists()
+
+
+def test_the_bundle_is_not_background_only():
+    # A background-only app serving a web page is a process users cannot find
+    # to quit.
+    from clickllm.desktop import plist
+
+    assert "LSBackgroundOnly" not in plist("clickllm")

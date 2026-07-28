@@ -369,6 +369,53 @@ def cmd_receipt(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_desktop(args: argparse.Namespace) -> int:
+    """Install a double-clickable launcher for the workbench."""
+    from . import desktop
+
+    lz = desktop.install(port=args.port)
+    print(f"\n  installed {lz.path}")
+    print(f"  uninstall with:  {lz.uninstall}\n")
+    print("  It starts `clickllm ui` and opens it. Nothing is bundled and")
+    print("  nothing auto-updates — this only adds the icon.\n")
+    return 0
+
+
+def _plugin_kinds() -> list[str]:
+    """vLLM entry-point group names, imported lazily to keep `fit` stdlib-only."""
+    from .kernels import PluginKind
+
+    return [k.value for k in PluginKind]
+
+
+def cmd_kernel(args: argparse.Namespace) -> int:
+    """Scaffold a vLLM plugin package, and the plan for proving it."""
+    from .kernels import KernelClaim, Plugin, PluginKind, scaffold
+
+    plugin = Plugin(
+        name=args.name,
+        kind=PluginKind(args.kind),
+        target=f"{args.name.replace('-', '_')}:register",
+    )
+    claim = KernelClaim(
+        name=args.name,
+        claimed_speedup=args.speedup,
+        bit_identical=args.bit_identical,
+        expected_drift=args.drift or "",
+    )
+    out = pathlib.Path(args.out or args.name)
+    if out.exists() and any(out.iterdir()):
+        print(f"error: {out} exists and is not empty", file=sys.stderr)
+        return 2
+    for rel, body in scaffold(plugin, claim).items():
+        dest = out / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body)
+        print(f"  wrote {dest}")
+    print(f"\n  Loading is the easy half. {out}/PROVING.md is the other one.\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="clickllm",
@@ -427,6 +474,24 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("receipt", help="path to a receipt JSON file")
     rc.add_argument("--against", help="a second receipt to verify this one against")
     rc.set_defaults(fn=cmd_receipt)
+
+    d = sub.add_parser("desktop", help="install a double-clickable launcher")
+    d.add_argument("--port", type=int, default=7171)
+    d.set_defaults(fn=cmd_desktop)
+
+    kn = sub.add_parser("kernel", help="scaffold a vLLM plugin and its proof plan")
+    kn.add_argument("name", help="plugin name, e.g. fused-rmsnorm")
+    kn.add_argument(
+        "--kind",
+        default="vllm.general_plugins",
+        choices=_plugin_kinds(),
+        help="vLLM entry-point group",
+    )
+    kn.add_argument("--speedup", type=float, default=1.0, help="the speedup you claim")
+    kn.add_argument("--bit-identical", action="store_true", help="claims byte-for-byte output")
+    kn.add_argument("--drift", help="what you expect to change, if not bit-identical")
+    kn.add_argument("--out", help="output directory (default: the plugin name)")
+    kn.set_defaults(fn=cmd_kernel)
 
     args = p.parse_args(argv)
     try:
