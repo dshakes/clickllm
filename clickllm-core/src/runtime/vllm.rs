@@ -225,6 +225,22 @@ impl Runtime for Vllm {
                     plan.tensor_parallel,
                 ),
             }]),
+            Target::Ecs => Ok(vec![Artifact {
+                path: "taskdef.json".into(),
+                contents: super::ecs_task_definition(
+                    &k8s_name_for(&plan.model.id),
+                    "vllm/vllm-openai:latest",
+                    &args,
+                    1,
+                    8000,
+                    plan.tensor_parallel,
+                    plan,
+                ),
+            }]),
+            Target::Systemd => Ok(vec![Artifact {
+                path: "clickllm-vllm.service".into(),
+                contents: super::systemd_unit(&plan.model.id, &args, plan),
+            }]),
         }
     }
 }
@@ -273,7 +289,12 @@ fn serve_args(plan: &RuntimePlan) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 pub(crate) mod tests {
     use super::*;
     use crate::spec::{GIB, KvScheme};
@@ -438,9 +459,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn renders_all_three_targets_with_provenance() {
+    fn renders_every_target_with_provenance() {
         let p = sample_plan();
-        for target in [Target::LocalProcess, Target::Container, Target::Kubernetes] {
+        for target in Target::ALL {
             let arts = Vllm::new().render(&p, target).unwrap();
             assert_eq!(arts.len(), 1, "{target:?}");
             let a = &arts[0];
@@ -500,6 +521,93 @@ pub(crate) mod tests {
             "--gpu-memory-utilization",
         ] {
             assert!(a.iter().any(|x| x == flag), "{flag} missing from {a:?}");
+        }
+    }
+
+    #[test]
+    fn the_ecs_task_definition_is_ec2_only_and_says_why() {
+        // Fargate cannot attach a GPU, so a Fargate task definition would
+        // register cleanly and never schedule — a configuration failure that
+        // presents as a capacity problem.
+        let p = sample_plan();
+        let a = &Vllm::new().render(&p, Target::Ecs).unwrap()[0];
+        assert_eq!(a.path, "taskdef.json");
+        let j = &a.contents;
+        // Assert on the parsed document, not on its formatting. Substring
+        // matching against pretty-printed JSON breaks on line wrapping and
+        // tests the serialiser rather than the content.
+        let d: serde_json::Value =
+            serde_json::from_str(j).expect("the task definition must be valid JSON");
+        assert_eq!(d["requiresCompatibilities"], serde_json::json!(["EC2"]));
+        assert!(
+            d["_launchType"]
+                .as_str()
+                .is_some_and(|s| s.contains("Fargate cannot")),
+            "the reason Fargate is excluded must be in the document: {j}"
+        );
+        let req = &d["containerDefinitions"][0]["resourceRequirements"][0];
+        assert_eq!(req["type"], "GPU");
+        assert_eq!(
+            req["value"],
+            p.tensor_parallel.to_string(),
+            "gpu count from the plan"
+        );
+        // ECS sets NVIDIA_VISIBLE_DEVICES itself but not this one.
+        let env = &d["containerDefinitions"][0]["environment"][0];
+        assert_eq!(env["name"], "NVIDIA_DRIVER_CAPABILITIES");
+        // It must be real JSON, not merely JSON-shaped. The hand-rolled first
+        // version passed a brace count and still produced a document AWS would
+        // reject, because `--speculative-config {"method":"eagle3"}` embeds
+        // quotes that were never escaped.
+        let cmd = d["containerDefinitions"][0]["command"]
+            .as_array()
+            .expect("command is an array");
+        assert!(cmd.iter().any(|v| v.as_str() == Some("serve")));
+        // The nested JSON argument must survive as one intact string.
+        assert!(
+            cmd.iter()
+                .any(|v| v.as_str().is_some_and(|s| s.contains("eagle3"))),
+            "the speculative config was mangled: {cmd:?}"
+        );
+    }
+
+    #[test]
+    fn the_systemd_unit_survives_a_slow_start_and_restarts() {
+        let p = sample_plan();
+        let u = &Vllm::new().render(&p, Target::Systemd).unwrap()[0].contents;
+        assert!(u.contains("Restart=always"), "{u}");
+        // Weights are tens of GiB; systemd's default 90s would kill a healthy start.
+        assert!(u.contains("TimeoutStartSec=1800"), "{u}");
+        assert!(u.contains("clickllm"), "provenance header missing");
+        // systemd splits ExecStart on whitespace, so an argument containing
+        // spaces — `--speculative-config {"method": "eagle3"}` — must arrive
+        // quoted or the unit starts with four broken arguments and dies.
+        let exec = u
+            .lines()
+            .find(|l| l.starts_with("ExecStart="))
+            .expect("no ExecStart");
+        assert!(exec.contains("vllm"), "{exec}");
+        if exec.contains("eagle3") {
+            assert!(
+                exec.contains("\"{\\\"method\\\""),
+                "the nested JSON argument must be quoted and escaped: {exec}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_target_renders_something_runnable() {
+        let p = sample_plan();
+        for t in Target::ALL {
+            let arts = Vllm::new()
+                .render(&p, t)
+                .expect("vllm supports every target");
+            assert_eq!(arts.len(), 1, "{t:?}");
+            assert!(!arts[0].contents.is_empty(), "{t:?} rendered nothing");
+            assert!(
+                arts[0].contents.contains("clickllm"),
+                "{t:?} lacks provenance"
+            );
         }
     }
 }

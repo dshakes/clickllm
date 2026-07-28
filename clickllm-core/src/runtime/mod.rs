@@ -132,6 +132,29 @@ pub enum Target {
     Container,
     /// Kubernetes manifests.
     Kubernetes,
+    /// An Amazon ECS task definition.
+    ///
+    /// **EC2 launch type only.** Fargate has no GPU support, so a Fargate task
+    /// definition for an inference workload would register cleanly and then
+    /// never schedule. The emitted definition says so in its own fields rather
+    /// than leaving it to be discovered.
+    Ecs,
+    /// A systemd unit, for a plain VM or a Mac mini under launchd's cousin.
+    ///
+    /// The answer to "I have an EC2 box" — which is not a platform, it is a
+    /// machine, and what it needs is a supervisor that restarts the process.
+    Systemd,
+}
+
+impl Target {
+    /// Every target, for callers that render all of them.
+    pub const ALL: [Target; 5] = [
+        Target::LocalProcess,
+        Target::Container,
+        Target::Kubernetes,
+        Target::Ecs,
+        Target::Systemd,
+    ];
 }
 
 /// One generated file.
@@ -192,8 +215,112 @@ pub(crate) fn provenance(runtime: &str, plan: &RuntimePlan, comment: &str) -> St
     s
 }
 
+/// An ECS task definition, EC2 launch type.
+///
+/// Verified against AWS's own GPU-workload docs (2026-07-27):
+/// `resourceRequirements` with `type: "GPU"`, and `NVIDIA_VISIBLE_DEVICES` set
+/// by ECS itself. `NVIDIA_DRIVER_CAPABILITIES` is *not* set by ECS and is
+/// required unless the image is CUDA-based, so it is emitted here.
+///
+/// **No Fargate.** Fargate cannot attach a GPU, so a Fargate task definition
+/// for this would register and never schedule — a failure that looks like a
+/// capacity problem and is a configuration one. `requiresCompatibilities` is
+/// EC2 and the note says why.
+pub(crate) fn ecs_task_definition(
+    family: &str,
+    image: &str,
+    args: &[String],
+    skip: usize,
+    port: u16,
+    gpus: u32,
+    plan: &RuntimePlan,
+) -> String {
+    // Built with serde_json rather than format!. The first version assembled
+    // this by hand and produced invalid JSON the moment an argument contained a
+    // quote — `--speculative-config {"method":"eagle3"}` broke the document.
+    // A task definition that will not parse is worse than none, and hand-rolled
+    // escaping is a bug waiting for the first nested value.
+    let command: Vec<&str> = args.iter().skip(skip).map(String::as_str).collect();
+    let doc = serde_json::json!({
+        "family": family,
+        "_generatedBy": format!(
+            "clickllm — {}, {} @ {} context. Runs with clickllm uninstalled.",
+            plan.model.id, plan.quant, plan.max_model_len
+        ),
+        "_launchType": "EC2 only — Fargate cannot attach a GPU, so a Fargate task \
+                        definition for this would register and never schedule",
+        "requiresCompatibilities": ["EC2"],
+        "networkMode": "awsvpc",
+        "cpu": "4096",
+        "memory": "30720",
+        "containerDefinitions": [{
+            "name": family,
+            "image": image,
+            "essential": true,
+            "command": command,
+            "resourceRequirements": [{"type": "GPU", "value": gpus.to_string()}],
+            // ECS sets NVIDIA_VISIBLE_DEVICES itself but not this one, and a
+            // non-CUDA base image needs it to see the driver at all.
+            "environment": [
+                {"name": "NVIDIA_DRIVER_CAPABILITIES", "value": "utility,compute"}
+            ],
+            "portMappings": [{"containerPort": port, "protocol": "tcp"}],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": format!("/ecs/{family}"),
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            }
+        }]
+    });
+    serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".into())
+}
+
+/// A systemd unit for a plain VM.
+///
+/// `Restart=always` with a backoff, because the thing this buys over `nohup` is
+/// that the process comes back. `TimeoutStartSec` is generous: loading tens of
+/// gigabytes of weights from disk is not a hung service, and the default would
+/// kill a healthy start.
+pub(crate) fn systemd_unit(name: &str, argv: &[String], plan: &RuntimePlan) -> String {
+    // systemd splits ExecStart on whitespace, so `--speculative-config
+    // {"method": "eagle3"}` becomes four arguments and the unit fails to start.
+    // Quote anything containing whitespace and escape embedded quotes, which is
+    // systemd's own escaping rule for a quoted argument.
+    let exec = argv
+        .iter()
+        .map(|a| {
+            if a.contains(char::is_whitespace) {
+                format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\""))
+            } else {
+                a.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "# clickllm — {}, {} @ {} context. Runs with clickllm uninstalled.\n\
+         [Unit]\nDescription=clickllm inference — {}\nAfter=network-online.target\n\
+         Wants=network-online.target\n\n[Service]\nType=simple\n\
+         ExecStart={exec}\nRestart=always\nRestartSec=10\n\
+         # Weights can be tens of GiB; the default 90s would kill a healthy start.\n\
+         TimeoutStartSec=1800\n\
+         # An OOM here should restart the service, not take the box with it.\n\
+         OOMPolicy=stop\nLimitNOFILE=65536\n\n\
+         [Install]\nWantedBy=multi-user.target\n",
+        plan.model.id, plan.quant, plan.max_model_len, name,
+    )
+}
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
 
