@@ -37,6 +37,16 @@ SURFACES: tuple[tuple[str, str], ...] = (
     ("site/index.html", r'(<div class="n grad">)(\d+)(</div><div class="l">tests)'),
 )
 
+#: The per-runner counts, which live in the Verification block's comments and
+#: are NOT the total. They drifted too — the README said 249 Rust and 419 Python
+#: after the weights crate was retired and four modules were added, so it was
+#: wrong in both directions at once. Written from the same measurement as the
+#: total, so all five numbers move together or the check fails.
+SPLIT_SURFACES: tuple[tuple[str, str, str], ...] = (
+    ("README.md", "rust", r"(cargo test --all\s+# )(\d+)( Rust)"),
+    ("README.md", "python", r"(pytest -q\s+# )(\d+)( Python)"),
+)
+
 
 def rust_tests() -> int:
     """Rust tests, by asking each compiled test binary to list its own."""
@@ -71,6 +81,31 @@ def python_tests() -> int:
     if not m:
         raise RuntimeError(f"could not read a collected count:\n{proc.stdout[-400:]}")
     return int(m.group(1))
+
+
+def published_split() -> dict[str, int]:
+    """What the per-runner comments currently claim."""
+    out = {}
+    for rel, which, pattern in SPLIT_SURFACES:
+        m = re.search(pattern, (ROOT / rel).read_text())
+        if not m:
+            raise RuntimeError(f"{rel}: no {which} count matched {pattern!r}")
+        out[which] = int(m.group(2).replace(",", ""))
+    return out
+
+
+def write_split(rust: int, py: int) -> list[str]:
+    """Rewrite the per-runner comments. Returns what changed."""
+    changed = []
+    for rel, which, pattern in SPLIT_SURFACES:
+        path = ROOT / rel
+        text = path.read_text()
+        n = rust if which == "rust" else py
+        new = re.sub(pattern, lambda m: f"{m.group(1)}{n}{m.group(3)}", text, count=1)
+        if new != text:
+            path.write_text(new)
+            changed.append(f"{rel}:{which}")
+    return changed
 
 
 def published() -> dict[str, int]:
@@ -112,12 +147,19 @@ def main() -> int:
         mark = "ok" if n == total else f"STALE (says {n})"
         print(f"  {where:<52} {mark}")
 
-    if all(n == total for n in current.values()):
+    split = published_split()
+    want = {"rust": rust, "python": py}
+    for which, n in split.items():
+        mark = "ok" if n == want[which] else f"STALE (says {n}, is {want[which]})"
+        print(f"  README.md:{which + ' count':<42} {mark}")
+
+    if all(n == total for n in current.values()) and split == want:
         return 0
     if not args.write:
         print("\nstale. run: python3 tools/testcount.py --write")
         return 1
-    print("\nupdated: " + ", ".join(write(total)))
+    changed = write(total) + write_split(rust, py)
+    print("\nupdated: " + ", ".join(changed))
     return 0
 
 

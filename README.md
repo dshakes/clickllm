@@ -431,13 +431,13 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ## Verification
 
 ```bash
-cargo test --all                                   # 249 Rust
+cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 419 Python
+uv run --with pytest --python 3.13 pytest -q       # 571 Python
 ```
 
 **798 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
-the extension is built — `maturin develop` in `clickllm-core/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
+the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
 rule exists because breaking it shipped a bug: `--guided-decoding-backend` had
