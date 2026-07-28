@@ -336,7 +336,26 @@ async fn engine_telemetry(State(st): State<Arc<AppState>>) -> Json<serde_json::V
         "source": crate::telemetry::SOURCE,
         "backends": readings
             .into_iter()
-            .map(|(name, snap)| serde_json::json!({ "backend": name, "telemetry": snap }))
+            .map(|(name, snap)| {
+                // Contradictions are computed here rather than client-side: the
+                // thresholds are policy and belong next to the numbers they
+                // judge, not duplicated into every surface that renders them.
+                let against_plan = snap.contradictions(
+                    snap.prefix_hit_rate.is_some(),
+                    snap.draft_acceptance.is_some(),
+                );
+                serde_json::json!({
+                    "backend": name,
+                    "telemetry": snap,
+                    "derived": {
+                        "kv_pressure": snap.kv_pressure(),
+                        "truncation_rate": snap.truncation_rate(),
+                        "abandon_rate": snap.abandon_rate(),
+                        "prefill_share": snap.prefill_share(),
+                    },
+                    "contradicts_plan": against_plan,
+                })
+            })
             .collect::<Vec<_>>(),
     }))
 }
