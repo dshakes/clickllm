@@ -156,8 +156,8 @@
      after the particle field was removed: a thing that means something rather
      than a thing that drifts. */
   .hero-anim{margin:8px 0 0;padding:0}
-  .hero-anim img{width:100%;border:1px solid var(--line2);border-radius:14px;
-                 background:var(--panel);display:block}
+  .hero-anim img,.hero-anim svg{width:100%;border:1px solid var(--line2);
+                 border-radius:14px;background:var(--panel);display:block}
 
   /* --- nav ---------------------------------------------------------------- */
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px) saturate(1.3);
@@ -417,11 +417,12 @@
   </div>
 </header>
 
-<figure class="hero-anim">
-  <img src="assets/hero-weights.svg" loading="eager"
-       alt="Animated: blocks of model weights stream out of memory across the bus onto a
-            silicon package whose die carries a neural graph; the nodes light as the weights
-            land and a single word comes out, then the read starts again">
+<figure class="hero-anim" id="heroSvg"
+        aria-label="Animated: blocks of model weights stream out of memory across the bus onto a
+                    silicon package whose die carries a neural graph; the nodes light as the
+                    weights land and a single word comes out, then the read starts again"
+        role="img">
+  <noscript><img src="assets/hero-weights.svg" alt="Model weights streaming onto a silicon die"></noscript>
 </figure>
 </div>
 
@@ -757,6 +758,63 @@ addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { p
   sysLight.addEventListener('change', e => {
     if (!localStorage.getItem(KEY)) apply(e.matches ? 'light' : 'dark');
   });
+})();
+</script>
+<script>
+// The hero SVG is INLINED rather than referenced with <img>.
+//
+// Measured, not assumed: an SVG loaded as image/svg+xml gets its own document,
+// and that document's animation timeline never starts — document.timeline
+// .currentTime stayed 0 while the host page's advanced normally. Neither CSS
+// keyframes nor SMIL survive it; both render their first frame and freeze. The
+// only embedding that animates is one that shares this document's timeline.
+//
+// Fetched at runtime rather than pasted in, so it cannot drift from the file
+// tools/diagrams.py generates.
+(async () => {
+  const host = document.getElementById('heroSvg');
+  if (!host) return;
+  try {
+    const svg = await (await fetch('assets/hero-weights.svg')).text();
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const el = doc.documentElement;
+    if (el.nodeName === 'parsererror') return;
+
+    // Scope every rule to this figure. The SVG defines :root variables named
+    // --panel, --ink, --ink2 among others, and this page defines its own with
+    // the same names — inlining unscoped would repaint the whole site.
+    // Scope every rule to this figure. The SVG defines :root variables named
+    // --panel, --ink, --ink2 among others, and this page defines its own with
+    // the same names — inlining unscoped would repaint the whole site.
+    //
+    // Walked through the CSSOM, not rewritten with a regex: a regex that
+    // prefixes "every selector before a {" also prefixes the `from{` and `to{`
+    // INSIDE @keyframes, which silently destroys the animation and leaves you
+    // with a correctly-scoped, completely static picture.
+    el.querySelectorAll('style').forEach(s => {
+      const probe = document.createElement('style');
+      probe.textContent = s.textContent;
+      document.head.appendChild(probe);
+      const scope = rules => [...rules].map(r => {
+        if (r.type === CSSRule.KEYFRAMES_RULE) return r.cssText;   // leave alone
+        if (r.type === CSSRule.MEDIA_RULE)
+          return '@media ' + r.conditionText + '{' + scope(r.cssRules) + '}';
+        if (r.type === CSSRule.STYLE_RULE) {
+          const sel = r.selectorText.split(',')
+            .map(x => x.trim() === ':root' ? '#heroSvg' : '#heroSvg ' + x.trim())
+            .join(',');
+          return sel + '{' + r.style.cssText + '}';
+        }
+        return r.cssText;
+      }).join('');
+      const scoped = scope(probe.sheet.cssRules);
+      probe.remove();
+      s.textContent = scoped;
+    });
+    el.removeAttribute('width'); el.removeAttribute('height');
+    el.setAttribute('style', 'width:100%;height:auto;display:block');
+    host.replaceChildren(el);
+  } catch { /* the <noscript> image stands in */ }
 })();
 </script>
 </body>
