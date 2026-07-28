@@ -341,24 +341,35 @@ class H(BaseHTTPRequestHandler):
 
 
 class Reusable(HTTPServer):
-    # The port came from a socket the test bound and closed, so on macOS it can
-    # still be in TIME_WAIT when this process starts. Without both of these the
-    # stub fails to bind and the test reads it as "the engine never answered".
+    # The port came from a socket the test bound and closed, so it can still be
+    # in TIME_WAIT when this process starts.
     allow_reuse_address = True
 
 
 def bind(port, deadline=20.0):
     end = time.monotonic() + deadline
+    last = None
     while True:
         try:
             return Reusable(("127.0.0.1", port), H)
-        except OSError:
+        except OSError as e:
+            last = e
             if time.monotonic() > end:
+                # Say why on the way out. A stub that dies silently is read by
+                # the test as "the engine never answered", which sent one
+                # investigation down entirely the wrong path already.
+                sys.stderr.write("STUB_BIND_FAILED %s: %r\\n" % (port, last))
+                sys.stderr.flush()
                 raise
             time.sleep(0.1)
 
 
-bind(int(sys.argv[1])).serve_forever()
+try:
+    bind(int(sys.argv[1])).serve_forever()
+except BaseException as e:
+    sys.stderr.write("STUB_DIED %r\\n" % (e,))
+    sys.stderr.flush()
+    raise
 """
 
 
@@ -424,10 +435,18 @@ def test_a_200_on_the_model_list_is_not_treated_as_ready(tmp_path):
     port = _free_port()
     argv = (sys.executable, "-c", STUB_ENGINE, str(port), "30.0")
     plan = _stub_plan(tmp_path, argv, port)
-    proc = subprocess.Popen(argv)  # noqa: S603
+    proc = subprocess.Popen(  # noqa: S603
+        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     try:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                out, err = proc.communicate(timeout=5)
+                pytest.fail(
+                    f"stub exited {proc.returncode} before binding {plan.base}\n"
+                    f"--- stdout ---\n{out}\n--- stderr ---\n{err}"
+                )
             try:
                 with urllib.request.urlopen(f"{plan.base}/v1/models", timeout=1) as r:  # noqa: S310
                     if r.status == 200:
@@ -435,7 +454,12 @@ def test_a_200_on_the_model_list_is_not_treated_as_ready(tmp_path):
             except OSError:
                 time.sleep(0.05)
         else:
-            pytest.fail("stub never bound its port")
+            proc.kill()
+            out, err = proc.communicate(timeout=5)
+            pytest.fail(
+                f"stub never bound {plan.base} in 30s (still alive)\n"
+                f"--- stdout ---\n{out}\n--- stderr ---\n{err}"
+            )
 
         assert not launch._healthy(plan.base, timeout=2.0), (
             "the model list answers 200 while loading; _healthy must not"
