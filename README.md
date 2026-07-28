@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-668-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-798-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -60,6 +60,60 @@ uvx clickllm where deepseek-v3 --context 16k
 ```
 
 Every number answers `--explain`, which prints the arithmetic that produced it.
+
+Then run it. One command, no config file, no login:
+
+```bash
+clickllm run llama-3.1-8b --quant q4
+```
+
+```
+  MODEL     Llama 3.1 8B @ q4   (22.0 GB of 96.0 GB usable)
+  WEIGHTS   mlx-community/Llama-3.1-8B-Instruct-4bit   (confirmed; 4 candidates checked)
+  ENGINE    mlx   Apple silicon: the CUDA engines cannot run here at all
+  ENDPOINT  http://127.0.0.1:8000/v1
+  SPEED     ~87 tok/s single-stream   (roofline estimate, not measured)
+
+  NOT EXPRESSED
+    · context_length: mlx_lm.server takes no context-length flag
+    · quantization: mlx bakes precision into the weights — serve a -q4 repo
+```
+
+The weights repo is **confirmed to exist before it is used**, never constructed from a
+pattern: `mlx-community/Llama-3.1-8B-Instruct-8bit` is a 404 while the 4-bit repo of the
+same name is real, and the 8-bit one carries a `Meta-` prefix the base repo never had. A
+name we have not checked is a name we do not print.
+
+`NOT EXPRESSED` is the part most tools omit. Every flag emitted is verified against the
+installed engine's own `--help`; anything the planner wanted that the engine cannot say
+is reported rather than silently dropped or guessed at.
+
+When it does not fit your machine, that is a routing decision, not a dead end:
+
+```bash
+clickllm host deepseek-v3 --context 128k
+```
+
+```
+  provider              shape                quant     total  ~tok/s     $/hr   $/Mtok
+  ------------------------------------------------------------------------------------
+  Hugging Face Endpts   8x H200 1128 GB      fp8      706.9G     649   $40.00   $17.12
+
+  NOT AVAILABLE
+  Hugging Face Spaces   FREE TIER — 86 GB usable, needs 412 GB. Short by 325 GB
+  RunPod (Pods)         largest shape is B200 180 GB. Short by 239 GB
+  Google Colab (free)   excluded by Colab's own terms, not by its memory: the free
+                        tier disallows "web service offerings not related to
+                        interactive compute" — a tunnelled endpoint is that shape
+
+  Prices read 2026-07-28 from each provider's own page. They move. Re-read the
+  source before committing spend — nothing here checks it for you.
+```
+
+Free tiers are ranked first and excluded **with a reason**. Prices carry the date and
+the URL they came from; an unpublished rate renders as `?` rather than a guess. clickllm
+never touches your credentials — it writes the deploy artifact and prints the command
+for you to run.
 
 ---
 
@@ -252,7 +306,11 @@ And two the suite enforces underneath:
 | — | **Build** — `clickllm build`: the whole flow multi-turn, resumable, agent-drivable | ✅ |
 | ④ | **Prove** — `clickllm prove`: grader stack, position-swapped judge, equivalence matrix | ✅ |
 | — | **Receipt** — a portable, reproducible proof you can hand to an auditor | ✅ |
-| ⑤ | **Deploy** — native vLLM / SGLang / llm-d config, inference in a box | ✅ |
+| ⑤ | **Deploy** — native vLLM / SGLang / llm-d config, standalone by construction | ✅ |
+| — | **Run** — `clickllm run`: resolve weights, start the engine, hand back an endpoint | ✅ |
+| — | **Box** — `clickllm box`: ADR-0005's OCI artifact — manifest, weights lock, per-target launch specs | ✅ |
+| — | **Host** — `clickllm host`: cost-ranked external hosting when the machine cannot fit it | ✅ |
+| — | **Cache** — `clickllm cache`: budgeted weight cache with pinning, so a sweep cannot evict the incumbent | ✅ |
 | ⑥ | **Gateway** — SSE streaming, metering, router, real shadow dispatch | ✅ |
 | — | **Gate** — automatic rollback, human-gated advance, live control surface | ✅ |
 | — | **Telemetry** — KV pressure, prefill/decode split, plan-vs-reality check | ✅ |
@@ -309,7 +367,7 @@ And one that costs money in the other direction: **speculative decoding turns ne
 
 ### Why any of this matters, on the silicon
 
-<img src="docs/assets/edu-silicon.svg" alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks filled with weights and KV cache; and a bar chart showing compute utilisation stopping at 6.1% where the KV cache exhausts memory" width="100%">
+<img src="docs/assets/edu-silicon.svg" alt="An H100 die with 132 SM squares, one lit, fed by a memory bus carrying all 32.8 GB of weights for every token; the arithmetic beside it — 65.6 GFLOP per token, 2.00 FLOP per byte read against the 295 the chip needs to break even; and a memory budget showing 18 concurrent sequences fitting in 72.0 GiB with 1.51 GiB spare while a 19th goes 0.49 GiB over and is refused" width="100%">
 
 A decode step reads every weight once and does two operations with each, per sequence in the batch.
 An H100 balances compute and memory at 295 operations per byte — so saturating its tensor cores
@@ -328,7 +386,12 @@ getting the three formulas above wrong costs hardware rather than just accuracy.
 
 Purple is the live request. Green is the control loop deciding what it's allowed to hit. **They never cross.**
 
-**Rust** for the datapath and weights path — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
+**Rust** for the datapath — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
+
+Weights are **not** on either path. The serving engines fetch them from the Hub
+themselves, so clickllm resolves *which* repo and then gets out of the way —
+`clickllm cache` manages the cache they fill rather than keeping a second one.
+That reversed an earlier decision; [ADR-0010](docs/adr/0010-retire-the-weights-crate.md) records why.
 
 ---
 
@@ -368,13 +431,13 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ## Verification
 
 ```bash
-cargo test --all                                   # 249 Rust
+cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 419 Python
+uv run --with pytest --python 3.13 pytest -q       # 571 Python
 ```
 
-**668 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
-the extension is built — `maturin develop` in `clickllm-core/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
+**798 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
 rule exists because breaking it shipped a bug: `--guided-decoding-backend` had

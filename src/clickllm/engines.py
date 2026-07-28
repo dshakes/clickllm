@@ -51,6 +51,9 @@ designing against.
 from __future__ import annotations
 
 import json
+import re
+import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -62,12 +65,29 @@ from enum import StrEnum
 MTP_NATIVE = ("deepseek-v3", "deepseek-v4", "mimo", "longcat", "glm-4.5", "glm-5")
 
 
+#: Speculative methods that load a SEPARATE draft checkpoint, so a bare method
+#: name is not a runnable config. `mtp` is absent on purpose: those families
+#: carry the head in the checkpoint already, which is the whole point of
+#: `MTP_NATIVE`. Verified against vLLM's speculative-decoding docs, 2026-07-28.
+DRAFT_REQUIRED = frozenset({"eagle", "eagle3", "draft_model", "medusa"})
+
+
 #: Ranks vLLM's `--max-lora-rank` actually accepts. It is a choice list, not a
 #: free integer, so an adapter trained at rank 48 is rejected at startup unless
 #: it is rounded UP to the next accepted value. Rounding down would silently
 #: truncate the adapter.
 #: Verified: docs.vllm.ai/en/stable/configuration/engine_args (2026-07-28).
 VLLM_LORA_RANKS = (1, 8, 16, 32, 64, 128, 256, 320, 512)
+
+
+#: Catalogue precision label -> the quantisation *method* vLLM and SGLang accept
+#: under `--quantization`. Deliberately almost empty: `fp8` is the only label
+#: this repo uses that is also a method name. `q4`/`q8` describe how big the
+#: weights are, not how they were quantised — awq, gptq, bitsandbytes and
+#: compressed-tensors are all "4-bit" and are not interchangeable. The method
+#: is a property of the checkpoint, which both engines read from its config, so
+#: the honest answer for everything else is to emit no flag at all.
+QUANT_METHODS = {"fp8": "fp8"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +158,10 @@ __all__ = [
 SOURCES = {
     "vllm": "https://docs.vllm.ai/en/stable/configuration/engine_args.html (checked 2026-07-27)",
     "sglang": "https://docs.sglang.io/advanced_features/server_arguments.html (checked 2026-07-27)",
+    # Not a docs page. `mlx_lm.server --help` on the installed wheel, which is the
+    # only source that cannot drift from the binary you are about to run — and the
+    # reason every Unsupported below names a flag that genuinely is not in it.
+    "mlx": "mlx_lm.server --help, mlx-lm 0.31.3 (checked 2026-07-28)",
 }
 
 
@@ -191,6 +215,12 @@ class Adapter:
 
     name: str = ""
 
+    #: How to ask this engine to declare its own flags. Not the flag list — the
+    #: question. The answer is read off the installed binary at check time by
+    #: [`installed_flags`], so a table in this file can never drift from the
+    #: engine you are about to run.
+    help_argv: tuple[str, ...] = ()
+
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         """Argv for one setting, or why there is none."""
         raise NotImplementedError
@@ -211,6 +241,7 @@ class VllmAdapter(Adapter):
     """vLLM. Flags verified against the source in [`SOURCES`]."""
 
     name = "vllm"
+    help_argv = ("vllm", "serve", "--help")
 
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         match setting:
@@ -246,6 +277,24 @@ class VllmAdapter(Adapter):
                 # asserts the flag is present.
                 # Verified: docs.vllm.ai/en/stable/features/speculative_decoding/mtp
                 # (checked 2026-07-28).
+                spec = json.loads(_speculative_json(value))
+                if spec.get("method") in DRAFT_REQUIRED and not spec.get("model"):
+                    # One layer below the bug above, and worse. EAGLE3 is a draft
+                    # *model*, not a mode: every example in vLLM's docs names a
+                    # trained head ("nvidia/Llama-3.3-70B-Instruct-Eagle3"), and
+                    # none can be derived from the base model's name.
+                    #
+                    # `{"method":"eagle3","num_speculative_tokens":1}` is valid
+                    # JSON made of real flags, and vLLM cannot start from it —
+                    # it has no way to know which head to load. No argv check
+                    # catches this, because nothing about the argv is wrong.
+                    return Unsupported(
+                        setting,
+                        f"{spec['method']} needs a trained draft checkpoint and "
+                        "none was named; a draft model cannot be inferred from "
+                        "the base model. Pass a speculative config carrying "
+                        '"model": "<org>/<draft-repo>" to enable it',
+                    )
                 return Translated(("--speculative-config", _speculative_json(value)))
             case Setting.LORA_FLEET:
                 # Verified: docs.vllm.ai/en/stable/features/lora and
@@ -264,7 +313,24 @@ class VllmAdapter(Adapter):
             case Setting.TENSOR_PARALLEL:
                 return Translated(("--tensor-parallel-size", str(value)))
             case Setting.QUANTIZATION:
-                return Translated(("--quantization", str(value)))
+                # `--quantization` names a METHOD (awq, gptq, fp8,
+                # compressed-tensors...), not a precision. This repo's q4/q8 are
+                # *sizing* labels, so passing one emits `--quantization q4`,
+                # which the server rejects at startup against its choice list.
+                #
+                # Same shape as the `--speculative-config eagle3` defect, and
+                # invisible to `unknown_flags` for the same reason: the flag is
+                # real, only the value is nonsense. Nothing that inspects argv
+                # can catch it, so it has to be refused here.
+                method = QUANT_METHODS.get(str(value))
+                if method is None:
+                    return Unsupported(
+                        setting,
+                        f"{value} is a precision, not a quantisation method; "
+                        "serve a checkpoint already in that format and the "
+                        "engine reads the method from its config",
+                    )
+                return Translated(("--quantization", method))
             case Setting.KV_CACHE_DTYPE:
                 return Translated(("--kv-cache-dtype", str(value)))
             case Setting.STRUCTURED_OUTPUT:
@@ -304,6 +370,7 @@ class SglangAdapter(Adapter):
     """
 
     name = "sglang"
+    help_argv = ("python3", "-m", "sglang.launch_server", "--help")
 
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         match setting:
@@ -331,7 +398,24 @@ class SglangAdapter(Adapter):
             case Setting.TENSOR_PARALLEL:
                 return Translated(("--tp-size", str(value)))
             case Setting.QUANTIZATION:
-                return Translated(("--quantization", str(value)))
+                # `--quantization` names a METHOD (awq, gptq, fp8,
+                # compressed-tensors...), not a precision. This repo's q4/q8 are
+                # *sizing* labels, so passing one emits `--quantization q4`,
+                # which the server rejects at startup against its choice list.
+                #
+                # Same shape as the `--speculative-config eagle3` defect, and
+                # invisible to `unknown_flags` for the same reason: the flag is
+                # real, only the value is nonsense. Nothing that inspects argv
+                # can catch it, so it has to be refused here.
+                method = QUANT_METHODS.get(str(value))
+                if method is None:
+                    return Unsupported(
+                        setting,
+                        f"{value} is a precision, not a quantisation method; "
+                        "serve a checkpoint already in that format and the "
+                        "engine reads the method from its config",
+                    )
+                return Translated(("--quantization", method))
             case Setting.KV_CACHE_DTYPE:
                 # Same flag name as vLLM, different accepted values. Passing
                 # vLLM's `fp8_inc` here would be rejected at startup.
@@ -383,8 +467,138 @@ class SglangAdapter(Adapter):
         return argv, gaps
 
 
+class MlxAdapter(Adapter):
+    """MLX on Apple silicon. Flags verified against the binary in [`SOURCES`].
+
+    This adapter says "no" far more than the CUDA ones, and that is the accurate
+    answer rather than a gap to be filled in later. MLX is a different machine:
+    unified memory means there is no fraction of VRAM to reserve, and the
+    published server takes no context-length flag at all.
+
+    The one that trips people up is quantisation. On vLLM you serve the base
+    repo and pass `--quantization`. On MLX the precision is *baked into the
+    weights you download* — `mlx-community/Qwen3-30B-A3B-8bit` is a different
+    repo from the 4-bit one, and there is no serve-time flag that converts
+    between them. So `QUANTIZATION` here is not a missing feature; it is a
+    setting that has already been spent by the time the server starts, which is
+    why choosing the model repo is a resolution step and not string formatting.
+    """
+
+    name = "mlx"
+    help_argv = ("mlx_lm.server", "--help")
+
+    def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
+        match setting:
+            case Setting.MAX_CONCURRENT:
+                # Two flags, like vLLM's chunked prefill: one governs how many
+                # requests decode together, the other how many prompts prefill
+                # together. Setting only the first leaves prefill serialised,
+                # which is the half that dominates time-to-first-token.
+                return Translated(
+                    (
+                        "--decode-concurrency",
+                        str(value),
+                        "--prompt-concurrency",
+                        str(value),
+                    )
+                )
+            case Setting.PREFILL_CHUNK:
+                if not value:
+                    return Unsupported(
+                        setting,
+                        "mlx always chunks prefill; there is no flag to turn it off",
+                    )
+                return Translated(("--prefill-step-size", str(value)))
+            case Setting.PREFIX_REUSE:
+                # Empty argv is a successful translation — see `Translated`. MLX
+                # keeps a prompt cache without being asked, exactly as SGLang's
+                # radix cache does; emitting a flag here would imply we had
+                # turned something on that was already on.
+                return Translated(
+                    (),
+                    "mlx keeps a prompt cache by default; "
+                    "--prompt-cache-size and --prompt-cache-bytes bound it",
+                )
+            case Setting.QUANTIZATION:
+                return Unsupported(
+                    setting,
+                    f"mlx bakes precision into the weights: serve an -{value} repo "
+                    "rather than converting at start-up",
+                )
+            case Setting.CONTEXT_LENGTH:
+                return Unsupported(
+                    setting,
+                    "mlx_lm.server takes no context-length flag; context is bounded "
+                    "by the model config and by unified memory",
+                )
+            case Setting.MEMORY_FRACTION:
+                return Unsupported(
+                    setting,
+                    "unified memory: there is no separate VRAM pool to reserve a fraction of",
+                )
+            case Setting.TENSOR_PARALLEL:
+                return Unsupported(
+                    setting,
+                    "no tensor-parallel size flag; --pipeline selects pipelining "
+                    "instead, which is a different topology and not a degree",
+                )
+            case Setting.KV_CACHE_DTYPE:
+                return Unsupported(setting, "no kv-cache dtype flag")
+            case Setting.STRUCTURED_OUTPUT:
+                return Unsupported(setting, "no grammar or structured-output flag")
+            case Setting.SPECULATIVE:
+                # --draft-model wants a model to load, not a method name. vLLM's
+                # JSON speculative config has no meaning here, and passing one
+                # would produce a server that cannot start.
+                draft = value.get("model") if isinstance(value, dict) else value
+                # A loadable draft is a repo id or a path. `eagle3` and `mtp` are
+                # neither — they are the planner's method names, and the planner
+                # emits them for every engine because vLLM accepts them. Passing
+                # one through here produces `--draft-model eagle3`, which is an
+                # accepted *flag* with an unresolvable value: it starts, fails to
+                # fetch, and exits. `unknown_flags` cannot catch that, because
+                # the flag itself is real.
+                if not isinstance(draft, str) or "/" not in draft:
+                    return Unsupported(
+                        setting,
+                        f"--draft-model needs a draft model repo (org/name), not "
+                        f"{draft!r}; mlx has no method-name speculative flag",
+                    )
+                return Translated(("--draft-model", draft))
+            case Setting.LORA_FLEET:
+                n = len(value.adapters) if isinstance(value, LoraFleet) else 0
+                if n > 1:
+                    return Unsupported(
+                        setting,
+                        f"--adapter-path loads one adapter; {n} were asked for, and "
+                        "mlx_lm.server has no multi-adapter flag",
+                    )
+                if isinstance(value, LoraFleet) and value.adapters:
+                    # adapters are (display name, path) pairs; the server takes
+                    # the path and infers nothing from the name.
+                    return Translated(("--adapter-path", value.adapters[0][1]))
+                return Unsupported(setting, "no adapters given")
+        return Unsupported(setting, f"no mapping defined for {setting}")
+
+    def command(
+        self, model: str, settings: dict[Setting, object]
+    ) -> tuple[list[str], list[Unsupported]]:
+        # The console script, not `python -m mlx_lm.server` — that form prints a
+        # deprecation warning on 0.31, and a generated artefact should not hand
+        # someone a command the tool itself complains about.
+        argv, gaps = ["mlx_lm.server", "--model", model], []
+        for setting, value in settings.items():
+            out = self.translate(setting, value)
+            if isinstance(out, Unsupported):
+                gaps.append(out)
+            else:
+                argv.extend(out.argv)
+        return argv, gaps
+
+
 _ADAPTERS: dict[str, Adapter] = {
     "vllm": VllmAdapter(),
+    "mlx": MlxAdapter(),
     # vLLM's TPU backend is a different engine (JAX lowering via tpu-inference)
     # wearing the same CLI, so it shares the dialect. Registered explicitly
     # rather than by prefix match: if the CLIs ever diverge this is the line
@@ -392,6 +606,47 @@ _ADAPTERS: dict[str, Adapter] = {
     "vllm-tpu": VllmAdapter(),
     "sglang": SglangAdapter(),
 }
+
+
+def installed_flags(adapter: Adapter, *, timeout: float = 120.0) -> frozenset[str] | None:
+    """Every long flag the *installed* engine declares, or None if absent.
+
+    Reads `--help` off the real binary rather than trusting anything written
+    here. That direction matters: this module's job is to emit flags an engine
+    accepts, so the engine has to be the authority on which those are.
+
+    None means "could not ask" — the engine is not installed, or its help did
+    not run. That is deliberately distinct from an empty set, which would mean
+    "asked, and it accepts nothing", and would fail every command.
+    """
+    if not adapter.help_argv:
+        return None
+    try:
+        r = subprocess.run(  # noqa: S603 - argv from this module, never user input
+            adapter.help_argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # argparse writes usage to stdout for --help; take stderr too so an engine
+    # that routes it differently is not read as declaring nothing.
+    return frozenset(re.findall(r"--[a-z0-9][a-z0-9-]*", f"{r.stdout}\n{r.stderr}")) or None
+
+
+def unknown_flags(adapter: Adapter, argv: Sequence[str]) -> list[str] | None:
+    """Flags in `argv` the installed engine does not accept. None if unaskable.
+
+    An empty list is the good case. A non-empty one means the generated command
+    cannot start, which is a defect this repo has actually shipped: a
+    `--speculative-config eagle3` that every test asserted was present and no
+    test ever tried to run.
+    """
+    accepted = installed_flags(adapter)
+    if accepted is None:
+        return None
+    return sorted({a for a in argv if a.startswith("--")} - accepted)
 
 
 def adapter_for(engine: str) -> Adapter | None:
@@ -459,6 +714,16 @@ def demo() -> None:
     assert len(gaps) == 1 and gaps[0].setting is Setting.STRUCTURED_OUTPUT
     # The gap is returned, not swallowed: a caller cannot miss it.
     assert "--enable-prefix-caching" not in argv
+
+    # A method name is not a draft model. `--draft-model eagle3` is a real flag
+    # with an unresolvable value: it starts, fails to fetch, and exits — which
+    # no flag-name check can catch.
+    mlx = MlxAdapter()
+    assert isinstance(mlx.translate(Setting.SPECULATIVE, "eagle3"), Unsupported)
+    assert mlx.translate(Setting.SPECULATIVE, "org/draft-1b").argv == (
+        "--draft-model",
+        "org/draft-1b",
+    )
 
     # No adapter is better than the wrong adapter.
     assert adapter_for("vllm") is not None

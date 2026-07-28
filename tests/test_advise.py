@@ -172,9 +172,22 @@ def test_speculative_decoding_is_flagged_for_verification_at_real_batch():
 # --- the agent surface ---------------------------------------------------------
 
 
-def test_the_advise_tool_is_read_only():
+def test_the_agent_surface_is_read_only():
+    """No MCP tool may be one that moves traffic.
+
+    This used to check the *string literal* `"clickllm_advise"` against the
+    forbidden list, which is true by inspection and can never fail — adding a
+    `clickllm_deploy` tool tomorrow would have left it green. The boundary is
+    only real if the check reads the live registry, so it does.
+
+    `clickllm run` and `clickllm host` deliberately have no MCP tool. An agent
+    may size, explain, advise and prove; starting a server or spending money
+    stays a thing a human types.
+    """
     forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
-    assert not any(w in "clickllm_advise" for w in forbidden)
+    assert mcp.TOOLS, "no tools registered; the check would be vacuous"
+    offenders = {name: word for name in mcp.TOOLS for word in forbidden if word in name.lower()}
+    assert not offenders, f"MCP tools that imply moving traffic: {offenders}"
     assert "clickllm_advise" in mcp.TOOLS
 
 

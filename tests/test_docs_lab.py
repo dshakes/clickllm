@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -201,13 +203,35 @@ def test_the_batch_ceiling_is_where_the_solver_says_it_is():
     assert c["over_batch"] == ceiling + 1
 
 
-def test_the_silicon_diagram_speaks_plainly():
-    """It replaced a version that said "arithmetic intensity", "FLOP per byte"
-    and "the ridge point" — all true, none of it informative to the reader this
-    module is written for. This keeps the jargon out."""
-    src = silicon_src()
-    for word in ("arithmetic intensity", "FLOP/byte", "ridge point", "roofline"):
-        assert word.lower() not in src.lower().split('"""')[2], f"jargon is back: {word}"
+def test_the_silicon_diagram_glosses_every_technical_term():
+    """The diagram has been wrong in both directions.
+
+    First it said "arithmetic intensity" and "the ridge point" unexplained, to
+    a reader meeting both for the first time. The correction over-swung and
+    deleted the terms *and the numbers with them*, which taught nothing either:
+    a claim with no quantities behind it cannot be checked.
+
+    So the rule is not "no jargon" but "no unglossed jargon". Each term may
+    appear only if its plain-language gloss appears too — and the gloss is the
+    thing that rots first, because a later edit trims the long line and leaves
+    the short one. This is what holds the pairing together.
+
+    Read from the rendered SVG rather than the source: a gloss wrapped across
+    two f-strings is present for the reader and absent from any one source
+    line, so checking the source would fail on formatting rather than on
+    substance.
+    """
+    svg = (Path(__file__).resolve().parents[1] / "docs" / "assets" / "edu-silicon.svg").read_text()
+    body = svg.split("</style>")[-1].lower()
+    for term, gloss in (
+        ("arithmetic intensity", "flops computed per byte read"),
+        ("ridge point", "break even"),
+        ("flop/byte", "one floating-point operation"),
+        ("sms", "streaming multiprocessor"),
+        ("kv cache", "keys and values"),
+    ):
+        if term in body:
+            assert gloss in body, f"'{term}' appears with no gloss — expected '{gloss}'"
 
 
 # --- motion is opt-out-able, and degrades safely -------------------------------
@@ -242,16 +266,37 @@ def test_no_diagram_sets_a_fill_attribute_that_its_class_overrides():
     grey and unreadable. Nothing errors, so only looking at it finds this.
 
     The fix is an inline `style`, which does beat the class. This keeps it fixed.
+
+    `font-size` is checked the same way and for the same reason: `.t` sets one,
+    so `<text class="t" font-size="32">` renders at 15px. That one is quieter
+    than the colour bug — nothing is unreadable, the emphasis simply never
+    arrives — which is exactly why it survived a visual review.
+
+    Scoped to the files `head()` generates, identified by the `--s0` custom
+    property only it emits. The class names are only load-bearing under that
+    stylesheet: gap-map.svg is hand-authored and defines its own `.t` with
+    nothing but a font-family, so its fill attribute is honoured and flagging
+    it would be a false alarm.
     """
-    styled = re.compile(r'class="(?:lb|ax|m|note|sub)"')
-    assets = (Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg")
+    # (classes that set the property, the attribute they would silently beat)
+    traps = (
+        (r'class="(?:lb|ax|m|note|sub|t)"', "fill"),
+        (r'class="(?:t|sub|lb|ax|m|note)"', "font-size"),
+    )
+    assets = sorted((Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg"))
+    generated = [f for f in assets if "--s0:" in f.read_text()]
+    assert generated, "no generated diagrams found — has head() changed?"
     offenders = []
-    for f in assets:
-        for tag in re.finditer(r"<text[^>]*>", f.read_text()):
+    for f in generated:
+        text = f.read_text()
+        for tag in re.finditer(r"<text[^>]*>", text):
             s = tag.group(0)
-            if styled.search(s) and re.search(r'\sfill="', s):
-                offenders.append(f"{f.name}: {s[:70]}")
-    assert not offenders, "fill attribute will be ignored — use style=:\n" + "\n".join(offenders)
+            for styled, attr in traps:
+                if re.search(styled, s) and re.search(rf'\s{attr}="', s):
+                    offenders.append(f"{f.name}: {attr} on {s[:70]}")
+    assert not offenders, "presentation attribute will be ignored — use style=:\n" + "\n".join(
+        offenders
+    )
 
 
 # --- animated diagrams must not be embedded with <img> -------------------------
@@ -369,3 +414,95 @@ def test_every_generated_svg_is_intrinsically_proportional():
         if abs((w / h) - (vw / vh)) > 0.01:
             bad.append(f"{f.name}: attrs {w}x{h} vs viewBox {vw}x{vh}")
     assert not bad, "intrinsically distorted: " + "; ".join(bad)
+
+
+# --- published claims ------------------------------------------------------
+# The test count appears on three surfaces that drifted apart unnoticed: the
+# site said 478, the README badge said 668, and the suite was actually 675.
+# Every one of them was green the whole time, because nothing compared them.
+
+
+def _published_test_counts() -> dict[str, int]:
+    """The test count as each published surface states it."""
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    site = (root / "site" / "index.html").read_text()
+    found = {}
+    for name, text, pattern in (
+        ("readme badge", readme, r"badge/tests-(\d+)-"),
+        ("readme prose", readme, r"\*\*(\d[\d,]*) tests\.\*\*"),
+        ("site stat", site, r'<div class="n grad">(\d+)</div><div class="l">tests'),
+    ):
+        m = re.search(pattern, text)
+        assert m, f"{name}: no test count found — did the markup change?"
+        found[name] = int(m.group(1).replace(",", ""))
+    return found
+
+
+def test_every_published_test_count_agrees():
+    """Three surfaces, one number. They have disagreed before."""
+    counts = _published_test_counts()
+    assert len(set(counts.values())) == 1, "published test counts disagree: " + ", ".join(
+        f"{k}={v}" for k, v in counts.items()
+    )
+
+
+def test_published_test_count_is_not_stale(request):
+    """The published number must still describe the suite that exists.
+
+    Checks the Python half against what pytest actually collected this run, so
+    the figure cannot rot quietly. The Rust half is read from `cargo test` only
+    when cargo is available; without it the check reports what it could not
+    verify rather than passing silently.
+    """
+    # Only meaningful on a full run. Under `-k`, `-m`, or a single-file
+    # invocation `testscollected` counts the selection, not the suite, and this
+    # would fail for a reason that has nothing to do with a stale number.
+    opt = request.config.option
+    filtered = bool(getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""))
+    root = Path(__file__).resolve().parents[1]
+    args = [Path(a).resolve() for a in request.config.args]
+    partial = any(a != root and a != root / "tests" for a in args)
+    if filtered or partial:
+        pytest.skip("partial run — the collected count is a selection, not the suite")
+
+    published = next(iter(_published_test_counts().values()))
+    python_collected = request.session.testscollected
+    assert python_collected > 0, "collected nothing; the check would be vacuous"
+
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        pytest.skip("cargo unavailable — cannot verify the Rust half of the count")
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [cargo, "test", "--no-run", "--message-format=short"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    if proc.returncode != 0:
+        pytest.skip(f"cargo test --no-run failed; cannot verify: {proc.stderr[-200:]}")
+    rust = _rust_test_count(root, cargo)
+    if rust is None:
+        pytest.skip("could not read a Rust test count")
+    assert published == rust + python_collected, (
+        f"published {published} but the suite is {rust} Rust + "
+        f"{python_collected} Python = {rust + python_collected}"
+    )
+
+
+def _rust_test_count(root: Path, cargo: str) -> int | None:
+    """Rust tests, counted by asking each test binary to list them."""
+    proc = subprocess.run(
+        [cargo, "test", "--", "--list"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    if proc.returncode != 0:
+        return None
+    # Each binary prints "N tests, M benchmarks"; sum the N across binaries.
+    totals = [int(n) for n in re.findall(r"^(\d+) tests?, \d+ benchmark", proc.stdout, re.M)]
+    return sum(totals) if totals else None

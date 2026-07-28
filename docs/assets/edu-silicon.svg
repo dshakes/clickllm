@@ -1,185 +1,264 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 690" width="900" height="690" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
-<title id='t'>You bought 132 engines. Your memory feeds about one.</title><desc id='d'>An H100 serving a 32B model. Only one of its 132 compute engines has work at any moment, because producing a single word means re-reading the entire 30.5 GB model from memory. Serving 18 people at once shares that one read across 18 words; a 19th does not fit, because the conversation cache has nowhere left to live.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 898" width="980" height="898" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>One token costs a 32.8 GB read and 65.6 GFLOP</title><desc id='d'>The roofline argument for a 32B model on an H100, with the arithmetic shown. Every token re-reads all 32.8 GB of weights and computes only 65.6 GFLOP with them — 2.00 FLOP per byte against a chip that needs 295 FLOP per byte to keep its units fed, so 1 of 132 SMs has work. Batching 18 sequences shares one read and lifts that to 36.0 FLOP per byte; a 19th sequence needs 2.00 GiB of KV cache that does not exist.</desc>
 <style>
 :root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
 @media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
 :root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
 .t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}@keyframes clkpulse{0%,100%{opacity:.45}50%{opacity:1}}@keyframes clkflow{to{stroke-dashoffset:-28}}@keyframes clkpop{0%{opacity:0}3%{opacity:1}92%{opacity:1}100%{opacity:0}}.pulse{animation:clkpulse 2.4s ease-in-out infinite}.flow{animation:clkflow 1.1s linear infinite}.pop{animation:clkpop 6s linear infinite both}@keyframes clkstream{from{transform:translateX(0)}to{transform:translateX(46px)}}@keyframes clklight{0%,12%{opacity:.10}26%,68%{opacity:1}84%,100%{opacity:.10}}.stream{transform-box:fill-box;animation:clkstream 1.15s linear infinite}.light{animation:clklight 3.45s ease-in-out infinite}@media (prefers-reduced-motion:reduce){.pulse,.flow,.pop,.stream,.light{animation:none;opacity:1;transform:none}}
 </style>
-<rect width="900" height="690" fill="var(--bg)"/>
-<text x="28" y="30" class="t">You bought 132 engines. Your memory feeds about one.</text>
-<text x="28" y="50" class="sub">Why a fast GPU can still feel slow — and the one thing that actually fixes it</text>
-<rect x="73.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="73.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="127.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="127.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="121.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="121.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="173.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="173.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="169.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="169.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="219.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="219.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="217.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="217.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="265.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="265.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="265.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="265.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="311.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="311.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="313.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="313.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="357.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="357.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="28" y="84" width="336" height="322" rx="55" fill="var(--grid)" opacity="0.30"/><rect x="28" y="84" width="336" height="322" rx="55" fill="none" stroke="var(--grid)" stroke-width="1.5" opacity="0.9"/><rect x="89.2" y="145.2" width="213.6" height="199.6" rx="32" fill="var(--bg)" opacity="0.55"/>
-<text x="48" y="112" class="lb">the GPU, actual size</text>
-<rect class="pulse" x="50" y="130" width="22" height="22" rx="4" fill="var(--s2)"/>
-<rect x="74" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="154" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="178" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="202" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="226" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="250" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="274" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="298" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="322" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="346" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="50" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="74" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="98" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="122" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="146" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="170" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="194" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="218" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="242" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="266" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="290" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<rect x="314" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<text x="398" y="180" class="t" style="fill:var(--s2)" font-size="34">1 of 132</text>
-<text x="398" y="208" class="lb">engines busy</text>
-<text x="398" y="248" class="ax">The other 131 are not working on</text>
-<text x="398" y="267" class="ax">anything. They are waiting for the</text>
-<text x="398" y="286" class="ax">memory to hand them the next piece</text>
-<text x="398" y="305" class="ax">of the model.</text>
-<text x="398" y="342" class="lb" style="fill:var(--s0)">So the GPU is not the slow part.</text>
-<text x="398" y="362" class="lb" style="fill:var(--s0)">The memory is.</text>
-<text x="28" y="442" class="lb">Because one word costs a whole read</text>
-<rect class="pop" style="animation-delay:0s" x="28" y="460" width="470" height="46" rx="4" fill="var(--s1)"/>
-<text x="263" y="488" class="lb" text-anchor="middle" style="fill:var(--bg)">read all 30.5 GB of the model</text>
-<path d="M 508 477 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
-<rect class="pop" style="animation-delay:.55s" x="530" y="460" width="66" height="46" rx="4" fill="var(--s3)"/>
-<text x="563" y="488" class="ax" text-anchor="middle" style="fill:var(--bg)">a little</text>
-<path d="M 606 477 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
-<rect class="pop" style="animation-delay:1.1s" x="628" y="460" width="54" height="46" rx="4" fill="var(--s2)"/>
-<text x="655" y="488" class="ax" text-anchor="middle" style="fill:var(--bg)">1 word</text>
-<text x="700" y="481" class="ax">and then it starts</text>
-<text x="700" y="498" class="ax">again for word two.</text>
-<text x="28" y="548" class="lb">Which is why you serve people in batches</text>
-<text x="132" y="584" class="ax" text-anchor="end">1 person</text>
-<rect x="146.0" y="568.0" width="200.0" height="22.0" rx="4" fill="var(--s1)"/>
-<text x="246" y="584" class="ax" text-anchor="middle" style="fill:var(--bg)">read 30.5 GB</text>
-<rect x="358.0" y="568.0" width="96.0" height="22.0" rx="4" fill="var(--s2)"/>
-<text x="406" y="584" class="ax" text-anchor="middle" style="fill:var(--bg)">1 word</text>
-<text x="132" y="618" class="ax" text-anchor="end">18 people</text>
-<rect x="146.0" y="602.0" width="200.0" height="22.0" rx="4" fill="var(--s1)"/>
-<text x="246" y="618" class="ax" text-anchor="middle" style="fill:var(--bg)">read 30.5 GB</text>
-<rect x="358.0" y="602.0" width="96.0" height="22.0" rx="4" fill="var(--s2)"/>
-<text x="406" y="618" class="ax" text-anchor="middle" style="fill:var(--bg)">18 words</text>
-<text x="470" y="618" class="ax">the same read, 18x the output</text>
-<text x="132" y="652" class="ax" text-anchor="end">19 people</text>
-<rect x="146" y="636" width="308" height="22" rx="4" fill="none" stroke="var(--s3)" stroke-dasharray="5 4"/>
-<text x="300" y="652" class="ax" text-anchor="middle" style="fill:var(--s3)">no room left</text>
-<text x="470" y="652" class="ax">needs 72.5 GB, the card has 72</text>
-<text x="28" y="696" class="note">Batching is the whole game, and the conversation cache is what ends it: every extra person needs their own copy, so</text>
-<text x="28" y="712" class="note">you run out of memory long before you run out of engines. Making that cache smaller — a lighter quantisation, a</text>
-<text x="28" y="728" class="note">shorter context, an MLA model — is the same thing as buying more of the GPU you already own. Figures are a real</text>
-<text x="28" y="744" class="note">`clickllm fit` solve, not an illustration.</text>
+<rect width="980" height="898" fill="var(--bg)"/>
+<text x="28" y="30" class="t">One token costs a 32.8 GB read and 65.6 GFLOP</text>
+<text x="28" y="50" class="sub">Read the numbers, not the shapes — every quantity here is a solve, and the arithmetic that produced it is printed beside it</text>
+<text x="28" y="74" class="m">Qwen3-32B · 32.8B params · q8 (8 bits per weight) · 8,192-token context · NVIDIA H100 80 GB SXM · 72.0 GiB usable after runtime overhead</text>
+<rect x="28" y="150" width="112" height="170" rx="9" fill="var(--panel)" stroke="var(--grid)"/>
+<rect x="40.0" y="164.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<rect x="40.0" y="185.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<rect x="40.0" y="206.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<rect x="40.0" y="227.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<rect x="40.0" y="248.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<rect x="40.0" y="269.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<rect x="40.0" y="290.0" width="88.0" height="14.0" rx="3" fill="var(--s0)"/>
+<text x="84" y="124" class="ax" text-anchor="middle">HBM3 memory</text>
+<text x="84" y="140" class="m" text-anchor="middle">32.8 GB</text>
+<text x="84" y="340" class="ax" text-anchor="middle">the weights,</text>
+<text x="84" y="355" class="ax" text-anchor="middle">all of them</text>
+<rect x="156" y="215" width="314" height="40" rx="8" fill="var(--panel)" stroke="var(--grid)"/>
+<clipPath id="bus"><rect x="158" y="217" width="310" height="36" rx="7"/></clipPath>
+<g clip-path="url(#bus)">
+<g class="stream"><rect x="116" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="162" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="208" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="254" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="300" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="346" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="392" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="438" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+<g class="stream"><rect x="484" y="226" width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>
+</g>
+<text x="313" y="189" class="ax" text-anchor="middle">the memory bus · 3.35 TB/s peak</text>
+<text x="313" y="205" class="lb" text-anchor="middle" style="fill:var(--s0)">all 32.8 GB again, for every token</text>
+<text x="313" y="277" class="m" text-anchor="middle">3.35 TB/s × 72% achievable ÷ 32.8 GB per token</text>
+<text x="313" y="293" class="ax" text-anchor="middle">= 73.5 tokens/s — bandwidth estimate, not a measurement</text>
+<path d="M 476 229 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+<rect x="532.4" y="88.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="532.4" y="371.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="488.0" y="133.2" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="765.0" y="133.2" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="571.2" y="88.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="571.2" y="371.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="488.0" y="172.9" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="765.0" y="172.9" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="610.1" y="88.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="610.1" y="371.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="488.0" y="212.6" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="765.0" y="212.6" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="648.9" y="88.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="648.9" y="371.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="488.0" y="252.4" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="765.0" y="252.4" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="687.8" y="88.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="687.8" y="371.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="488.0" y="292.1" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="765.0" y="292.1" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="726.6" y="88.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="726.6" y="371.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="488.0" y="331.8" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="765.0" y="331.8" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="496" y="96" width="272" height="278" rx="46" fill="var(--grid)" opacity="0.30"/><rect x="496" y="96" width="272" height="278" rx="46" fill="none" stroke="var(--grid)" stroke-width="1.5" opacity="0.9"/><rect x="547.7" y="147.7" width="168.6" height="174.6" rx="27" fill="var(--bg)" opacity="0.55"/>
+<text x="522" y="122" class="lb">H100 die · 132 SMs</text>
+<text x="522" y="140" class="ax">SM = streaming multiprocessor,</text>
+<text x="522" y="154" class="ax">one independent compute engine</text>
+<rect x="524" y="166" width="16" height="16" rx="3" fill="var(--ink)"/>
+<rect x="542" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="166" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="184" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="202" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="220" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="238" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="256" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="274" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="292" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="310" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="328" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="524" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="542" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="560" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="578" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="596" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="614" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="632" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="650" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="668" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="686" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="704" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<rect x="722" y="346" width="16" height="16" rx="3" fill="none" stroke="var(--grid)"/>
+<text x="790" y="202" class="t" style="font-size:32px">1 of 132</text>
+<text x="790" y="224" class="lb">SMs with work</text>
+<text x="790" y="252" class="ax">at one sequence at a time.</text>
+<text x="790" y="284" class="ax">131 sit idle waiting on the</text>
+<text x="790" y="300" class="ax">bus — they are not the</text>
+<text x="790" y="316" class="ax">constraint, and buying a</text>
+<text x="790" y="332" class="ax">faster one does not help.</text>
+<rect x="28" y="396" width="924" height="150" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="46" y="420" class="lb">Why 131 engines idle: the machine reads far more than it computes</text>
+<text x="204" y="448" class="ax" text-anchor="end">bytes read per token</text>
+<text x="214" y="448" class="m" style="fill:var(--s0)">32.8 GB</text>
+<text x="328" y="448" class="ax">every weight, once, per token</text>
+<text x="204" y="472" class="ax" text-anchor="end">arithmetic done per token</text>
+<text x="214" y="472" class="m">65.6 GFLOP</text>
+<text x="328" y="472" class="ax">= 2 × 32.8B parameters · GFLOP = 10⁹ float ops</text>
+<text x="204" y="496" class="ax" text-anchor="end">arithmetic intensity</text>
+<text x="214" y="496" class="m" style="fill:var(--s0)">2.00 FLOP/byte</text>
+<text x="328" y="496" class="ax">FLOPs computed per byte read = 65.6 ÷ 32.8</text>
+<text x="204" y="520" class="ax" text-anchor="end">H100 ridge point</text>
+<text x="214" y="520" class="m" style="fill:var(--s3)">295 FLOP/byte</text>
+<text x="328" y="520" class="ax">989.4 TFLOPS ÷ 3.35 TB/s — where the two break even</text>
+<text x="640" y="448" class="ax">where that intensity sits, log scale</text>
+<text x="640" y="464" class="ax">(FLOP/byte · FLOP = one floating-point operation)</text>
+<line x1="640" y1="500" x2="930" y2="500" class="g"/>
+<line x1="640.0" y1="496" x2="640.0" y2="504" class="g"/>
+<text x="640.0" y="518" class="ax" text-anchor="middle">1</text>
+<line x1="736.7" y1="496" x2="736.7" y2="504" class="g"/>
+<text x="736.7" y="518" class="ax" text-anchor="middle">10</text>
+<line x1="833.3" y1="496" x2="833.3" y2="504" class="g"/>
+<text x="833.3" y="518" class="ax" text-anchor="middle">100</text>
+<line x1="930.0" y1="496" x2="930.0" y2="504" class="g"/>
+<text x="930.0" y="518" class="ax" text-anchor="middle">1,000</text>
+<line x1="669.1" y1="494" x2="669.1" y2="506" stroke="var(--s0)" stroke-width="2"/>
+<text x="669.1" y="490" class="m" text-anchor="middle" style="fill:var(--s0)">2.00</text>
+<line x1="790.4" y1="494" x2="790.4" y2="506" stroke="var(--s0)" stroke-width="2"/>
+<text x="790.4" y="490" class="m" text-anchor="middle" style="fill:var(--s0)">36</text>
+<line x1="878.7" y1="494" x2="878.7" y2="506" stroke="var(--s3)" stroke-width="2"/>
+<text x="878.7" y="490" class="m" text-anchor="middle" style="fill:var(--s3)">295</text>
+<text x="669.1" y="476" class="ax" text-anchor="middle">1 seq</text>
+<text x="790.4" y="476" class="ax" text-anchor="middle">18 seqs</text>
+<text x="878.7" y="476" class="ax" text-anchor="middle">break even</text>
+<text x="640" y="536" class="lb" style="fill:var(--s3)">147× short at one sequence, 8× at 18</text>
+<rect x="28" y="566" width="924" height="244" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
+<text x="46" y="590" class="lb">Batching is the lever — and the KV cache is where it stops</text>
+<text x="46" y="608" class="ax">KV cache = the attention keys and values each sequence keeps for its own context; every concurrent sequence needs its own copy</text>
+<text x="138" y="640" class="ax" text-anchor="end">1 sequence</text>
+<rect x="150.0" y="622.0" width="151.8" height="26.0" rx="3" fill="var(--s0)"/>
+<rect x="302.8" y="622.0" width="18.7" height="26.0" rx="3" fill="var(--s1)"/>
+<rect x="322.4" y="622.0" width="9.0" height="26.0" rx="3" fill="var(--s2)"/>
+<text x="570.0" y="640" class="m">36.49 GiB</text>
+<text x="640" y="634" class="ax">2.00 FLOP/byte</text>
+<text x="640" y="650" class="ax">the read is spent on one token</text>
+<text x="138" y="678" class="ax" text-anchor="end">18 sequences</text>
+<rect x="150.0" y="660.0" width="151.8" height="26.0" rx="3" fill="var(--s0)"/>
+<rect x="302.8" y="660.0" width="18.7" height="26.0" rx="3" fill="var(--s1)"/>
+<rect x="322.4" y="660.0" width="179.0" height="26.0" rx="3" fill="var(--s2)"/>
+<text x="570.0" y="678" class="m">70.49 GiB</text>
+<text x="640" y="672" class="ax">36.0 FLOP/byte</text>
+<text x="640" y="688" class="ax">1.51 GiB spare — the last batch that fits</text>
+<text x="138" y="716" class="ax" text-anchor="end">19 sequences</text>
+<rect x="150.0" y="698.0" width="151.8" height="26.0" rx="3" fill="var(--s0)"/>
+<rect x="302.8" y="698.0" width="18.7" height="26.0" rx="3" fill="var(--s1)"/>
+<rect x="322.4" y="698.0" width="189.0" height="26.0" rx="3" fill="var(--s2)"/>
+<rect x="510.0" y="698.0" width="2.5" height="26.0" rx="3" fill="var(--s3)"/>
+<text x="570.0" y="716" class="m" style="fill:var(--s3)">72.49 GiB</text>
+<text x="640" y="710" class="ax" style="fill:var(--s3)">refused</text>
+<text x="640" y="726" class="ax">0.49 GiB over — the 19th needs 2.00 GiB of KV</text>
+<line x1="150.0" y1="738" x2="150.0" y2="743" class="g"/>
+<text x="150.0" y="756" class="ax" text-anchor="middle">0</text>
+<line x1="250.0" y1="738" x2="250.0" y2="743" class="g"/>
+<text x="250.0" y="756" class="ax" text-anchor="middle">20</text>
+<line x1="350.0" y1="738" x2="350.0" y2="743" class="g"/>
+<text x="350.0" y="756" class="ax" text-anchor="middle">40</text>
+<line x1="450.0" y1="738" x2="450.0" y2="743" class="g"/>
+<text x="450.0" y="756" class="ax" text-anchor="middle">60</text>
+<line x1="550.0" y1="738" x2="550.0" y2="743" class="g"/>
+<text x="550.0" y="756" class="ax" text-anchor="middle">80</text>
+<text x="350" y="774" class="ax" text-anchor="middle">GPU memory used, GiB</text>
+<line x1="510.0" y1="616" x2="510.0" y2="732" stroke="var(--s3)" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="518.0" y="626" class="lb" style="fill:var(--s3)">72.0 GiB usable</text>
+<rect x="46" y="789" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="60" y="797" class="lb">weights 30.55 GiB</text><rect x="184" y="789" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="198" y="797" class="lb">runtime overhead 3.94 GiB</text><rect x="375" y="789" width="9" height="9" rx="2.5" fill="var(--s2)"/><text x="389" y="797" class="lb">KV cache 2.00 GiB per sequence</text><rect x="599" y="789" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="613" y="797" class="lb">over the ceiling</text>
+<text x="28" y="832" class="note">The ceiling is memory, not maths: 18 sequences share one 32.8 GB read and reach 36.0 FLOP/byte — still 8× under the 295 the chip needs — and</text>
+<text x="28" y="848" class="note">the batch stops at 18 because KV cache ran out, not compute. Shrinking that cache (lighter quantisation, shorter context, an MLA model) buys</text>
+<text x="28" y="864" class="note">batch, and batch is the only thing that buys intensity. Figures are a real `clickllm fit` solve; 73.5 tokens/s is a bandwidth estimate, not</text>
+<text x="28" y="880" class="note">a measurement.</text>
 </svg>

@@ -216,7 +216,11 @@ def test_a_plan_emits_a_real_command_and_reports_what_it_could_not_express():
     # The flag that no longer exists must never appear.
     assert "--guided-decoding-backend" not in argv
     assert "--structured-outputs-config" in argv
-    assert not gaps
+    # vLLM expresses everything asked of it EXCEPT speculation, and that one is a
+    # true gap rather than a missing translation: no model was named here, so no
+    # draft checkpoint is known, and eagle3 without one cannot start.
+    assert [g for g in gaps if "speculative" not in str(g)] == []
+    assert any("draft checkpoint" in str(g) for g in gaps), gaps
 
     sgl = plan(H100, Requirements(Workload.INTERACTIVE, structured_output=True, prefix_sharing=0.9))
     argv, gaps = sgl.command("Qwen/Qwen3-32B")
@@ -542,12 +546,84 @@ def test_speculative_config_is_json_not_a_bare_method_name():
         cores=1,
     )
     req = Requirements(workload=Workload.INTERACTIVE, concurrency=4, context=8192)
-    argv, _ = plan(hw, req, catalog.get("llama-3.1-8b")).command("meta-llama/Llama-3.1-8B")
+    p = plan(hw, req, catalog.get("llama-3.1-8b"))
+    argv, _ = p.command("meta-llama/Llama-3.1-8B")
 
+    # Llama has no in-checkpoint MTP head, so there is nothing to draft WITH.
+    # The planner still *wants* speculation — that is a load decision — and the
+    # adapter is what refuses, because buildability is its job.
+    # See test_eagle_is_never_requested_without_a_draft_checkpoint below.
+    assert "--speculative-config" not in argv
+
+    # Where a method IS emitted it must be JSON, not a bare name. DeepSeek's MTP
+    # head is resident in the checkpoint, so that path still speculates.
+    big = Hardware(
+        kind="nvidia",
+        name="8xH200",
+        total_bytes=1128 * 1024**3,
+        usable_bytes=1000 * 1024**3,
+        bandwidth_gbps=4800.0,
+        cores=1,
+        devices=8,
+    )
+    argv, _ = plan(big, req, catalog.get("deepseek-v3")).command("deepseek-ai/DeepSeek-V3")
     i = argv.index("--speculative-config")
     parsed = json.loads(argv[i + 1])  # must not raise
-    assert parsed["method"] == "eagle3"
+    assert parsed["method"] == "mtp"
     assert parsed["num_speculative_tokens"] >= 1
+
+
+def test_eagle_is_never_requested_without_a_draft_checkpoint():
+    """EAGLE3 is a draft *model*, not a mode, and one cannot be inferred.
+
+    Every example in vLLM's docs names a trained head — `nvidia/Llama-3.3-70B-
+    Instruct-Eagle3`, `RedHatAI/Llama-3.1-8B-Instruct-speculator.eagle3`. We
+    emitted `{"method":"eagle3","num_speculative_tokens":1}` with no `model`:
+    valid JSON, every flag real, and vLLM has no way to know which head to load,
+    so it cannot start.
+
+    No argv check can catch this — the flag and its syntax are both correct — so
+    it is pinned here instead. It reached `build`, the k8s emitter and `box`.
+    """
+    from clickllm import catalog
+    from clickllm.hardware import Hardware
+    from clickllm.plan import Requirements, Workload, plan
+
+    hw = Hardware(
+        kind="nvidia",
+        name="H100",
+        total_bytes=80 * 1024**3,
+        usable_bytes=72 * 1024**3,
+        bandwidth_gbps=3350.0,
+        cores=1,
+    )
+    req = Requirements(workload=Workload.INTERACTIVE, concurrency=4, context=8192)
+
+    for model_id in ("llama-3.1-8b", "qwen3-32b", "mistral-small-24b"):
+        argv, gaps = plan(hw, req, catalog.get(model_id)).command("org/base")
+        assert "--speculative-config" not in argv, (
+            f"{model_id}: a speculative config was emitted with no draft "
+            "checkpoint — valid JSON, real flags, and vLLM cannot start from it"
+        )
+        reasons = " ".join(str(g) for g in gaps)
+        assert "draft checkpoint" in reasons, (
+            f"{model_id}: speculation was dropped without saying why. A silently "
+            "missing optimisation is the failure mode this repo exists to avoid"
+        )
+
+    # And the converse: a family whose head is IN the checkpoint still gets one,
+    # or this test would pass by refusing everything.
+    big = Hardware(
+        kind="nvidia",
+        name="8xH200",
+        total_bytes=1128 * 1024**3,
+        usable_bytes=1000 * 1024**3,
+        bandwidth_gbps=4800.0,
+        cores=1,
+        devices=8,
+    )
+    argv, _ = plan(big, req, catalog.get("deepseek-v3")).command("deepseek-ai/DeepSeek-V3")
+    assert "--speculative-config" in argv, "mtp needs no draft and must still be emitted"
 
 
 def test_a_model_with_its_own_mtp_head_is_not_asked_for_an_eagle_draft():

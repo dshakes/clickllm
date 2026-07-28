@@ -206,6 +206,21 @@ class Placement:
         return (self.hourly_usd / tokens_per_hour) * 1_000_000
 
 
+def _shortfall(n: int) -> str:
+    """A shortfall, in a unit that never renders as zero.
+
+    `f"{short_by / GB:,.0f} GB"` produced "short by 0 GB" for any deficit under
+    half a gigabyte — a refusal claiming to be short by nothing, which reads as a
+    bug in the solver rather than as the true answer (Qwen3-32B at q8 misses
+    batch 19 by 0.49 GiB). The unit steps down so the number stays meaningful.
+    """
+    if n >= 10 * GB:
+        return f"{n / GB:,.0f} GB"
+    if n >= GB:
+        return f"{n / GB:,.1f} GB"
+    return f"{n / (1024**2):,.0f} MB"
+
+
 def where(model: ModelSpec, context: int, concurrency: int = 1) -> list[Placement]:
     """Which hardware classes can serve `model`, cheapest capable first.
 
@@ -233,7 +248,7 @@ def where(model: ModelSpec, context: int, concurrency: int = 1) -> list[Placemen
             )
         else:
             why = (
-                f"short by {short_by / GB:,.0f} GB — weights fit, but KV at "
+                f"short by {_shortfall(short_by)} — weights fit, but KV at "
                 f"{context:,} ctx x{concurrency} does not"
             )
         out.append(Placement(p.id, p.name, None, why, p.hourly_usd))

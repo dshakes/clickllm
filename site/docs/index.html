@@ -486,10 +486,12 @@ language models on hardware you control.</p>
   is. At one user, <strong>about one of an H100's 132 engines has work</strong>.</p>
 <figure>
   <div class="anim" data-svg="../assets/edu-silicon.svg" role="img"
-       aria-label="An H100 drawn as a chip package with 132 engine squares, one of them lit;
-                   then why — reading all 30.5 GB of the model produces a single word; then the
-                   fix and its ceiling: 18 people share that one read, a 19th does not fit">
-    <noscript><img src="../assets/edu-silicon.svg" alt="One lit engine out of 132, because one word costs a whole 30.5 GB read"></noscript>
+       aria-label="An H100 with 132 SM squares, one lit, fed by an animated bus carrying all
+                   32.8 GB of weights for every token; the arithmetic — 65.6 GFLOP per token,
+                   2.00 FLOP per byte against the 295 the chip needs to break even; and the
+                   memory budget where 18 concurrent sequences fit in 72.0 GiB with 1.51 GiB
+                   spare and a 19th goes 0.49 GiB over and is refused">
+    <noscript><img src="../assets/edu-silicon.svg" alt="One lit SM out of 132, because every token re-reads all 32.8 GB of weights for only 65.6 GFLOP of arithmetic"></noscript>
   </div>
   <figcaption>One lit engine out of 132 — and batching only gets you to eighteen people
     before the conversation cache fills the card.</figcaption>

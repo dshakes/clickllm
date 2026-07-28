@@ -422,7 +422,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">478</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">798</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>
@@ -532,10 +532,12 @@
 
   <figure>
     <div class="anim" data-svg="assets/edu-silicon.svg" role="img"
-         aria-label="Animated: an H100 drawn as a chip package with 132 engine squares, one of
-                     them pulsing while 131 sit idle; then the loop that explains why — read all
-                     30.5 GB of the model, do a little maths, emit one word, and start again">
-      <noscript><img src="assets/edu-silicon.svg" alt="One lit engine out of 132, because one word costs a whole 30.5 GB read"></noscript>
+         aria-label="An H100 with 132 SM squares, one lit, and an animated memory bus streaming
+                     all 32.8 GB of weights across it for every single token; the arithmetic —
+                     65.6 GFLOP per token, 2.00 FLOP per byte against the 295 the chip needs;
+                     and the memory budget where 18 concurrent sequences fit in 72.0 GiB and a
+                     19th goes 0.49 GiB over and is refused">
+      <noscript><img src="assets/edu-silicon.svg" alt="One lit SM out of 132, because every token re-reads all 32.8 GB of weights for only 65.6 GFLOP of arithmetic"></noscript>
     </div>
     <figcaption>One engine working out of 132 — because a single word costs a read of the
       entire model, and batching only gets you to eighteen people before the cache fills.</figcaption>

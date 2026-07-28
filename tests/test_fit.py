@@ -1,9 +1,11 @@
 """The self-checks in each module are the real gate; this runs them under pytest
 plus the cases that need a synthetic machine rather than the host's."""
 
+import re
+
 import pytest
 
-from clickllm import catalog, cli, fit, hardware
+from clickllm import catalog, cli, fit, hardware, sdk
 from clickllm.hardware import Hardware
 
 GB = 1024**3
@@ -660,3 +662,54 @@ def test_workbench_reports_unknown_models_as_data_not_a_crash():
 
     with pytest.raises(KeyError):
         ui.ROUTES["/api/where"]({"model": ["no-such-model"]})
+
+
+def test_a_refusal_never_claims_to_be_short_by_nothing():
+    """`short by 0 GB` is not a reason — it reads as a solver bug.
+
+    Qwen3-32B at q8 misses batch 19 by 0.49 GiB, which the old `,.0f` format
+    rounded to a flat zero. Any real shortfall must render as a nonzero
+    quantity in some unit.
+    """
+    m = catalog.get("qwen3-32b")
+    ctx = sdk.parse_size("8k")
+    seen = 0
+    for conc in range(2, 60):
+        for pl in fit.where(m, ctx, conc):
+            if pl.feasible or not pl.reason:
+                continue
+            seen += 1
+            assert not re.search(r"short by 0(\.0)? ", pl.reason), (
+                f"shortfall rounded away at concurrency {conc}: {pl.reason!r}"
+            )
+    assert seen, "no refusals were produced; the check would be vacuous"
+
+
+def test_shortfall_steps_down_a_unit_rather_than_rounding_to_zero():
+    assert fit._shortfall(59 * 1024**2).endswith("MB")
+    assert fit._shortfall(3 * 1024**3) == "3.0 GB"
+    assert fit._shortfall(47 * 1024**3) == "47 GB"
+
+
+def test_a_precision_label_is_never_emitted_as_a_quantisation_method():
+    """`--quantization q4` is a flag the server rejects at startup.
+
+    vLLM and SGLang take a METHOD (awq, gptq, fp8...), not a precision. awq,
+    gptq, bitsandbytes and compressed-tensors are all "4-bit" and are not
+    interchangeable, so q4 names none of them.
+
+    `unknown_flags` cannot catch this — `--quantization` is a real flag and only
+    its value is wrong — which is exactly why it needs a test of its own.
+    """
+    from clickllm.engines import Setting, SglangAdapter, Unsupported, VllmAdapter
+
+    for adapter in (VllmAdapter(), SglangAdapter()):
+        for label in ("q3", "q4", "q5", "q6", "q8", "fp16", "bf16"):
+            out = adapter.translate(Setting.QUANTIZATION, label)
+            assert isinstance(out, Unsupported), (
+                f"{adapter.name} emitted {out} for {label!r}, which is a size not a method"
+            )
+        # fp8 really is a method name on both, so it is the one that passes.
+        ok = adapter.translate(Setting.QUANTIZATION, "fp8")
+        assert not isinstance(ok, Unsupported)
+        assert ok.argv == ("--quantization", "fp8")
