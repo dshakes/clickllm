@@ -125,7 +125,8 @@ Four things there are deliberate, and each corrects how these comparisons usuall
 | ⑦ | **Guard** — model drift, traffic drift, re-prove proposals | ✅ |
 | — | **Post-training** — distil from your own captured incumbent output | ✅ |
 | — | **Surfaces** — CLI · MCP · Python SDK · agent skill · local console | ✅ |
-| — | **TPU / host GPU stats** | 🔜 |
+| — | **Silicon** — NVIDIA · AMD · Apple · **TPU v5e/v6e/v5p**, sized per host | ✅ |
+| — | **Host stats** — foreign GPU memory the engine cannot see | ✅ |
 
 Full acceptance criteria and risk gates: **[implementation plan](docs/80-implementation-plan.md)**.
 
