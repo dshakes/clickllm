@@ -688,16 +688,14 @@ def in_a_box() -> None:
             f'stroke-width="1.5"/>'
         )
         p.append(
-            f'<text x="{mid:.0f}" y="{top - 12:.0f}" class="ax" '
-            f'text-anchor="middle">{why}</text>'
+            f'<text x="{mid:.0f}" y="{top - 12:.0f}" class="ax" text-anchor="middle">{why}</text>'
         )
         p.append(
             f'<rect x="{x:.0f}" y="{top}" width="{cw}" height="132" rx="10" '
             f'fill="var(--panel)" stroke="var(--grid)"/>'
         )
         p.append(
-            f'<rect x="{x:.0f}" y="{top}" width="{cw}" height="4" rx="2" '
-            f'fill="var(--s{slot})"/>'
+            f'<rect x="{x:.0f}" y="{top}" width="{cw}" height="4" rx="2" fill="var(--s{slot})"/>'
         )
         p.append(f'<text x="{x + 18:.0f}" y="{top + 30}" class="lb">{host}</text>')
         p.append(
@@ -713,9 +711,7 @@ def in_a_box() -> None:
         f'<rect x="{x0:.0f}" y="{ry}" width="{len(hosts) * cw + (len(hosts) - 1) * gap}" '
         f'height="52" rx="10" fill="var(--panel)" stroke="var(--s3)"/>'
     )
-    p.append(
-        f'<rect x="{x0:.0f}" y="{ry}" width="4" height="52" rx="2" fill="var(--s3)"/>'
-    )
+    p.append(f'<rect x="{x0:.0f}" y="{ry}" width="4" height="52" rx="2" fill="var(--s3)"/>')
     p.append(
         f'<text x="{x0 + 20:.0f}" y="{ry + 22}" class="lb" fill="var(--s3)">'
         f"UNSUPPORTED — below 2k context, the honest answer is no</text>"
@@ -780,8 +776,7 @@ def degradation() -> None:
                 f'fill="none" stroke="var(--s3)" stroke-dasharray="6 4"/>'
             )
             p.append(
-                f'<text x="{x0 + 14}" y="{y + 18}" class="ax" '
-                f'fill="var(--s3)">{detail}</text>'
+                f'<text x="{x0 + 14}" y="{y + 18}" class="ax" fill="var(--s3)">{detail}</text>'
             )
         else:
             p.append(bar(x0, y, bwid * frac / 100, 26, 0))
@@ -839,12 +834,10 @@ def tpus() -> None:
         p.append(f'<text x="{x0 - 14}" y="{y + 20}" class="lb" text-anchor="end">{name}</text>')
         p.append(bar(x0, y, max(total * scale, 3), 26, slot))
         p.append(
-            f'<text x="{x0 + total * scale + 14:.0f}" y="{y + 19}" class="m">'
-            f"{total:,} GB</text>"
+            f'<text x="{x0 + total * scale + 14:.0f}" y="{y + 19}" class="m">{total:,} GB</text>'
         )
         p.append(
-            f'<text x="{x0 + bwid + 130}" y="{y + 19}" class="ax">'
-            f"{per_chip} GB × {chips}</text>"
+            f'<text x="{x0 + bwid + 130}" y="{y + 19}" class="ax">{per_chip} GB × {chips}</text>'
         )
 
     p.append(legend(x0, y0 + len(rows) * rowh + 22, [(0, "TPU host"), (1, "NVIDIA")]))
@@ -861,6 +854,197 @@ def tpus() -> None:
     save("edu-tpu.svg", p)
 
 
+# --- 10. where a kernel sits, and what it actually moves -----------------------
+
+
+def kernels() -> None:
+    """Two questions in one picture: where a kernel sits, and what it moves.
+
+    The top row is the call stack, because the common mental model is that a
+    kernel is somewhere "inside vLLM" and unreachable without forking it. It is
+    reachable, at exactly one seam, and the seam is an entry point.
+
+    The bottom-left is the part that changes behaviour. Decode is memory-bound,
+    so the honest unit for "where does the time go" is *bytes moved*, not FLOPs —
+    and once it is drawn in bytes, the elementwise ops everyone wants to fuse are
+    visibly ~0% of the step at batch 1. That is the same batch-1 trap as
+    speculative decoding, which is why it is worth drawing rather than asserting.
+
+    Arithmetic (7B-class dense layer, d=4096, 32 heads, 8 kv-heads, head_dim=128,
+    intermediate=11008, fp16, 32k context), per layer:
+        QKV   4096·(4096+1024+1024) = 25.17M params →  50.3 MB
+        O     4096·4096             = 16.78M        →  33.6 MB
+        gate+up 2·4096·11008        = 90.18M        → 180.4 MB
+        down  11008·4096            = 45.09M        →  90.2 MB
+        KV    8·128·2·32768·2 bytes                 → 134.2 MB
+        total                                       ≈ 488.6 MB
+    """
+    W, H = 900, 664
+    p = head(
+        W,
+        H,
+        "Where a kernel sits, and what it moves",
+        "Top: the request path from HTTP down to HBM, with the kernel layer "
+        "highlighted and the vLLM plugin entry point marked as the only seam "
+        "into it. Bottom left: one decode step decomposed by bytes moved. "
+        "Bottom right: what fusing two elementwise kernels actually saves.",
+    )
+    p.append(
+        '<text x="28" y="50" class="sub">You do not fork the engine to change a '
+        "kernel — you register one. The hard part is proving it did not change "
+        "the output.</text>"
+    )
+
+    # --- the stack ------------------------------------------------------------
+    stages = [
+        ("request", "OpenAI-shaped", "HTTP"),
+        ("API server", "tokenize", "admit"),
+        ("scheduler", "paged KV", "form the batch"),
+        ("model forward", "torch graph", "layer by layer"),
+        ("KERNELS", "attention · GEMM", "norm · sampling"),
+        ("GPU", "SMs", "read / write HBM"),
+    ]
+    bx0, bw, gap, by, bh = 27, 126, 18, 78, 84
+    kernel_i = 4
+
+    for i, (name, l1, l2) in enumerate(stages):
+        x = bx0 + i * (bw + gap)
+        mid = x + bw / 2
+        hot = i == kernel_i
+        p.append(
+            f'<rect x="{x}" y="{by}" width="{bw}" height="{bh}" rx="10" '
+            f'fill="var(--panel)" stroke="var(--s0)" stroke-width="2"/>'
+            if hot
+            else f'<rect x="{x}" y="{by}" width="{bw}" height="{bh}" rx="10" '
+            f'fill="var(--panel)" stroke="var(--grid)"/>'
+        )
+        p.append(
+            f'<text x="{mid:.0f}" y="{by + 26}" class="lb" text-anchor="middle"'
+            + (' fill="var(--s0)">' if hot else ">")
+            + f"{name}</text>"
+        )
+        p.append(f'<text x="{mid:.0f}" y="{by + 48}" class="ax" text-anchor="middle">{l1}</text>')
+        p.append(f'<text x="{mid:.0f}" y="{by + 65}" class="ax" text-anchor="middle">{l2}</text>')
+        if i:
+            ax = x - gap / 2
+            p.append(
+                f'<path d="M {ax - 4:.0f} {by + bh / 2 - 5:.0f} l 5 5 l -5 5" '
+                f'fill="none" stroke="var(--muted)" stroke-width="1.5"/>'
+            )
+
+    # --- the seam -------------------------------------------------------------
+    kx = bx0 + kernel_i * (bw + gap) + bw / 2
+    cx, cy, cw2, ch = 440, 214, 433, 64
+    p.append(
+        f'<path d="M {kx:.0f} {by + bh} V {cy:.0f}" fill="none" '
+        f'stroke="var(--s0)" stroke-width="1.5" stroke-dasharray="4 3"/>'
+    )
+    p.append(
+        f'<rect x="{cx}" y="{cy}" width="{cw2}" height="{ch}" rx="10" '
+        f'fill="var(--panel)" stroke="var(--s0)"/>'
+    )
+    p.append(
+        f'<text x="{cx + 18}" y="{cy + 25}" class="m" fill="var(--s0)">vllm.general_plugins</text>'
+    )
+    p.append(
+        f'<text x="{cx + 18}" y="{cy + 46}" class="ax">An entry point vLLM '
+        f"imports in every process it spawns.</text>"
+    )
+    for i, ln in enumerate(
+        [
+            "clickllm generates the config behind boxes 2–3. Box 4 is",
+            "vLLM's, and forking it is a permanent tax. Box 5 is the only",
+            "sanctioned seam — and register() runs once per worker, so it",
+            "must be idempotent or tensor parallelism breaks it on rank 1.",
+        ]
+    ):
+        p.append(f'<text x="28" y="{cy + 12 + i * 17}" class="ax">{ln}</text>')
+
+    # --- panels ---------------------------------------------------------------
+    py, ph = 300, 248
+    for x, w in ((28, 496), (548, 325)):
+        p.append(
+            f'<rect x="{x}" y="{py}" width="{w}" height="{ph}" rx="10" '
+            f'fill="var(--panel)" stroke="var(--grid)"/>'
+        )
+
+    p.append(f'<text x="46" y="{py + 26}" class="lb">One decode step, by bytes moved</text>')
+    p.append(
+        f'<text x="46" y="{py + 44}" class="ax">7B-class layer · 8 kv-heads · '
+        f"32k context · fp16 · batch 1</text>"
+    )
+
+    # (label, MB, slot) — slot 0 is the KV read, 1 the weight reads, 3 elementwise.
+    rows = [
+        ("QKV projections", 50.3, 1),
+        ("attention · KV read", 134.2, 0),
+        ("O projection", 33.6, 1),
+        ("gate + up", 180.4, 1),
+        ("down", 90.2, 1),
+        ("RMSNorm + SiLU", 0.1, 3),
+    ]
+    total = sum(mb for _, mb, _ in rows)
+    lx, rx0, rw, ry0, rh = 170, 182, 210, 358, 27
+    scale = rw / max(mb for _, mb, _ in rows)
+
+    for i, (name, mb, slot) in enumerate(rows):
+        y = ry0 + i * rh
+        pct = 100 * mb / total
+        p.append(f'<text x="{lx}" y="{y + 14}" class="ax" text-anchor="end">{name}</text>')
+        p.append(bar(rx0, y, max(mb * scale, 2), 18, slot))
+        label = "&lt;0.1%" if pct < 0.1 else f"{pct:.1f}%"
+        p.append(
+            f'<text x="{rx0 + max(mb * scale, 2) + 10:.0f}" y="{y + 13}" class="m">{label}</text>'
+        )
+
+    p.append(
+        f'<text x="{lx}" y="{ry0 + len(rows) * rh + 14}" class="ax" text-anchor="end">total</text>'
+    )
+    p.append(
+        f'<text x="{rx0}" y="{ry0 + len(rows) * rh + 14}" class="m" '
+        f'fill="var(--ink)">{total:.0f} MB moved per layer</text>'
+    )
+
+    # --- what fusion buys -----------------------------------------------------
+    p.append(f'<text x="566" y="{py + 26}" class="lb">What fusion actually saves</text>')
+    p.append(f'<text x="566" y="{py + 46}" class="m">y = silu(gate) * up</text>')
+
+    unit, ugap = 50, 4
+    for i, (name, trips) in enumerate((("unfused · 2 kernels", 5), ("fused · 1 kernel", 3))):
+        y = py + 74 + i * 54
+        p.append(f'<text x="566" y="{y}" class="ax">{name} · {trips} HBM trips</text>')
+        for t in range(trips):
+            p.append(bar(566 + t * (unit + ugap), y + 8, unit, 16, 3, r=3))
+
+    p.append(
+        f'<text x="566" y="{py + 196}" class="ax">Three HBM round trips instead of five —</text>'
+    )
+    p.append(
+        f'<text x="566" y="{py + 213}" class="ax">a 40% cut, on the one term that is under</text>'
+    )
+    p.append(f'<text x="566" y="{py + 230}" class="ax">0.1% of the step at batch 1.</text>')
+
+    p.append(
+        legend(
+            28,
+            py + ph + 30,
+            [(1, "weight reads"), (0, "KV cache read"), (3, "elementwise / activations")],
+        )
+    )
+    note(
+        p,
+        28,
+        py + ph + 58,
+        "This is why a kernel is measured at real concurrency or not at all. At "
+        "batch 1 the weights dominate and fusion is noise; at batch 64 the weight "
+        "read is amortised across every sequence, the activation traffic scales "
+        "with the batch, and the same fusion becomes the whole win. Benchmark at "
+        "the wrong batch size and you will ship the opposite conclusion — the "
+        "identical trap speculative decoding sets.",
+    )
+    save("edu-kernels.svg", p)
+
+
 if __name__ == "__main__":
     print("writing diagrams:")
     memory_breakdown()
@@ -872,4 +1056,5 @@ if __name__ == "__main__":
     in_a_box()
     degradation()
     tpus()
+    kernels()
     print("done")

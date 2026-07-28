@@ -442,6 +442,15 @@ language models on hardware you control.</p>
   failure mode is subtle numerical drift that presents as a <em>model quality</em> problem.</p>
 <p>What it does give you is the seam and the thing nobody else does: <strong>a way to prove your
   kernel actually helped.</strong></p>
+<figure>
+  <img src="../assets/edu-kernels.svg" loading="lazy"
+       alt="The request path from HTTP down to HBM with the kernel layer highlighted and the vLLM
+            plugin entry point marked, beside a decomposition of one decode step by bytes moved
+            and a comparison of fused against unfused HBM round trips">
+  <figcaption>Left to right is where a kernel sits; below is what it moves. Decode is
+    memory-bound, so bytes moved — not FLOPs — is the honest unit, and in those units the
+    elementwise ops everyone reaches for first are almost nothing at batch&nbsp;1.</figcaption>
+</figure>
 
 <h4>Where a kernel plugs in</h4>
 <p>vLLM discovers plugins through standard Python entry points, so a kernel arrives as a normal
