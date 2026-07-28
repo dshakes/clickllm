@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 CATALOG_PATH = Path(__file__).parent / "models.json"
@@ -63,18 +63,109 @@ class ModelSpec:
         return per_layer * self.layers * kv_dtype_bytes
 
 
-@lru_cache(maxsize=1)
-def load() -> tuple[ModelSpec, ...]:
-    raw = json.loads(CATALOG_PATH.read_text())
-    fields = ModelSpec.__slots__
+def sources() -> list[Path]:
+    """Every catalogue file that will be read, in precedence order.
+
+    Built-ins first, then user files, so a later entry overrides an earlier one
+    with the same ``id``. That ordering is what lets someone both *add* a model
+    and *correct* one of ours without touching the installed package.
+
+    Two ways in, both chosen so an operator or an agent can extend the catalogue
+    by writing a file rather than by shipping a release:
+
+    - ``$CLICKLLM_CATALOG`` — ``os.pathsep``-separated files or directories,
+      for a one-off or a CI pin.
+    - ``~/.config/clickllm/models.d/*.json`` — a drop-in directory, read in
+      sorted order. This is the durable one: adding a fleet is `cp` and nothing
+      else, and removing it is `rm`.
+    """
+    found = [CATALOG_PATH]
+    for entry in os.environ.get("CLICKLLM_CATALOG", "").split(os.pathsep):
+        if not entry.strip():
+            continue
+        p = Path(entry).expanduser()
+        found.extend(sorted(p.glob("*.json")) if p.is_dir() else [p])
+    drop_in = (
+        Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "clickllm" / "models.d"
+    )
+    if drop_in.is_dir():
+        found.extend(sorted(drop_in.glob("*.json")))
+    return found
+
+
+def _read(path: Path) -> list[dict]:
+    """One catalogue file, with the offending file named on any failure.
+
+    A malformed drop-in is an error, never a silent skip. Skipping it would let
+    a typo quietly remove a model from the catalogue, and the first symptom
+    would be a sizing answer that omits it with no explanation.
+    """
+    try:
+        raw = json.loads(path.read_text())
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"catalogue file not found: {path}") from e
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{path}: not valid JSON — {e}") from e
+    models = raw.get("models") if isinstance(raw, dict) else raw
+    if not isinstance(models, list):
+        raise ValueError(f"{path}: expected a 'models' list (or a bare JSON list of models)")
+    return models
+
+
+#: Parsed catalogue, keyed by the files that produced it and their mtimes.
+#: Not an ``lru_cache``: the key has to include what is on disk, or a long-lived
+#: process — the MCP server, the workbench — would keep serving the catalogue it
+#: read at import and a newly dropped-in model would need a restart to appear.
+#: Dropping a file in and having it work is the whole point of the mechanism.
+_CACHE: dict[tuple, tuple[ModelSpec, ...]] = {}
+
+
+def _fingerprint(paths: list[Path]) -> tuple:
+    """Identity of the catalogue on disk right now: paths plus mtimes and sizes."""
     out = []
-    for m in raw["models"]:
-        out.append(
-            ModelSpec(
-                **{k: (tuple(v) if k == "quants" else v) for k, v in m.items() if k in fields}
-            )
-        )
+    for p in paths:
+        try:
+            st = p.stat()
+            out.append((str(p), st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((str(p), None, None))  # missing: _read raises with the name
     return tuple(out)
+
+
+def load() -> tuple[ModelSpec, ...]:
+    """The catalogue: built-ins plus anything dropped in. See [`sources`].
+
+    Re-reads whenever a catalogue file changes, so `clickllm catalog-add` takes
+    effect immediately — including inside an already-running MCP server.
+    """
+    paths = sources()
+    key = _fingerprint(paths)
+    if (hit := _CACHE.get(key)) is not None:
+        return hit
+
+    fields = ModelSpec.__slots__
+    by_id: dict[str, ModelSpec] = {}
+    for path in paths:
+        for m in _read(path):
+            if not isinstance(m, dict) or "id" not in m:
+                raise ValueError(f"{path}: every model needs an 'id'; got {m!r}")
+            try:
+                spec = ModelSpec(
+                    **{k: (tuple(v) if k == "quants" else v) for k, v in m.items() if k in fields}
+                )
+            except TypeError as e:
+                # Name the file and the model: "missing kv_heads" is unactionable
+                # when six drop-ins are in play.
+                raise ValueError(f"{path}: model {m['id']!r} is not a valid spec — {e}") from e
+            by_id[spec.id] = spec  # later file wins, by design
+
+    out = tuple(by_id.values())
+    # Bounded: one entry per distinct on-disk state, and a handful of states is
+    # all a process ever sees. Cleared wholesale rather than evicted per-key.
+    if len(_CACHE) > 8:
+        _CACHE.clear()
+    _CACHE[key] = out
+    return out
 
 
 def get(model_id: str) -> ModelSpec:

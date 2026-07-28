@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 
@@ -203,6 +204,91 @@ def cmd_where(args: argparse.Namespace) -> int:
         "\n  $/Mtok assumes the machine is saturated single-stream; real cost is higher."
         "\n  Throughput figures are roofline estimates, not measurements.\n"
     )
+    return 0
+
+
+def cmd_catalog_add(args: argparse.Namespace) -> int:
+    """Add a model to the catalogue from its own published config.
+
+    The point is that new models arrive constantly and none of them should need
+    a release of this tool. The geometry is read from the model's `config.json`
+    — the same ground truth `clickllm catalog` verifies against — and written to
+    a drop-in file, so the model is available on the very next command.
+
+    Nothing is guessed. A config missing a field we need is an error, because a
+    guessed head count produces a confident and wrong memory figure.
+    """
+    from . import catalog_update as cu
+
+    if not args.network:
+        print(
+            f"\n  Reading {args.repo}'s config.json needs network access, which is opt-in."
+            "\n  Re-run with --network.\n"
+        )
+        return 0
+
+    url = f"https://huggingface.co/{args.repo}/raw/main/config.json"
+    try:
+        arch = cu.parse_config(json.loads(cu.http_fetch(url)))
+    except cu.ConfigError as e:
+        print(f"error: {args.repo}: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:  # noqa: BLE001 — network and JSON, reported not raised
+        print(f"error: could not read {url}: {e}", file=sys.stderr)
+        return 2
+
+    model_id = args.id or args.repo.split("/")[-1].lower()
+    params = args.params_b
+    spec = {
+        "id": model_id,
+        "name": args.name or args.repo.split("/")[-1],
+        "params_b": params,
+        "active_b": args.active_b if args.active_b is not None else params,
+        "layers": arch.layers,
+        "kv_heads": arch.kv_heads,
+        "head_dim": arch.head_dim,
+        "kv_scheme": arch.kv_scheme,
+        "max_context": arch.max_context,
+        "license": args.license,
+        "license_ok": args.license_ok,
+        "quants": list(args.quants.split(",")),
+        # False on purpose. The geometry came from the config, but nobody has
+        # checked the parameter count or the licence, and the catalogue's `?`
+        # marker is how the tool stays honest about that.
+        "verified": False,
+        "repo": args.repo,
+    }
+    if arch.kv_lora_rank:
+        spec["kv_lora_rank"] = arch.kv_lora_rank
+
+    dest = pathlib.Path(args.out).expanduser() if args.out else _drop_in_dir() / f"{model_id}.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps({"models": [spec]}, indent=2) + "\n")
+
+    print(f"\n  wrote {dest}")
+    print(f"  {model_id}: {arch.layers} layers · {arch.kv_heads} kv-heads · {arch.kv_scheme}")
+    print(f"  marked unverified — the geometry is from {args.repo}'s config, the")
+    print("  parameter count and licence are what you passed in.\n")
+    print(f"  clickllm fit --explain {model_id}\n")
+    return 0
+
+
+def _drop_in_dir() -> pathlib.Path:
+    """Where `catalog add` writes, and `catalog.sources()` reads."""
+    base = os.environ.get("XDG_CONFIG_HOME", pathlib.Path.home() / ".config")
+    return pathlib.Path(base) / "clickllm" / "models.d"
+
+
+def cmd_catalog_sources(args: argparse.Namespace) -> int:
+    """Where the catalogue's models came from."""
+    models = catalog.load()
+    print()
+    for p in catalog.sources():
+        mark = "built-in" if p == catalog.CATALOG_PATH else "drop-in "
+        exists = "" if p.exists() else "  (missing)"
+        print(f"  {mark}  {p}{exists}")
+    print(f"\n  {len(models)} models · later files override earlier ones by id")
+    print(f"  drop new ones into {_drop_in_dir()}/ — no reinstall\n")
     return 0
 
 
@@ -572,6 +658,38 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--network", action="store_true", help="allow network access (required)")
     c.add_argument("--apply", action="store_true", help="write the proposed changes")
     c.set_defaults(fn=cmd_catalog)
+
+    ca = sub.add_parser("catalog-add", help="add a model from its published config, no reinstall")
+    ca.add_argument("repo", help="Hugging Face repo, e.g. meta-llama/Llama-3.1-8B")
+    ca.add_argument(
+        "--params-b",
+        type=float,
+        required=True,
+        dest="params_b",
+        help="total parameters in billions — not in config.json, so you supply it",
+    )
+    ca.add_argument(
+        "--active-b",
+        type=float,
+        dest="active_b",
+        help="active parameters for MoE; defaults to total (dense)",
+    )
+    ca.add_argument("--id", help="catalogue id; defaults to the repo name, lowercased")
+    ca.add_argument("--name", help="display name; defaults to the repo name")
+    ca.add_argument("--license", default="unknown")
+    ca.add_argument(
+        "--license-ok",
+        action="store_true",
+        dest="license_ok",
+        help="mark the licence as cleanly commercial (read it first)",
+    )
+    ca.add_argument("--quants", default="q4,q8", help="comma-separated, default q4,q8")
+    ca.add_argument("--out", help="write here instead of the drop-in directory")
+    ca.add_argument("--network", action="store_true", help="allow network access (required)")
+    ca.set_defaults(fn=cmd_catalog_add)
+
+    cs = sub.add_parser("catalog-sources", help="where the catalogue's models come from")
+    cs.set_defaults(fn=cmd_catalog_sources)
 
     d = sub.add_parser("discover", help="trending models not yet in the catalogue")
     d.add_argument("--network", action="store_true", help="allow network access (required)")

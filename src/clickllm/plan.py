@@ -43,11 +43,11 @@ defaults here are calibration, not physics.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from clickllm.catalog import ModelSpec
-from clickllm.engines import MTP_NATIVE, Setting
+from clickllm.engines import MTP_NATIVE, LoraFleet, Setting
 from clickllm.fit import Fit, solve
 from clickllm.hardware import Hardware
 
@@ -166,6 +166,11 @@ class Requirements:
     #: Whether outputs must be schema-valid. Constrained decoding is a first-class
     #: requirement, not a prompt trick.
     structured_output: bool = False
+    #: Fine-tuned adapters to serve over one set of base weights. Empty means a
+    #: plain base-model deployment. The cheapest personalisation available —
+    #: one copy of the weights, N adapters — and the one most often left unused
+    #: because the flags differ per engine.
+    lora: LoraFleet | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,6 +523,35 @@ def _tensor_parallel(hw: Hardware, fit: Fit | None) -> Knob | None:
     )
 
 
+def _lora(req: Requirements) -> Knob | None:
+    """Multi-LoRA, when there are adapters to serve.
+
+    The number that matters is how many *distinct* adapters may share one batch,
+    not how many are loaded. Both engines default that cap to something small,
+    so loading eight adapters and leaving it alone quietly serialises requests
+    that could have run together — the deployment looks fine and throughput is a
+    fraction of what the hardware would give.
+
+    It is capped at the request concurrency because a batch cannot hold more
+    distinct adapters than it holds requests, and every extra slot costs memory
+    for nothing.
+    """
+    fleet = req.lora
+    if fleet is None or not fleet.adapters:
+        return None
+
+    per_batch = min(len(fleet.adapters), max(req.concurrency, 1))
+    return Knob(
+        Setting.LORA_FLEET,
+        replace(fleet, max_concurrent=per_batch),
+        f"{len(fleet.adapters)} adapters over one set of base weights, up to "
+        f"{per_batch} in a single batch. The per-batch cap defaults low in both "
+        f"engines, and leaving it there serialises adapters that could have run "
+        f"together. Capped at concurrency {req.concurrency}: a batch cannot hold "
+        f"more distinct adapters than it holds requests.",
+    )
+
+
 def _structured(req: Requirements, engine: Engine) -> Knob | None:
     """Constrained decoding, when the output has to parse."""
     if not req.structured_output:
@@ -645,6 +679,8 @@ def plan(
         knobs.append(tp)
     if (sd := _structured(req, engine)) is not None:
         knobs.append(sd)
+    if (lora := _lora(req)) is not None:
+        knobs.append(lora)
     if model is not None and quant:
         knobs.append(
             Knob(
