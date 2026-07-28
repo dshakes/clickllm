@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import sys
 
 from . import catalog, fit, hardware
@@ -282,6 +283,92 @@ def cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_guard(args: argparse.Namespace) -> int:
+    """Check whether a receipt still describes production.
+
+    Heavy imports stay inside the handler so `clickllm fit` remains stdlib-only.
+    """
+    from datetime import date
+
+    from .guard import check
+    from .prove.receipt import Receipt
+
+    receipt = Receipt.from_json(pathlib.Path(args.receipt).read_text())
+
+    traffic = None
+    if args.traffic:
+        raw = json.loads(pathlib.Path(args.traffic).read_text())
+        traffic = {str(k): float(v) for k, v in raw.items()}
+
+    fingerprints = None
+    if args.fingerprints:
+        raw = json.loads(pathlib.Path(args.fingerprints).read_text())
+        fingerprints = {str(k): str(v) for k, v in raw.items()}
+
+    today = date.fromisoformat(args.today) if args.today else date.today()
+    proposal = check(
+        receipt,
+        today=today,
+        fingerprints=fingerprints,
+        traffic=traffic,
+        available=frozenset(args.available or ()),
+    )
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "receipt": proposal.receipt_digest,
+                    "valid": proposal.valid,
+                    "action": proposal.action,
+                    "findings": [
+                        {
+                            "kind": f.kind.value,
+                            "subject": f.subject,
+                            "detail": f.detail,
+                            "invalidates": f.invalidates,
+                        }
+                        for f in proposal.findings
+                    ],
+                },
+                indent=2,
+            )
+        )
+    else:
+        print()
+        print(proposal.render())
+        print()
+
+    # Nonzero when the receipt no longer describes production, so this is usable
+    # as a cron job or a CI step without parsing the output.
+    return 0 if proposal.valid else 1
+
+
+def cmd_receipt(args: argparse.Namespace) -> int:
+    """Render or verify a receipt someone handed you."""
+    from .prove.receipt import Receipt, verify
+
+    r = Receipt.from_json(pathlib.Path(args.receipt).read_text())
+    if not args.against:
+        print()
+        print(r.render())
+        print()
+        return 0
+
+    other = Receipt.from_json(pathlib.Path(args.against).read_text())
+    ok, diffs = verify(r, other)
+    print()
+    if ok:
+        print(f"verified · both receipts agree · {r.digest()[:12]}")
+        print()
+        return 0
+    print(f"DOES NOT VERIFY · {r.digest()[:12]} vs {other.digest()[:12]}")
+    for d in diffs:
+        print(f"  · {d.render()}")
+    print()
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="clickllm",
@@ -325,10 +412,29 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("models", help="list the catalog")
     m.set_defaults(fn=cmd_models)
 
+    g = sub.add_parser("guard", help="check whether a receipt still holds")
+    g.add_argument("receipt", help="path to a receipt JSON file")
+    g.add_argument("--traffic", help="JSON file of current cluster shares")
+    g.add_argument("--fingerprints", help="JSON file of current model fingerprints")
+    g.add_argument(
+        "--available", action="append", help="a candidate model that exists now (repeatable)"
+    )
+    g.add_argument("--today", help="ISO date to evaluate against (default: today)")
+    g.add_argument("--json", action="store_true")
+    g.set_defaults(fn=cmd_guard)
+
+    rc = sub.add_parser("receipt", help="render or verify a migration receipt")
+    rc.add_argument("receipt", help="path to a receipt JSON file")
+    rc.add_argument("--against", help="a second receipt to verify this one against")
+    rc.set_defaults(fn=cmd_receipt)
+
     args = p.parse_args(argv)
     try:
         return args.fn(args)
-    except KeyError as e:
+    except (KeyError, ValueError, OSError) as e:
+        # Convention: a bad path, an altered receipt or an unparseable date is a
+        # nonzero exit with a sentence, never a traceback. `json.JSONDecodeError`
+        # is a `ValueError`, so malformed input is covered here too.
         print(f"error: {e}", file=sys.stderr)
         return 2
 
