@@ -92,7 +92,9 @@
   .pill.live{border-color:var(--emerald);color:var(--emerald)}
   .pill.soon{border-color:var(--line2);color:var(--ink3)}
 
-  figure{margin:22px 0} figure img{width:100%;border-radius:12px;border:1px solid var(--line2)}
+  figure{margin:22px 0}
+  figure img,figure .anim svg{width:100%;border-radius:12px;border:1px solid var(--line2);
+                              display:block}
   figcaption{font-size:12.5px;color:var(--ink3);margin-top:8px}
 
   /* --- the silicon mark ----------------------------------------------------
@@ -393,7 +395,11 @@ language models on hardware you control.</p>
 
 <h2 id="edu-prefill">Learn: prefill vs decode</h2>
 <figure>
-  <img src="../assets/edu-prefill-decode.svg" alt="One request, two phases: a wide compute-bound prefill then narrow bandwidth-bound decode steps" loading="lazy">
+  <div class="anim" data-svg="../assets/edu-prefill-decode.svg" role="img"
+       aria-label="Animated: one request in two phases — a wide compute-bound prefill, then
+                   narrow bandwidth-bound decode steps arriving one token at a time">
+    <noscript><img src="../assets/edu-prefill-decode.svg" alt="One request, two phases: a wide compute-bound prefill then narrow bandwidth-bound decode steps"></noscript>
+  </div>
   <figcaption>A long prompt with a short answer is a prefill problem. A short prompt with a long answer is a decode problem.</figcaption>
 </figure>
 <p>Every request has two phases with completely different characteristics, and almost every
@@ -443,7 +449,12 @@ language models on hardware you control.</p>
 
 <h2 id="edu-batch"><i class="chip"></i>Learn: batching and throughput</h2>
 <figure>
-  <img src="../assets/edu-batching.svg" alt="Static batching idling until the slowest request finishes, against continuous batching refilling each slot" loading="lazy">
+  <div class="anim" data-svg="../assets/edu-batching.svg" role="img"
+       aria-label="Animated: two timelines on one clock — static batching idles until the slowest
+                   request finishes, while continuous batching drops a new request into each slot
+                   the moment it frees">
+    <noscript><img src="../assets/edu-batching.svg" alt="Static batching idling until the slowest request finishes, against continuous batching refilling each slot"></noscript>
+  </div>
   <figcaption>Same tokens, same GPU. The shaded time is what static batching throws away.</figcaption>
 </figure>
 <p>Because decode is bandwidth-bound, serving one user wastes the machine — you read 30 GB of weights
@@ -467,12 +478,14 @@ language models on hardware you control.</p>
   trivial amount of maths with what it read. The engines are not the bottleneck; the trip to memory
   is. At one user, <strong>about one of an H100's 132 engines has work</strong>.</p>
 <figure>
-  <img src="../assets/edu-silicon.svg" loading="lazy"
-       alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks
-            filled with weights and KV cache; and a bar chart showing compute utilisation rising
-            with batch size but stopping at 6.1% where the KV cache exhausts memory">
-  <figcaption>One lit square out of 132. The compute is idle, the memory pipe is saturated, and
-    batching cannot fix it — the KV cache fills the HBM at batch 18.</figcaption>
+  <div class="anim" data-svg="../assets/edu-silicon.svg" role="img"
+       aria-label="An H100 drawn as a chip package with 132 engine squares, one of them lit;
+                   then why — reading all 30.5 GB of the model produces a single word; then the
+                   fix and its ceiling: 18 people share that one read, a 19th does not fit">
+    <noscript><img src="../assets/edu-silicon.svg" alt="One lit engine out of 132, because one word costs a whole 30.5 GB read"></noscript>
+  </div>
+  <figcaption>One lit engine out of 132 — and batching only gets you to eighteen people
+    before the conversation cache fills the card.</figcaption>
 </figure>
 <p>Which is why you serve people in batches: eighteen users share that one read and get eighteen
   words out of it. And then it stops — a nineteenth needs 72.5&nbsp;GB on a card that has 72, because
@@ -1131,6 +1144,58 @@ report.commercially_clean()   <span class="c"># permissive licence AND verified 
     lab.addEventListener('change', draw);
     draw();
   })();
+</script>
+<script>
+// Animated diagrams are INLINED, not referenced with <img>.
+//
+// An SVG loaded via <img> becomes its own image/svg+xml document, and that
+// document's animation timeline never starts — measured at 0 while the host
+// page's advanced normally. Neither CSS keyframes nor SMIL survive it; both
+// paint frame one and freeze. Only sharing this document's timeline animates.
+//
+// Fetched at runtime so these can never drift from what tools/diagrams.py
+// generates, and each is scoped to its own id: the SVGs define :root variables
+// named --panel, --ink and --ink2, and this page defines its own with the same
+// names, so inlining unscoped would repaint the site.
+(async () => {
+  const hosts = [...document.querySelectorAll('.anim[data-svg]')];
+  await Promise.all(hosts.map(async (host, i) => {
+    const id = 'anim-' + i;
+    host.id = id;
+    try {
+      const doc = new DOMParser().parseFromString(
+        await (await fetch(host.dataset.svg)).text(), 'image/svg+xml');
+      const el = doc.documentElement;
+      if (el.nodeName === 'parsererror') return;
+
+      // Walked through the CSSOM rather than rewritten with a regex: a regex
+      // that prefixes "every selector before a {" also prefixes the from{ and
+      // to{ inside @keyframes, which silently kills the animation and leaves a
+      // perfectly scoped, completely static picture.
+      el.querySelectorAll('style').forEach(s => {
+        const probe = document.createElement('style');
+        probe.textContent = s.textContent;
+        document.head.appendChild(probe);
+        const scope = rules => [...rules].map(r => {
+          if (r.type === CSSRule.KEYFRAMES_RULE) return r.cssText;
+          if (r.type === CSSRule.MEDIA_RULE)
+            return '@media ' + r.conditionText + '{' + scope(r.cssRules) + '}';
+          if (r.type === CSSRule.STYLE_RULE)
+            return r.selectorText.split(',')
+              .map(x => x.trim() === ':root' ? '#' + id : '#' + id + ' ' + x.trim())
+              .join(',') + '{' + r.style.cssText + '}';
+          return r.cssText;
+        }).join('');
+        const scoped = scope(probe.sheet.cssRules);
+        probe.remove();
+        s.textContent = scoped;
+      });
+      el.removeAttribute('width'); el.removeAttribute('height');
+      el.setAttribute('style', 'width:100%;height:auto;display:block');
+      host.replaceChildren(el);
+    } catch { /* the <noscript> image stands in */ }
+  }));
+})();
 </script>
 </body>
 </html>
