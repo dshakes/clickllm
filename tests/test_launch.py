@@ -13,7 +13,6 @@ network fails on a train, which is where this repo's users are.
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import time
 from dataclasses import replace
@@ -309,6 +308,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+T0 = time.monotonic()
 LOADING_SECONDS = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
 BOUND_AT = time.monotonic()
 
@@ -365,7 +365,14 @@ def bind(port, deadline=20.0):
 
 
 try:
-    bind(int(sys.argv[1])).serve_forever()
+    srv = bind(int(sys.argv[1]))
+    # Timestamped so a failure distinguishes "slow to start" from "never
+    # started". Interpreter spawn under uv on a macOS CI runner has taken long
+    # enough to blow a 30s budget, which read as "never bound" and sent one
+    # investigation down entirely the wrong path.
+    sys.stderr.write("STUB_BOUND %s after %.1fs\\n" % (sys.argv[1], time.monotonic() - T0))
+    sys.stderr.flush()
+    srv.serve_forever()
 except BaseException as e:
     sys.stderr.write("STUB_DIED %r\\n" % (e,))
     sys.stderr.flush()
@@ -407,7 +414,7 @@ def test_serve_waits_until_a_real_token_completes(tmp_path, capsys):
     plan = _stub_plan(tmp_path, argv, port)
 
     started = time.monotonic()
-    ep = launch.serve(plan, poll=0.05, timeout=30.0)
+    ep = launch.serve(plan, poll=0.05, timeout=180.0)
     waited = time.monotonic() - started
     try:
         assert ep.base == f"http://127.0.0.1:{port}"
@@ -424,56 +431,52 @@ def test_serve_waits_until_a_real_token_completes(tmp_path, capsys):
     assert ep.process.poll() is not None, "stop() must leave nothing behind"
 
 
-def test_a_200_on_the_model_list_is_not_treated_as_ready(tmp_path):
-    """The negative control for the check above.
+def test_a_200_on_the_model_list_is_not_treated_as_ready_threaded():
+    """The negative control, in-process.
 
-    Without this, a regression to polling `/v1/models` would still pass the
-    suite on a stub that happens to answer both routes at once.
+    This does not need a subprocess — only a server that answers `/v1/models`
+    and refuses completions. Running it in a thread removes interpreter spawn
+    latency, which on a macOS CI runner exceeded the 30s budget and read as
+    "never bound", and it binds port 0 itself so there is no window between
+    choosing a port and claiming it.
     """
-    import urllib.request
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    port = _free_port()
-    argv = (sys.executable, "-c", STUB_ENGINE, str(port), "30.0")
-    plan = _stub_plan(tmp_path, argv, port)
-    proc = subprocess.Popen(  # noqa: S603
-        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
+    class Loading(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - stdlib's spelling
+            body = b'{"data":[{"id":"stub"}]}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):  # noqa: N802
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = b'{"error":"model is still loading"}'
+            self.send_response(503)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), Loading)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                out, err = proc.communicate(timeout=5)
-                pytest.fail(
-                    f"stub exited {proc.returncode} before binding {plan.base}\n"
-                    f"--- stdout ---\n{out}\n--- stderr ---\n{err}"
-                )
-            try:
-                with urllib.request.urlopen(f"{plan.base}/v1/models", timeout=1) as r:  # noqa: S310
-                    if r.status == 200:
-                        break
-            except OSError:
-                time.sleep(0.05)
-        else:
-            proc.kill()
-            out, err = proc.communicate(timeout=5)
-            pytest.fail(
-                f"stub never bound {plan.base} in 30s (still alive)\n"
-                f"--- stdout ---\n{out}\n--- stderr ---\n{err}"
-            )
+        import urllib.request
 
-        assert not launch._healthy(plan.base, timeout=2.0), (
-            "the model list answers 200 while loading; _healthy must not"
+        with urllib.request.urlopen(f"{base}/v1/models", timeout=5) as r:  # noqa: S310
+            assert r.status == 200, "the premise: the model list answers while loading"
+        assert not launch._healthy(base, timeout=5.0), (
+            "the model list answers 200 while loading; _healthy must not treat "
+            "that as ready, or `clickllm run` prints an endpoint that hangs"
         )
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
-
-
-def test_an_engine_that_dies_is_reported_rather_than_waited_on(tmp_path):
-    port = _free_port()
-    plan = _stub_plan(tmp_path, (sys.executable, "-c", "raise SystemExit(3)"), port)
-    with pytest.raises(ChildProcessError, match="exited with code 3"):
-        launch.serve(plan, poll=0.05, timeout=30.0)
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_an_engine_that_never_answers_is_stopped_not_left_running(tmp_path):

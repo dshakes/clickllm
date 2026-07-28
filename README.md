@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-799-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-798-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -386,7 +386,12 @@ getting the three formulas above wrong costs hardware rather than just accuracy.
 
 Purple is the live request. Green is the control loop deciding what it's allowed to hit. **They never cross.**
 
-**Rust** for the datapath and weights path — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
+**Rust** for the datapath — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
+
+Weights are **not** on either path. The serving engines fetch them from the Hub
+themselves, so clickllm resolves *which* repo and then gets out of the way —
+`clickllm cache` manages the cache they fill rather than keeping a second one.
+That reversed an earlier decision; [ADR-0010](docs/adr/0010-retire-the-weights-crate.md) records why.
 
 ---
 
@@ -431,7 +436,7 @@ cargo clippy --all-targets -- -D warnings
 uv run --with pytest --python 3.13 pytest -q       # 419 Python
 ```
 
-**799 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**798 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-core/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
