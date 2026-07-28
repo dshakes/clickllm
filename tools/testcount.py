@@ -101,7 +101,10 @@ def write_split(rust: int, py: int) -> list[str]:
         path = ROOT / rel
         text = path.read_text()
         n = rust if which == "rust" else py
-        new = re.sub(pattern, lambda m: f"{m.group(1)}{n}{m.group(3)}", text, count=1)
+        # `n` bound as a default, not captured: the closure outlives the loop
+        # iteration that made it, and a late-bound `n` would write the last
+        # runner's count onto every surface.
+        new = re.sub(pattern, lambda m, n=n: f"{m.group(1)}{n}{m.group(3)}", text, count=1)
         if new != text:
             path.write_text(new)
             changed.append(f"{rel}:{which}")
