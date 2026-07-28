@@ -69,6 +69,101 @@ impl Device {
     }
 }
 
+/// Host CPU and RAM, read from the kernel rather than a vendor tool.
+///
+/// Modest on purpose. The interesting failure is not "the box is busy" — it is
+/// **the box is busy and the GPU is idle**, which means the accelerator is
+/// waiting on the host: tokenisation, the sampler, or a data loader. That is a
+/// real and commonly misdiagnosed shape, and it needs both halves to see.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct System {
+    /// Logical CPUs.
+    pub cpus: Option<usize>,
+    /// 1-minute load average, where the platform exposes one.
+    pub load_1m: Option<f64>,
+    /// Load average per CPU — the figure that is comparable across machines.
+    pub load_per_cpu: Option<f64>,
+    /// Total RAM, MiB.
+    pub memory_total_mib: Option<u64>,
+    /// Available RAM, MiB.
+    pub memory_available_mib: Option<u64>,
+}
+
+impl System {
+    /// Fraction of RAM in use, when both figures are known.
+    pub fn memory_used(&self) -> Option<f64> {
+        let (t, a) = (self.memory_total_mib?, self.memory_available_mib?);
+        (t > 0).then(|| (t.saturating_sub(a)) as f64 / t as f64)
+    }
+
+    /// Whether the host looks saturated enough to be starving the accelerator.
+    ///
+    /// `None` when load is unreadable — not `false`, which would read as "the
+    /// host is fine" on a platform we simply could not measure.
+    pub fn cpu_bound(&self) -> Option<bool> {
+        self.load_per_cpu.map(|l| l >= 0.90)
+    }
+}
+
+/// Read CPU count, load average and memory from the kernel.
+///
+/// Every field is independently optional: `/proc/meminfo` exists on Linux and
+/// not macOS, load average is the reverse of that on Windows. A partial answer
+/// is more useful than an all-or-nothing one.
+pub fn system() -> System {
+    let cpus = std::thread::available_parallelism().ok().map(Into::into);
+    let load_1m = read_loadavg();
+    let (memory_total_mib, memory_available_mib) = read_meminfo();
+    System {
+        cpus,
+        load_1m,
+        load_per_cpu: match (load_1m, cpus) {
+            (Some(l), Some(c)) if c > 0 => Some(l / c as f64),
+            _ => None,
+        },
+        memory_total_mib,
+        memory_available_mib,
+    }
+}
+
+/// 1-minute load average. Linux exposes it as a file; elsewhere we decline.
+fn read_loadavg() -> Option<f64> {
+    std::fs::read_to_string("/proc/loadavg")
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Total and available RAM in MiB, from `/proc/meminfo`.
+///
+/// `MemAvailable` rather than `MemFree`: free memory on a busy Linux box is
+/// near zero because the page cache holds the rest, and reporting that as
+/// pressure would be alarming and wrong.
+fn read_meminfo() -> (Option<u64>, Option<u64>) {
+    let Ok(text) = std::fs::read_to_string("/proc/meminfo") else {
+        return (None, None);
+    };
+    let field = |key: &str| {
+        text.lines()
+            .find(|l| l.starts_with(key))?
+            .split_whitespace()
+            .nth(1)?
+            .parse::<u64>()
+            .ok()
+            // KiB → MiB. Truncation is the intent: a fractional MiB in a
+            // capacity readout is noise, not precision.
+            .map(|kib| {
+                #[allow(clippy::integer_division)]
+                {
+                    kib / 1024
+                }
+            })
+    };
+    (field("MemTotal:"), field("MemAvailable:"))
+}
+
 /// Whether host stats could be read at all.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "status")]
@@ -112,6 +207,31 @@ impl Support {
     /// is nearly full while the engine's own cache is not, the remainder belongs
     /// to something else on the box.
     ///
+    /// Whether the host is saturated while the accelerator is not.
+    ///
+    /// The misdiagnosis this exists to prevent: a GPU sitting at 20% while the
+    /// CPU is pinned means the accelerator is *waiting on the host* —
+    /// tokenisation, sampling, a data loader — and no engine flag fixes it.
+    /// People buy bigger GPUs for this.
+    pub fn starved_by_host(&self, sys: &System) -> Option<String> {
+        let busy = sys.cpu_bound()?;
+        let gpu = self
+            .devices()
+            .iter()
+            .map(|d| d.utilisation_pct)
+            .max()
+            .map(f64::from)?;
+        (busy && gpu < 50.0).then(|| {
+            format!(
+                "the host is at {:.2} load per CPU while the busiest accelerator is \
+                 only {gpu:.0}% utilised. The GPU is waiting on the host — \
+                 tokenisation, sampling or data loading — and a bigger card will \
+                 not fix that.",
+                sys.load_per_cpu.unwrap_or(0.0)
+            )
+        })
+    }
+
     /// `None` when either side is unknown — an unknown must not be reported as
     /// "nothing else is running".
     pub fn foreign_memory(&self, engine_kv_used: Option<f64>) -> Option<String> {
@@ -339,6 +459,103 @@ mod tests {
                 "an unavailable reason must be a sentence: {reason}"
             ),
         }
+    }
+
+    #[test]
+    fn system_stats_are_partial_rather_than_all_or_nothing() {
+        // /proc/meminfo exists on Linux and not macOS; load average is the
+        // reverse on Windows. A partial answer beats an empty one.
+        let s = system();
+        assert!(s.cpus.is_some(), "CPU count is available on every platform");
+        if let Some(l) = s.load_1m {
+            assert!(l >= 0.0);
+            assert!(s.load_per_cpu.is_some(), "per-CPU load follows from both");
+        }
+        if s.memory_total_mib.is_some() {
+            assert!(s.memory_used().is_some());
+        }
+    }
+
+    #[test]
+    fn an_unmeasurable_host_is_unknown_rather_than_healthy() {
+        // `false` here would read as "the host is fine" on a platform we simply
+        // could not measure — the same mistake as reporting 0% KV usage.
+        let blank = System {
+            cpus: Some(8),
+            load_1m: None,
+            load_per_cpu: None,
+            memory_total_mib: None,
+            memory_available_mib: None,
+        };
+        assert_eq!(blank.cpu_bound(), None);
+        assert_eq!(blank.memory_used(), None);
+    }
+
+    #[test]
+    fn memory_used_is_computed_from_available_not_free() {
+        // MemFree on a busy Linux box is near zero because the page cache holds
+        // the rest; reporting that as pressure would be alarming and wrong.
+        let s = System {
+            cpus: Some(8),
+            load_1m: None,
+            load_per_cpu: None,
+            memory_total_mib: Some(64_000),
+            memory_available_mib: Some(48_000),
+        };
+        assert!((s.memory_used().unwrap() - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_busy_host_with_an_idle_gpu_is_named_as_host_starvation() {
+        // The misdiagnosis this prevents: people buy bigger cards for this.
+        let idle_gpu = Support::Available {
+            devices: vec![parse_row("0, L4, 100, 24000, 12, 40, 60.0").unwrap()],
+        };
+        let pinned = System {
+            cpus: Some(8),
+            load_1m: Some(9.6),
+            load_per_cpu: Some(1.2),
+            memory_total_mib: Some(64_000),
+            memory_available_mib: Some(8_000),
+        };
+        let found = idle_gpu.starved_by_host(&pinned).unwrap();
+        assert!(found.contains("waiting on the host"), "{found}");
+        assert!(found.contains("bigger card will not fix"), "{found}");
+    }
+
+    #[test]
+    fn a_busy_host_with_a_busy_gpu_is_not_starvation() {
+        let busy_gpu = Support::Available {
+            devices: ROWS.lines().filter_map(parse_row).collect(),
+        };
+        let pinned = System {
+            cpus: Some(8),
+            load_1m: Some(9.6),
+            load_per_cpu: Some(1.2),
+            memory_total_mib: None,
+            memory_available_mib: None,
+        };
+        // 97% GPU utilisation: the host being busy is expected, not a finding.
+        assert_eq!(busy_gpu.starved_by_host(&pinned), None);
+    }
+
+    #[test]
+    fn starvation_is_silent_when_either_side_is_unknown() {
+        let gpu = Support::Available {
+            devices: ROWS.lines().filter_map(parse_row).collect(),
+        };
+        let unknown = System {
+            cpus: Some(8),
+            load_1m: None,
+            load_per_cpu: None,
+            memory_total_mib: None,
+            memory_available_mib: None,
+        };
+        assert_eq!(gpu.starved_by_host(&unknown), None);
+        assert_eq!(
+            Support::Unavailable { reason: "x".into() }.starved_by_host(&unknown),
+            None
+        );
     }
 
     #[test]

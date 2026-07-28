@@ -340,10 +340,16 @@ async fn engine_telemetry(State(st): State<Arc<AppState>>) -> Json<serde_json::V
             reason: "host probe task failed".into(),
         });
     let host_peak = host.peak_memory_used();
+    let sys = crate::host::system();
+    // Host starvation is a property of the machine, not of any one backend, so
+    // it is reported once rather than repeated per backend.
+    let starved = host.starved_by_host(&sys);
 
     Json(serde_json::json!({
         "source": crate::telemetry::SOURCE,
         "host": host,
+        "system": sys,
+        "host_starvation": starved,
         "backends": readings
             .into_iter()
             .map(|(name, snap)| {

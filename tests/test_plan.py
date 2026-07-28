@@ -335,3 +335,83 @@ def test_an_mla_model_on_tpu_is_flagged_rather_than_silently_planned():
 def test_a_cuda_plan_carries_no_tpu_notes():
     p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=8))
     assert not any("TPU" in n or "tpu-inference" in n for n in p.notes)
+
+
+# --- KV cache dtype ------------------------------------------------------------
+# The one setting with a real accuracy cost, so it is offered only when KV is
+# what actually binds. Values verified against vLLM's quantized-KV-cache page.
+
+
+def _with_model(concurrency: int, context: int, hw: Hardware = H100):
+    from clickllm.catalog import load
+
+    m = load()[0]
+    return plan(
+        hw,
+        Requirements(Workload.INTERACTIVE, concurrency=concurrency, context=context),
+        model=m,
+        quant=m.quants[0],
+    )
+
+
+def test_fp8_kv_is_not_offered_when_weights_are_what_bind():
+    # Taking an accuracy risk to save memory nobody needed is a bad trade, and
+    # a tuner that always suggests it is one that cannot be trusted when it does.
+    p = _with_model(concurrency=1, context=4096)
+    assert p.get(Setting.KV_CACHE_DTYPE) is None
+
+
+def test_fp8_kv_is_offered_when_the_cache_dominates_the_budget():
+    p = _with_model(concurrency=32, context=32_768)
+    k = knob(p, Setting.KV_CACHE_DTYPE)
+    assert k.value == "fp8_e4m3", "e4m3 also works on ROCm; e5m2 is CUDA-only"
+    assert "% of the memory budget" in k.why
+
+
+def test_the_accuracy_cost_is_stated_not_buried():
+    # vLLM publishes no quantitative accuracy claim for this, so neither do we.
+    k = knob(_with_model(32, 32_768), Setting.KV_CACHE_DTYPE)
+    assert "accuracy cost" in k.why
+    assert "no quantitative claim" in k.why
+    assert "Prove it before you trust it" in k.why
+
+
+def test_fp8_kv_is_never_offered_without_a_model_to_size_against():
+    # No sizing means no basis for claiming KV is the constraint.
+    assert (
+        plan(H100, Requirements(Workload.BATCH, concurrency=64)).get(Setting.KV_CACHE_DTYPE) is None
+    )
+
+
+def test_fp8_kv_is_not_claimed_on_tpu():
+    # TPU's KV quantisation path is its own support matrix and is not verified
+    # here, so it is absent rather than assumed to work.
+    p = plan(TPU_V6E, Requirements(Workload.INTERACTIVE, concurrency=64, context=32_768))
+    assert p.get(Setting.KV_CACHE_DTYPE) is None
+
+
+def test_every_setting_the_adapter_supports_is_reachable_from_some_plan():
+    """No dead capability: an adapter that can express a setting no planner ever
+    emits is a feature that exists only in tests."""
+    from dataclasses import replace
+
+    from clickllm.catalog import load
+
+    m = load()[0]
+    reachable: set[Setting] = set()
+    for hw in (H100, replace(H100, devices=4)):
+        for w in Workload:
+            for structured in (False, True):
+                for conc, ctx in ((8, 8192), (32, 32_768)):
+                    p = plan(
+                        hw,
+                        Requirements(
+                            w, concurrency=conc, context=ctx, structured_output=structured
+                        ),
+                        model=m,
+                        quant=m.quants[0],
+                    )
+                    reachable |= {k.name for k in p.knobs}
+    assert reachable == set(Setting), (
+        f"never emitted: {sorted(x.value for x in set(Setting) - reachable)}"
+    )

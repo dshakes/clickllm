@@ -90,6 +90,14 @@ MEMORY_SAFETY_MARGIN = 0.08
 #: monopolise a scheduler step, large enough not to shred prefill throughput.
 PREFILL_CHUNK_TOKENS = 2048
 
+#: KV cache fraction above which fp8 is worth its accuracy question.
+#:
+#: Below this, KV is not the binding constraint and halving it buys nothing that
+#: matters — so the accuracy risk is taken for no reason. This is the threshold
+#: at which the trade becomes worth *asking about*, not the point at which it is
+#: automatically correct.
+KV_PRESSURE_FOR_FP8 = 0.45
+
 #: TPU generations vLLM lists as recommended rather than experimental.
 #: Verified 2026-07-27 against docs.vllm.ai/projects/tpu — v3, v4 and v5p are
 #: experimental, which is a materially different promise and worth surfacing.
@@ -426,6 +434,49 @@ def _prefix_caching(req: Requirements) -> Knob:
     )
 
 
+def _kv_cache_dtype(req: Requirements, fit: Fit | None, engine: Engine) -> Knob | None:
+    """Quantise the KV cache — but only when KV is what is actually binding.
+
+    fp8 roughly halves KV memory, which is the difference between fitting a
+    workload and not. It is also the one knob here with a real accuracy question:
+    vLLM's own documentation makes **no quantitative accuracy claim**, notes that
+    some layers are more sensitive, and points at dataset calibration for the
+    highest quality.
+
+    So this is offered only when KV dominates the memory budget, and the reason
+    says what is being traded rather than presenting it as free. Where KV is a
+    small share, enabling it would take an accuracy risk to save memory nobody
+    needed.
+
+    Values verified against vLLM's quantized-KV-cache page (2026-07-27):
+    `fp8_e4m3` is CUDA 11.8+ and ROCm, `fp8_e5m2` is CUDA only.
+    """
+    if fit is None or engine is Engine.VLLM_TPU:
+        # No sizing means no basis; TPU's KV path is its own matrix and is not
+        # claimed here. Absent is the honest answer for both.
+        return None
+
+    total = fit.weight_bytes + fit.kv_bytes + fit.overhead_bytes
+    if total <= 0:
+        return None
+    kv_share = fit.kv_bytes / total
+    if kv_share < KV_PRESSURE_FOR_FP8:
+        return None
+
+    saved = fit.kv_bytes / 2 / 2**30
+    return Knob(
+        Setting.KV_CACHE_DTYPE,
+        "fp8_e4m3",
+        f"the KV cache is {kv_share:.0%} of the memory budget, so it — not the "
+        f"weights — is what limits this deployment. fp8 roughly halves it, "
+        f"freeing about {saved:.0f} GiB for more context or more concurrency. "
+        f"This is the one setting here with a real accuracy cost: vLLM publishes "
+        f"no quantitative claim, some layers are more sensitive than others, and "
+        f"the default scales are trivial unless you calibrate. Prove it before "
+        f"you trust it. e4m3 rather than e5m2 because it also works on ROCm.",
+    )
+
+
 def _tensor_parallel(hw: Hardware, fit: Fit | None) -> Knob | None:
     """Shard across devices only when one will not do.
 
@@ -573,6 +624,8 @@ def plan(
         _speculative(req, fit),
         _memory_utilization(fit),
     ]
+    if (kv := _kv_cache_dtype(req, fit, engine)) is not None:
+        knobs.append(kv)
     if (tp := _tensor_parallel(hw, fit)) is not None:
         knobs.append(tp)
     if (sd := _structured(req, engine)) is not None:
