@@ -229,3 +229,26 @@ def test_animated_marks_stay_visible_without_css_animation():
         rule = re.search(r"\.pop\{([^}]*)\}", svg).group(1)
         assert "opacity:0" not in rule, f"{name}: {rule}"
         assert "both" in rule, f"{name}: needs backwards fill for the hidden state"
+
+
+# --- a CSS class silently beats an SVG fill attribute --------------------------
+
+
+def test_no_diagram_sets_a_fill_attribute_that_its_class_overrides():
+    """`<text class="lb" fill="var(--bg)">` renders in the CLASS's colour, not the
+    attribute's — a CSS rule beats a presentation attribute. Every such pairing
+    was silently discarded, and 11 labels in one diagram alone were rendering in
+    the wrong colour: dark-for-contrast text on a mid-tone bar came out light
+    grey and unreadable. Nothing errors, so only looking at it finds this.
+
+    The fix is an inline `style`, which does beat the class. This keeps it fixed.
+    """
+    styled = re.compile(r'class="(?:lb|ax|m|note|sub)"')
+    assets = (Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg")
+    offenders = []
+    for f in assets:
+        for tag in re.finditer(r"<text[^>]*>", f.read_text()):
+            s = tag.group(0)
+            if styled.search(s) and re.search(r'\sfill="', s):
+                offenders.append(f"{f.name}: {s[:70]}")
+    assert not offenders, "fill attribute will be ignored — use style=:\n" + "\n".join(offenders)

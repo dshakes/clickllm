@@ -143,40 +143,40 @@
 <rect x="266" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
 <rect x="290" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
 <rect x="314" y="370" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
-<text x="398" y="180" class="t" fill="var(--s2)" font-size="34">1 of 132</text>
+<text x="398" y="180" class="t" style="fill:var(--s2)" font-size="34">1 of 132</text>
 <text x="398" y="208" class="lb">engines busy</text>
 <text x="398" y="248" class="ax">The other 131 are not working on</text>
 <text x="398" y="267" class="ax">anything. They are waiting for the</text>
 <text x="398" y="286" class="ax">memory to hand them the next piece</text>
 <text x="398" y="305" class="ax">of the model.</text>
-<text x="398" y="342" class="lb" fill="var(--s0)">So the GPU is not the slow part.</text>
-<text x="398" y="362" class="lb" fill="var(--s0)">The memory is.</text>
+<text x="398" y="342" class="lb" style="fill:var(--s0)">So the GPU is not the slow part.</text>
+<text x="398" y="362" class="lb" style="fill:var(--s0)">The memory is.</text>
 <text x="28" y="442" class="lb">Because one word costs a whole read</text>
 <rect x="28.0" y="460.0" width="470.0" height="46.0" rx="4" fill="var(--s1)"/>
-<text x="263" y="488" class="lb" text-anchor="middle" fill="var(--bg)">read all 30.5 GB of the model</text>
+<text x="263" y="488" class="lb" text-anchor="middle" style="fill:var(--bg)">read all 30.5 GB of the model</text>
 <path d="M 508 477 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
 <rect x="530.0" y="460.0" width="66.0" height="46.0" rx="4" fill="var(--s3)"/>
-<text x="563" y="488" class="ax" text-anchor="middle" fill="var(--bg)">a little</text>
+<text x="563" y="488" class="ax" text-anchor="middle" style="fill:var(--bg)">a little</text>
 <path d="M 606 477 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
 <rect x="628.0" y="460.0" width="54.0" height="46.0" rx="4" fill="var(--s2)"/>
-<text x="655" y="488" class="ax" text-anchor="middle" fill="var(--bg)">1 word</text>
+<text x="655" y="488" class="ax" text-anchor="middle" style="fill:var(--bg)">1 word</text>
 <text x="700" y="481" class="ax">and then it starts</text>
 <text x="700" y="498" class="ax">again for word two.</text>
 <text x="28" y="548" class="lb">Which is why you serve people in batches</text>
 <text x="132" y="584" class="ax" text-anchor="end">1 person</text>
 <rect x="146.0" y="568.0" width="200.0" height="22.0" rx="4" fill="var(--s1)"/>
-<text x="246" y="584" class="ax" text-anchor="middle" fill="var(--bg)">read 30.5 GB</text>
+<text x="246" y="584" class="ax" text-anchor="middle" style="fill:var(--bg)">read 30.5 GB</text>
 <rect x="358.0" y="568.0" width="96.0" height="22.0" rx="4" fill="var(--s2)"/>
-<text x="406" y="584" class="ax" text-anchor="middle" fill="var(--bg)">1 word</text>
+<text x="406" y="584" class="ax" text-anchor="middle" style="fill:var(--bg)">1 word</text>
 <text x="132" y="618" class="ax" text-anchor="end">18 people</text>
 <rect x="146.0" y="602.0" width="200.0" height="22.0" rx="4" fill="var(--s1)"/>
-<text x="246" y="618" class="ax" text-anchor="middle" fill="var(--bg)">read 30.5 GB</text>
+<text x="246" y="618" class="ax" text-anchor="middle" style="fill:var(--bg)">read 30.5 GB</text>
 <rect x="358.0" y="602.0" width="96.0" height="22.0" rx="4" fill="var(--s2)"/>
-<text x="406" y="618" class="ax" text-anchor="middle" fill="var(--bg)">18 words</text>
+<text x="406" y="618" class="ax" text-anchor="middle" style="fill:var(--bg)">18 words</text>
 <text x="470" y="618" class="ax">the same read, 18x the output</text>
 <text x="132" y="652" class="ax" text-anchor="end">19 people</text>
 <rect x="146" y="636" width="308" height="22" rx="4" fill="none" stroke="var(--s3)" stroke-dasharray="5 4"/>
-<text x="300" y="652" class="ax" text-anchor="middle" fill="var(--s3)">no room left</text>
+<text x="300" y="652" class="ax" text-anchor="middle" style="fill:var(--s3)">no room left</text>
 <text x="470" y="652" class="ax">needs 72.5 GB, the card has 72</text>
 <text x="28" y="696" class="note">Batching is the whole game, and the conversation cache is what ends it: every extra person needs their own copy, so</text>
 <text x="28" y="712" class="note">you run out of memory long before you run out of engines. Making that cache smaller — a lighter quantisation, a</text>

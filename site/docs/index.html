@@ -462,10 +462,10 @@ language models on hardware you control.</p>
   which is why that flag matters more than it looks.</p>
 
 <h4>So how much of the GPU are you actually using?</h4>
-<p>Uncomfortably little, and it is worth seeing the silicon to believe it. A decode step reads every
-  weight once and does two arithmetic operations with each one <em>per sequence in the batch</em>.
-  An H100 finishes compute and memory together at 295 operations per byte — so saturating its tensor
-  cores needs a batch of about 295. At batch 1 you are using <strong>0.3%</strong> of them.</p>
+<p>Uncomfortably little, and it is worth seeing the silicon to believe it. To produce a single word,
+  the GPU reads <em>the entire model</em> out of memory — all 30.5&nbsp;GB of it — and then does a
+  trivial amount of maths with what it read. The engines are not the bottleneck; the trip to memory
+  is. At one user, <strong>about one of an H100's 132 engines has work</strong>.</p>
 <figure>
   <img src="../assets/edu-silicon.svg" loading="lazy"
        alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks
@@ -474,12 +474,12 @@ language models on hardware you control.</p>
   <figcaption>One lit square out of 132. The compute is idle, the memory pipe is saturated, and
     batching cannot fix it — the KV cache fills the HBM at batch 18.</figcaption>
 </figure>
-<p>The second half is the part that makes it a sizing problem rather than a tuning one. Batching
-  <em>does</em> buy the compute back — but the KV cache is what pays for it, and on this workload
-  memory runs out at batch 18, or 6.1% of peak. The other 94% is not idle because nobody batched
-  hard enough; it is <strong>unreachable</strong> until something gives up memory: a smaller
-  quantisation, a shorter context, fp8 KV, or an <a href="#edu-kv">MLA</a> model whose cache is
-  ~50× smaller.</p>
+<p>Which is why you serve people in batches: eighteen users share that one read and get eighteen
+  words out of it. And then it stops — a nineteenth needs 72.5&nbsp;GB on a card that has 72, because
+  every extra person needs their own <a href="#edu-kv">conversation cache</a>. You run out of memory
+  long before you run out of engines, so making that cache smaller — a lighter quantisation, a
+  shorter context, an MLA model — is the same thing as <strong>buying more of the GPU you already
+  own</strong>.</p>
 <div class="note">
   <p><b>This is the whole reason the solver exists.</b> "Will it fit" and "will it be fast" are the
   same question asked twice, because the thing that decides both is how much memory the KV cache

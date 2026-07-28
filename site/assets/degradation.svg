@@ -23,7 +23,7 @@
 <text x="596" y="242" class="m">q4 · 8k context</text>
 <text x="186" y="288" class="lb" text-anchor="end">floor reached</text>
 <rect x="200" y="268" width="380" height="26" rx="4" fill="none" stroke="var(--s3)" stroke-dasharray="6 4"/>
-<text x="214" y="286" class="ax" fill="var(--s3)">below 2k — refuse</text>
+<text x="214" y="286" class="ax" style="fill:var(--s3)">below 2k — refuse</text>
 <text x="28" y="320" class="note">Every rung is reported, never applied silently. A deployment that serves 8k when it was built for 32k is fine if you</text>
 <text x="28" y="336" class="note">know; it is an incident if you do not.</text>
 </svg>
