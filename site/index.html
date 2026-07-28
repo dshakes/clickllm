@@ -12,174 +12,238 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
 <style>
+  /* ============================================================================
+     clickllm's own visual language, not a borrowed one.
+
+     The product is a *migration under proof*: expensive traffic on the left,
+     proven cheap traffic on the right, a gate in between. So the identity is
+     built from that rather than decorated onto it —
+
+       · a two-pole palette. Amber is the incumbent (warm, expensive, what you
+         are paying for); teal is the candidate (cool, proven, where you are
+         going). Every accent on the page is one pole or the other, so colour
+         carries the argument instead of just looking nice.
+       · a background that MIGRATES. Particles drift left→right along flow
+         lines and change pole as they cross the midline. It is the product,
+         running, behind the text.
+       · the confidence interval as a recurring mark — a bar with whiskers —
+         because "never a number without its interval" is the house rule.
+
+     Motion is real but slow and low-contrast; `prefers-reduced-motion` stops
+     all of it, including the canvas, which is switched off rather than merely
+     hidden.
+     ============================================================================ */
   :root{
-    --void:#04060c; --deep:#070b14; --panel:#0d1320; --panel2:#111a2b;
-    --ink:#eef4ff; --ink2:#9fb0cc; --ink3:#63758f;
-    --line:#1c2534; --line2:#243045;
-    --cyan:#22d3ee; --violet:#a78bfa; --emerald:#34d399; --amber:#fbbf24; --rose:#fb7185;
-    --max:1180px;
+    --void:#050a0f; --deep:#08111a; --panel:#0b1620; --panel2:#0f1e2b;
+    --ink:#e9f4f8; --ink2:#93aab8; --ink3:#5b7385;
+    --line:#152633; --line2:#1e3546;
+    /* the two poles */
+    --incumbent:#f0a340;      /* warm — what you pay for now */
+    --incumbent-dim:#7a5420;
+    --candidate:#2fd4c4;      /* cool — what you are proving */
+    --candidate-dim:#186b64;
+    --proof:#8fb3ff;          /* the evidence layer */
+    --alarm:#ff6b81;
+    --max:1160px;
   }
   *{box-sizing:border-box}
-  html{scroll-behavior:smooth; scroll-padding-top:88px}
+  html{scroll-behavior:smooth; scroll-padding-top:84px}
   body{
     margin:0; background:var(--void); color:var(--ink);
     font:16px/1.65 ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif;
     -webkit-font-smoothing:antialiased; overflow-x:hidden;
   }
   img{max-width:100%;height:auto}
-  a{color:var(--cyan);text-decoration:none}
+  a{color:var(--candidate);text-decoration:none}
   a:hover{text-decoration:underline}
   code,kbd{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.92em}
 
-  /* Background: a grid that fades out, plus two slow glows. Fixed so it does
-     not scroll — a moving grid behind text is nausea, not depth. */
+  /* --- the migrating background ------------------------------------------- */
+  #flow{position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.62}
   .bg{position:fixed;inset:0;z-index:-1;pointer-events:none}
+  /* A slow aurora that drifts along the migration axis. */
   .bg::before{
-    content:'';position:absolute;inset:0;
-    background-image:linear-gradient(var(--line) 1px,transparent 1px),
-                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
-    background-size:72px 72px; opacity:.28;
-    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 20%,transparent 78%);
-            mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 20%,transparent 78%);
+    content:'';position:absolute;inset:-20%;
+    background:
+      radial-gradient(closest-side,rgba(240,163,64,.13),transparent 72%),
+      radial-gradient(closest-side,rgba(47,212,196,.14),transparent 72%),
+      radial-gradient(closest-side,rgba(143,179,255,.08),transparent 70%);
+    background-size:52% 62%, 56% 58%, 44% 50%;
+    background-position:6% 8%, 84% 26%, 46% 76%;
+    background-repeat:no-repeat;
+    filter:blur(24px);
+    animation:drift 34s ease-in-out infinite alternate;
   }
+  @keyframes drift{
+    from{background-position:6% 8%, 84% 26%, 46% 76%}
+    to  {background-position:18% 20%, 70% 12%, 58% 64%}
+  }
+  /* A gate line down the middle of the hero — the thing traffic crosses. */
   .bg::after{
-    content:'';position:absolute;top:-22%;left:50%;transform:translateX(-50%);
-    width:1200px;height:900px;
-    background:radial-gradient(closest-side,rgba(34,211,238,.14),transparent 70%),
-               radial-gradient(closest-side,rgba(167,139,250,.12),transparent 70%);
-    background-position:20% 30%, 78% 12%; background-repeat:no-repeat;
-    background-size:60% 60%, 55% 55%;
-    filter:blur(10px);
+    content:'';position:absolute;top:0;bottom:0;left:50%;width:1px;
+    background:linear-gradient(180deg,transparent,var(--line2) 18%,var(--line2) 62%,transparent);
+    opacity:.5;
   }
 
   .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
 
-  nav{
-    position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
-    background:color-mix(in srgb,var(--void) 82%,transparent);
-    border-bottom:1px solid transparent; transition:border-color .3s;
-  }
+  /* --- nav ---------------------------------------------------------------- */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px) saturate(1.3);
+      background:color-mix(in srgb,var(--void) 78%,transparent);
+      border-bottom:1px solid transparent;transition:border-color .3s}
   nav.stuck{border-bottom-color:var(--line)}
-  .navin{max-width:var(--max);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:28px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:var(--ink)}
+  .navin{max-width:var(--max);margin:0 auto;padding:13px 24px;display:flex;align-items:center;gap:26px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:17px;color:var(--ink);
+         letter-spacing:-.01em}
   .brand:hover{text-decoration:none}
-  .mark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;
-        background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04060c;font-size:13px;font-weight:900}
-  .navlinks{display:flex;gap:22px;margin-left:auto;font-size:14.5px}
+  /* The mark IS the motif: incumbent dot, gate, candidate dot. */
+  .mark{display:flex;align-items:center;gap:3px}
+  .mark i{display:block;width:7px;height:7px;border-radius:50%}
+  .mark i:first-child{background:var(--incumbent)}
+  .mark i:nth-child(2){width:12px;height:1.5px;border-radius:0;background:var(--line2)}
+  .mark i:last-child{background:var(--candidate);box-shadow:0 0 10px rgba(47,212,196,.6)}
+  .navlinks{display:flex;gap:20px;margin-left:auto;font-size:14.5px}
   .navlinks a{color:var(--ink2)}
   .navlinks a:hover{color:var(--ink);text-decoration:none}
-  .cta{padding:9px 18px;border-radius:10px;font-size:14.5px;font-weight:600;
-       background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04060c}
-  .cta:hover{text-decoration:none;filter:brightness(1.1)}
+  .cta{padding:9px 17px;border-radius:8px;font-size:14.5px;font-weight:650;
+       color:var(--void);background:var(--candidate);
+       box-shadow:0 0 0 1px rgba(47,212,196,.5),0 8px 24px -12px rgba(47,212,196,.7)}
+  .cta:hover{text-decoration:none;filter:brightness(1.08)}
 
-  header{padding:76px 0 40px}
-  .pill{display:inline-flex;align-items:center;gap:9px;padding:6px 14px;border-radius:999px;
-        border:1px solid var(--line2);background:var(--panel);font-size:12.5px;color:var(--ink2);
-        font-family:ui-monospace,'SF Mono',Menlo,monospace}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--emerald);
-       box-shadow:0 0 0 3px rgba(52,211,153,.16)}
-  h1{font-size:clamp(36px,5.6vw,66px);line-height:1.04;letter-spacing:-.032em;
-     margin:26px 0 0;font-weight:800}
-  .grad{background:linear-gradient(115deg,var(--cyan),var(--violet) 55%,var(--rose));
+  /* --- hero --------------------------------------------------------------- */
+  header{padding:72px 0 40px}
+  .pill{display:inline-flex;align-items:center;gap:9px;padding:6px 13px;border-radius:6px;
+        border:1px solid var(--line2);background:var(--panel);font-size:12px;color:var(--ink2);
+        font-family:ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:.02em}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--candidate);
+       box-shadow:0 0 0 3px rgba(47,212,196,.15);animation:pulse 2.8s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  h1{font-size:clamp(35px,5.4vw,64px);line-height:1.03;letter-spacing:-.035em;
+     margin:24px 0 0;font-weight:800}
+  /* Not a rainbow gradient — the two poles, so the headline states the thesis. */
+  .grad{background:linear-gradient(100deg,var(--candidate),var(--proof) 70%);
         -webkit-background-clip:text;background-clip:text;color:transparent}
-  .lede{font-size:clamp(17px,2vw,20px);color:var(--ink2);max-width:640px;margin:24px 0 0}
+  .lede{font-size:clamp(17px,2vw,19.5px);color:var(--ink2);max-width:620px;margin:22px 0 0}
   .lede b{color:var(--ink)}
-  .chips{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 0}
-  .chip{padding:7px 14px;border-radius:9px;border:1px solid var(--line2);
-        background:var(--panel);font-size:13px;color:var(--ink2)}
+
+  /* The confidence-interval motif, used as a real element. */
+  .ci{display:flex;align-items:center;gap:0;margin:28px 0 0;max-width:560px}
+  .ci .whisk{width:1px;height:13px;background:var(--ink3)}
+  .ci .bar{height:1px;flex:1;background:linear-gradient(90deg,var(--ink3),var(--candidate))}
+  .ci .pt{width:9px;height:9px;border-radius:50%;background:var(--candidate);
+          box-shadow:0 0 12px rgba(47,212,196,.8);flex:none}
+  .cilabel{display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace;
+           font-size:11px;color:var(--ink3);max-width:560px;margin-top:7px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:9px;margin:26px 0 0}
+  .chip{padding:6px 13px;border-radius:6px;border:1px solid var(--line2);
+        background:var(--panel);font-size:12.5px;color:var(--ink2)}
   .chip b{color:var(--ink)}
-  .herogrid{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start}
+  .herogrid{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:start}
 
-  .term{border:1px solid var(--line2);border-radius:14px;background:#060a12;overflow:hidden;
-        box-shadow:0 24px 60px -30px rgba(0,0,0,.9)}
-  .termbar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);
+  /* --- terminal ----------------------------------------------------------- */
+  .term{border:1px solid var(--line2);border-radius:10px;background:#04090e;overflow:hidden;
+        box-shadow:0 30px 70px -34px rgba(0,0,0,.95),0 0 0 1px rgba(47,212,196,.06)}
+  .termbar{display:flex;align-items:center;gap:6px;padding:10px 13px;border-bottom:1px solid var(--line);
            background:var(--panel)}
-  .tl{width:11px;height:11px;border-radius:50%}
-  .termtitle{margin-left:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink3)}
-  .term pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,'SF Mono',Menlo,monospace;
-            font-size:12.5px;line-height:1.75;color:var(--ink2)}
-  .p{color:var(--emerald)} .u{color:var(--ink)} .c{color:var(--ink3)}
-  .k{color:var(--cyan)} .w{color:var(--amber)} .r{color:var(--rose)}
+  .tl{width:10px;height:10px;border-radius:50%}
+  .termtitle{margin-left:9px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink3)}
+  .term pre{margin:0;padding:15px 17px;overflow-x:auto;font-family:ui-monospace,'SF Mono',Menlo,monospace;
+            font-size:12.5px;line-height:1.72;color:var(--ink2)}
+  .p{color:var(--candidate)} .u{color:var(--ink)} .c{color:var(--ink3)}
+  .k{color:var(--candidate)} .w{color:var(--incumbent)} .r{color:var(--alarm)}
 
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:44px 0 0}
-  .stat{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:16px 18px}
-  .stat .n{font-size:26px;font-weight:750;letter-spacing:-.02em}
-  .stat .l{font-size:12px;color:var(--ink3);margin-top:2px}
+  /* --- stat strip --------------------------------------------------------- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:44px 0 0}
+  .stat{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:15px 17px;
+        position:relative;overflow:hidden}
+  .stat::after{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--candidate);
+               opacity:.55}
+  .stat .n{font-size:25px;font-weight:750;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .l{font-size:11.5px;color:var(--ink3);margin-top:2px}
 
-  section{padding:88px 0;border-top:1px solid var(--line)}
-  .eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.18em;
-           text-transform:uppercase;color:var(--ink3);margin:0 0 14px}
-  h2{font-size:clamp(27px,3.6vw,42px);line-height:1.12;letter-spacing:-.028em;margin:0;font-weight:750}
-  .sub{color:var(--ink2);max-width:680px;margin:16px 0 0;font-size:16.5px}
+  /* --- sections ----------------------------------------------------------- */
+  section{padding:86px 0;border-top:1px solid var(--line);position:relative}
+  .eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.2em;
+           text-transform:uppercase;color:var(--candidate);margin:0 0 13px;opacity:.85}
+  h2{font-size:clamp(26px,3.5vw,40px);line-height:1.11;letter-spacing:-.03em;margin:0;font-weight:750}
+  .sub{color:var(--ink2);max-width:680px;margin:15px 0 0;font-size:16.5px}
 
-  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:40px}
-  .card{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:22px}
-  .card h3{margin:14px 0 8px;font-size:18px;font-weight:650}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:38px}
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:21px;
+        transition:border-color .35s,transform .35s}
+  .card:hover{border-color:var(--line2);transform:translateY(-2px)}
+  .card h3{margin:13px 0 8px;font-size:17.5px;font-weight:650;letter-spacing:-.01em}
   .card p{margin:0;font-size:14.5px;color:var(--ink2)}
   .cardtop{display:flex;align-items:center;justify-content:space-between}
-  .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:17px;
+  .ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:16px;
        background:var(--panel2);border:1px solid var(--line2)}
-  .tag{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.08em;
-       padding:4px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--ink3)}
-  .tag.bad{color:var(--rose);border-color:rgba(251,113,133,.35)}
-  .tag.ok{color:var(--emerald);border-color:rgba(52,211,153,.35)}
-  .tag.warn{color:var(--amber);border-color:rgba(251,191,36,.35)}
+  .tag{font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.09em;
+       padding:4px 9px;border-radius:5px;border:1px solid var(--line2);color:var(--ink3)}
+  .tag.bad{color:var(--alarm);border-color:rgba(255,107,129,.32)}
+  .tag.ok{color:var(--candidate);border-color:rgba(47,212,196,.32)}
+  .tag.warn{color:var(--incumbent);border-color:rgba(240,163,64,.32)}
 
-  figure{margin:34px 0 0}
-  figure img{width:100%;border-radius:14px;border:1px solid var(--line);background:var(--panel)}
+  figure{margin:32px 0 0}
+  figure img{width:100%;border-radius:12px;border:1px solid var(--line);background:var(--panel)}
   figcaption{font-size:13px;color:var(--ink3);margin-top:10px;max-width:780px;line-height:1.6}
-  .gallery{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:40px}
+  .gallery{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:38px}
   .gallery figure{margin:0}
 
-  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:26px 0 0}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:24px 0 0}
   table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
   th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--ink3);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+  th{color:var(--ink3);font-weight:600;font-size:11.5px;letter-spacing:.07em;text-transform:uppercase}
 
-  .tabs{display:flex;gap:8px;margin:32px 0 14px;flex-wrap:wrap}
-  .tab{padding:8px 16px;border-radius:9px;border:1px solid var(--line2);background:var(--panel);
-       color:var(--ink2);font-size:14px;cursor:pointer;font-family:inherit}
-  .tab[aria-selected=true]{border-color:var(--cyan);color:var(--ink);background:var(--panel2)}
-  .cmd{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-radius:11px;
-       background:var(--panel);padding:14px 16px;margin-top:10px}
+  .tabs{display:flex;gap:7px;margin:30px 0 13px;flex-wrap:wrap}
+  .tab{padding:8px 15px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);
+       color:var(--ink2);font-size:13.5px;cursor:pointer;font-family:inherit;transition:.2s}
+  .tab[aria-selected=true]{border-color:var(--candidate);color:var(--ink);background:var(--panel2)}
+  .cmd{display:flex;align-items:center;gap:13px;border:1px solid var(--line);border-radius:9px;
+       background:var(--panel);padding:13px 15px;margin-top:9px}
   .cmd code{flex:1;overflow-x:auto;color:var(--ink);white-space:nowrap}
-  .copy{padding:6px 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);
+  .copy{padding:6px 12px;border-radius:6px;border:1px solid var(--line2);background:var(--panel2);
         color:var(--ink2);font-size:12.5px;cursor:pointer;font-family:inherit;flex:none}
-  .copy:hover{color:var(--ink)}
+  .copy:hover{color:var(--ink);border-color:var(--candidate)}
 
-  .note{border-left:3px solid var(--cyan);background:var(--panel);padding:16px 20px;
-        border-radius:0 12px 12px 0;margin-top:28px;font-size:14.5px;color:var(--ink2)}
+  .note{border-left:2px solid var(--candidate);background:var(--panel);padding:15px 19px;
+        border-radius:0 10px 10px 0;margin-top:26px;font-size:14.5px;color:var(--ink2)}
   .note b{color:var(--ink)}
-  .note.warn{border-left-color:var(--amber)}
+  .note.warn{border-left-color:var(--incumbent)}
   .note p{margin:0}
 
-  footer{border-top:1px solid var(--line);padding:40px 0 64px;color:var(--ink3);font-size:14px}
-  .foot{display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+  footer{border-top:1px solid var(--line);padding:38px 0 60px;color:var(--ink3);font-size:14px}
+  .foot{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
 
-  .rise{opacity:0;transform:translateY(18px);
-        transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+  .rise{opacity:0;transform:translateY(16px);
+        transition:opacity .75s cubic-bezier(.2,.7,.3,1),transform .75s cubic-bezier(.2,.7,.3,1)}
   .rise.in{opacity:1;transform:none}
   @media (prefers-reduced-motion:reduce){
     .rise{opacity:1;transform:none;transition:none}
+    .bg::before{animation:none}
+    .dot{animation:none}
+    #flow{display:none}
     html{scroll-behavior:auto}
   }
 
   @media (max-width:900px){
-    .herogrid{grid-template-columns:1fr;gap:32px}
+    .herogrid{grid-template-columns:1fr;gap:30px}
     .cards{grid-template-columns:1fr}
     .gallery{grid-template-columns:1fr}
     .stats{grid-template-columns:repeat(2,1fr)}
     .navlinks{display:none}
-    section{padding:60px 0}
-    header{padding:48px 0 24px}
+    section{padding:58px 0}
+    header{padding:44px 0 22px}
+    .bg::after{display:none}
   }
 </style>
 </head>
 <body>
+<canvas id="flow"></canvas>
 <div class="bg"></div>
 
 <nav id="nav"><div class="navin">
-  <a class="brand" href="#top"><span class="mark">◆</span>clickllm</a>
+  <a class="brand" href="#top"><span class="mark"><i></i><i></i><i></i></span>clickllm</a>
   <div class="navlinks">
     <a href="#problem">Why</a>
     <a href="#loop">The loop</a>
@@ -199,6 +263,12 @@
       <h1>You don't have a model&nbsp;problem.<br><span class="grad">You have a proof problem.</span></h1>
       <p class="lede">GLM-5.2 is MIT-licensed, 11× cheaper, and <b>probably</b> good enough.
         "Probably" is why you're still paying $18K a month.</p>
+      <div class="ci" aria-hidden="true">
+        <span class="whisk"></span><span class="bar"></span><span class="pt"></span>
+        <span class="bar" style="background:linear-gradient(90deg,var(--candidate),var(--ink3))"></span>
+        <span class="whisk"></span>
+      </div>
+      <div class="cilabel"><span>91%</span><span>the interval, not the point</span><span>96%</span></div>
       <div class="chips">
         <span class="chip"><b>your traffic</b>, not a benchmark</span>
         <span class="chip"><b>a rollback button</b>, not a leap</span>
@@ -546,6 +616,68 @@ if ('IntersectionObserver' in window) {
 
 const nav = document.getElementById('nav');
 addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { passive: true });
+</script>
+
+<script>
+// The background is the product: requests drifting from the incumbent pole to
+// the candidate pole, changing colour as they cross the gate at the midline.
+// Deliberately cheap — a few dozen particles on one canvas, paused when the tab
+// is hidden and never started at all under prefers-reduced-motion.
+(() => {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  const cv = document.getElementById('flow');
+  if (!cv || reduce.matches) return;
+  const ctx = cv.getContext('2d');
+  let w = 0, h = 0, dots = [], raf = 0;
+
+  const WARM = '240,163,64', COOL = '47,212,196';
+
+  function size(){
+    const d = Math.min(devicePixelRatio || 1, 2);
+    w = cv.width = innerWidth * d; h = cv.height = innerHeight * d;
+    cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    // Density scales with area, so a phone does not run a desktop's worth.
+    const n = Math.round(Math.min(46, (innerWidth * innerHeight) / 34000));
+    dots = Array.from({length: n}, () => spawn(true));
+  }
+  function spawn(anywhere){
+    return {
+      x: anywhere ? Math.random() * innerWidth : -20,
+      y: Math.random() * innerHeight,
+      v: 0.12 + Math.random() * 0.42,          // px per frame — slow on purpose
+      r: 0.7 + Math.random() * 1.7,
+      a: 0.16 + Math.random() * 0.34,
+      wob: Math.random() * Math.PI * 2,
+    };
+  }
+  function frame(){
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    const gate = innerWidth / 2;
+    for (const d of dots){
+      d.x += d.v;
+      d.wob += 0.004;
+      const y = d.y + Math.sin(d.wob) * 14;
+      // Colour is the argument: warm before the gate, cool after it.
+      const t = Math.max(0, Math.min(1, (d.x - gate + 90) / 180));
+      const col = t < .5 ? WARM : COOL;
+      ctx.beginPath();
+      ctx.arc(d.x, y, d.r, 0, 6.284);
+      ctx.fillStyle = `rgba(${col},${d.a * (t < .5 ? 1 : .85 + t * .3)})`;
+      ctx.fill();
+      if (d.x > innerWidth + 20) Object.assign(d, spawn(false));
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  function start(){ if (!raf) raf = requestAnimationFrame(frame); }
+  function stop(){ cancelAnimationFrame(raf); raf = 0; }
+
+  size(); start();
+  addEventListener('resize', size, {passive: true});
+  // A background animation running in a hidden tab is pure battery theft.
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  reduce.addEventListener?.('change', e => { if (e.matches){ stop(); cv.style.display = 'none'; } });
+})();
 </script>
 </body>
 </html>
