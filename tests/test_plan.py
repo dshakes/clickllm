@@ -12,6 +12,7 @@ from dataclasses import replace
 
 import pytest
 
+from clickllm.engines import Setting
 from clickllm.hardware import Hardware
 from clickllm.plan import (
     MAX_SPEC_DECODE_CONCURRENCY,
@@ -42,7 +43,7 @@ MAC = Hardware(
 )
 
 
-def knob(p, name):
+def knob(p, name: Setting):
     k = p.get(name)
     assert k is not None, f"{name} missing from {[x.name for x in p.knobs]}"
     return k
@@ -56,16 +57,16 @@ def test_batch_and_realtime_are_configured_in_opposite_directions():
     batch = plan(H100, Requirements(Workload.BATCH, concurrency=128))
     live = plan(H100, Requirements(Workload.REALTIME, concurrency=8, itl_ms=50))
 
-    assert knob(batch, "--max-num-seqs").value > knob(live, "--max-num-seqs").value
-    assert (
-        knob(batch, "--max-num-batched-tokens").value > knob(live, "--max-num-batched-tokens").value
-    )
-    assert knob(batch, "--speculative-config").value == "off"
-    assert knob(live, "--speculative-config").value != "off"
+    assert knob(batch, Setting.MAX_CONCURRENT).value > knob(live, Setting.MAX_CONCURRENT).value
+    assert knob(batch, Setting.PREFILL_CHUNK).value > knob(live, Setting.PREFILL_CHUNK).value
+    assert knob(batch, Setting.SPECULATIVE).value == "off"
+    assert knob(live, Setting.SPECULATIVE).value != "off"
 
 
 def test_interactive_sits_between_the_two_extremes():
-    seqs = lambda w, c: knob(plan(H100, Requirements(w, concurrency=c)), "--max-num-seqs").value  # noqa: E731
+    def seqs(w, c):
+        return knob(plan(H100, Requirements(w, concurrency=c)), Setting.MAX_CONCURRENT).value
+
     assert seqs(Workload.REALTIME, 16) <= seqs(Workload.INTERACTIVE, 16) <= seqs(Workload.BATCH, 16)
 
 
@@ -75,7 +76,7 @@ def test_interactive_sits_between_the_two_extremes():
 @pytest.mark.parametrize("concurrency", [1, 4, 8, MAX_SPEC_DECODE_CONCURRENCY])
 def test_speculative_decoding_is_on_below_the_threshold(concurrency):
     p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=concurrency))
-    assert knob(p, "--speculative-config").value == "eagle3"
+    assert knob(p, Setting.SPECULATIVE).value == "eagle3"
 
 
 @pytest.mark.parametrize("concurrency", [MAX_SPEC_DECODE_CONCURRENCY + 1, 64, 512])
@@ -83,15 +84,15 @@ def test_speculative_decoding_is_off_above_it_and_says_why(concurrency):
     # The failure this prevents: enabling drafting on a saturated accelerator,
     # where the verify pass competes with real tokens and throughput drops.
     p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=concurrency))
-    k = knob(p, "--speculative-config")
+    k = knob(p, Setting.SPECULATIVE)
     assert k.value == "off"
     assert "spare compute" in k.why
 
 
 def test_batch_disables_speculation_regardless_of_concurrency():
     p = plan(H100, Requirements(Workload.BATCH, concurrency=1))
-    assert knob(p, "--speculative-config").value == "off"
-    assert "saturated" in knob(p, "--speculative-config").why
+    assert knob(p, Setting.SPECULATIVE).value == "off"
+    assert "saturated" in knob(p, Setting.SPECULATIVE).why
 
 
 # --- prefix sharing picks the engine -------------------------------------------
@@ -115,14 +116,14 @@ def test_prefix_caching_is_decided_separately_from_the_engine():
     # A workload can benefit from caching without justifying an engine switch.
     mid = plan(H100, Requirements(Workload.INTERACTIVE, prefix_sharing=0.3))
     assert mid.engine is Engine.VLLM
-    assert knob(mid, "--enable-prefix-caching").value is True
+    assert knob(mid, Setting.PREFIX_REUSE).value is True
 
 
 @pytest.mark.parametrize("sharing", [0.0, PREFIX_CACHING_FLOOR - 0.01])
 def test_prefix_caching_is_off_when_the_bookkeeping_would_not_pay(sharing):
     p = plan(H100, Requirements(Workload.INTERACTIVE, prefix_sharing=sharing))
-    assert knob(p, "--enable-prefix-caching").value is False
-    assert "bookkeeping" in knob(p, "--enable-prefix-caching").why
+    assert knob(p, Setting.PREFIX_REUSE).value is False
+    assert "bookkeeping" in knob(p, Setting.PREFIX_REUSE).why
 
 
 # --- hardware constrains the engine --------------------------------------------
@@ -146,11 +147,11 @@ def test_high_concurrency_batch_disaggregates():
 
 
 def test_single_device_hardware_gets_no_tensor_parallel_flag():
-    assert plan(H100, Requirements(Workload.BATCH)).get("--tensor-parallel-size") is None
+    assert plan(H100, Requirements(Workload.BATCH)).get(Setting.TENSOR_PARALLEL) is None
 
 
 def test_multi_device_hardware_gets_the_flag_and_a_caveat_about_scaling():
-    k = knob(plan(QUAD, Requirements(Workload.BATCH)), "--tensor-parallel-size")
+    k = knob(plan(QUAD, Requirements(Workload.BATCH)), Setting.TENSOR_PARALLEL)
     assert k.value == 4
     assert "sub-linear" in k.why
 
@@ -173,9 +174,9 @@ def test_every_knob_carries_a_reason_worth_reading():
 def test_without_a_model_the_memory_knob_admits_it_is_guessing():
     # Reporting a derived-looking figure with no model behind it would be the
     # exact dishonesty the repo's estimate-labelling convention exists to stop.
-    k = knob(plan(H100, Requirements(Workload.BATCH)), "--gpu-memory-utilization")
-    assert k.value == 0.90
-    assert "guess" in k.why
+    k = knob(plan(H100, Requirements(Workload.BATCH)), Setting.MEMORY_FRACTION)
+    assert k.value == 0.92
+    assert "without knowing the model" in k.why
 
 
 def test_a_plan_with_no_warnings_reports_that_it_meets_requirements():
@@ -196,20 +197,54 @@ def test_explain_renders_every_knob_and_its_reason():
 # --- structured output ---------------------------------------------------------
 
 
-def test_structured_output_constrains_the_sampler_on_both_engines():
+def test_structured_output_is_an_intent_not_an_engine_flag():
+    # The plan says "constrain the sampler". Which flag carries that — and
+    # whether the engine even has a verified one — is the adapter's problem.
+    for sharing, engine in ((0.0, Engine.VLLM), (0.9, Engine.SGLANG)):
+        p = plan(
+            H100,
+            Requirements(Workload.INTERACTIVE, structured_output=True, prefix_sharing=sharing),
+        )
+        assert p.engine is engine
+        assert knob(p, Setting.STRUCTURED_OUTPUT).value == "xgrammar"
+
+
+def test_a_plan_emits_a_real_command_and_reports_what_it_could_not_express():
     vllm = plan(H100, Requirements(Workload.INTERACTIVE, structured_output=True))
-    assert knob(vllm, "--guided-decoding-backend").value == "xgrammar"
+    argv, gaps = vllm.command("Qwen/Qwen3-32B")
+    assert argv[:3] == ["vllm", "serve", "Qwen/Qwen3-32B"]
+    # The flag that no longer exists must never appear.
+    assert "--guided-decoding-backend" not in argv
+    assert "--structured-outputs-config" in argv
+    assert not gaps
 
     sgl = plan(H100, Requirements(Workload.INTERACTIVE, structured_output=True, prefix_sharing=0.9))
-    assert sgl.engine is Engine.SGLANG
-    assert knob(sgl, "--grammar-backend").value == "xgrammar"
-    assert vllm.get("--grammar-backend") is None
+    argv, gaps = sgl.command("Qwen/Qwen3-32B")
+    assert "--context-length" in argv and "--max-model-len" not in argv
+    # SGLang's grammar flag was not verifiable, so it is reported, not guessed.
+    assert any("structured_output" in g for g in gaps), gaps
+
+
+def test_an_engine_with_no_verified_dialect_refuses_rather_than_improvising():
+    argv, gaps = plan(MAC, Requirements(Workload.INTERACTIVE)).command("m")
+    assert argv == []
+    assert gaps and "cannot run" in gaps[0]
+
+
+def test_prefix_reuse_is_never_translated_into_its_opposite():
+    # The inversion this layer exists for: SGLang's radix cache is on by
+    # default, so "enable prefix reuse" must emit nothing there — certainly not
+    # --disable-radix-cache.
+    p = plan(H100, Requirements(Workload.INTERACTIVE, prefix_sharing=0.9))
+    assert knob(p, Setting.PREFIX_REUSE).value is True
+    argv, _ = p.command("m")
+    assert "--disable-radix-cache" not in argv
 
 
 def test_structured_output_is_absent_when_not_required():
     p = plan(H100, Requirements(Workload.INTERACTIVE))
-    assert p.get("--guided-decoding-backend") is None
-    assert p.get("--grammar-backend") is None
+    assert p.get(Setting.STRUCTURED_OUTPUT) is None
+    assert p.get(Setting.STRUCTURED_OUTPUT) is None
 
 
 # --- context -------------------------------------------------------------------
@@ -218,7 +253,7 @@ def test_structured_output_is_absent_when_not_required():
 def test_the_context_flag_follows_the_requirement_exactly():
     for ctx in (8192, 32_768, 131_072):
         p = plan(H100, Requirements(Workload.INTERACTIVE, context=ctx))
-        assert knob(p, "--max-model-len").value == ctx
+        assert knob(p, Setting.CONTEXT_LENGTH).value == ctx
 
 
 def test_notes_flag_a_realtime_plan_with_no_stated_budget():

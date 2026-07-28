@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from clickllm.catalog import ModelSpec
+from clickllm.engines import Setting
 from clickllm.fit import Fit, solve
 from clickllm.hardware import Hardware
 
@@ -80,9 +81,9 @@ PREFIX_SHARING_FOR_RADIX = 0.55
 #: Prefix sharing below which prefix caching is not worth its bookkeeping.
 PREFIX_CACHING_FLOOR = 0.15
 
-#: Memory left unallocated for activation spikes and fragmentation. vLLM's own
-#: default of 0.90 is a guess made without knowing the model; this is applied to
-#: a figure the solver computed.
+#: Memory left unallocated for activation spikes and fragmentation. The engine's
+#: own default (0.92 in current vLLM) is a guess made without knowing the model;
+#: this margin is applied to a figure the solver actually computed.
 MEMORY_SAFETY_MARGIN = 0.08
 
 #: Prefill chunk size, in tokens. Small enough that one long prompt cannot
@@ -148,13 +149,15 @@ class Requirements:
 class Knob:
     """One setting and the reason for it."""
 
-    name: str
+    #: What this asks to be true. Not a flag — engines spell these
+    #: differently, and one of them inverts the polarity.
+    name: Setting
     value: str | int | float | bool
     why: str
 
     def render(self) -> str:
-        """`--max-num-seqs 256   — batch work …`"""
-        return f"{self.name} {self.value}"
+        """`max_concurrent = 256`. The engine's spelling comes from the adapter."""
+        return f"{self.name} = {self.value}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,9 +179,31 @@ class Plan:
         """Whether every stated budget is reachable on this hardware."""
         return not self.warnings
 
-    def get(self, name: str) -> Knob | None:
-        """One knob by flag name."""
+    def get(self, name: Setting) -> Knob | None:
+        """One knob by the intent it expresses."""
         return next((k for k in self.knobs if k.name == name), None)
+
+    def settings(self) -> dict[Setting, object]:
+        """The plan as intent, ready for an engine adapter."""
+        return {k.name: k.value for k in self.knobs}
+
+    def command(self, model: str) -> tuple[list[str], tuple[str, ...]]:
+        """The actual launch command for this plan's engine, plus any gaps.
+
+        Gaps are intents the engine has no *verified* flag for. They are
+        returned rather than dropped: a caller must be able to see that a
+        requested optimisation did not make it into the command.
+        """
+        from clickllm.engines import adapter_for
+
+        adapter = adapter_for(self.engine.value)
+        if adapter is None:
+            return [], (
+                f"no verified flag dialect for {self.engine.value}; emitting "
+                f"another engine's flags would produce a command that cannot run",
+            )
+        argv, gaps = adapter.command(model, self.settings())
+        return argv, tuple(f"{g.setting}: {g.reason}" for g in gaps)
 
     def explain(self) -> str:
         """Every choice with its reason, in the order it was decided."""
@@ -187,7 +212,7 @@ class Plan:
             f"  {self.engine_why}",
             "",
         ]
-        body = [f"  {k.name} {k.value}\n      {k.why}" for k in self.knobs]
+        body = [f"  {k.name} = {k.value}\n      {k.why}" for k in self.knobs]
         tail = []
         if self.warnings:
             tail += ["", "CANNOT MEET:"] + [f"  · {w}" for w in self.warnings]
@@ -244,26 +269,27 @@ def _pick_engine(hw: Hardware, req: Requirements) -> tuple[Engine, str]:
 def _memory_utilization(fit: Fit | None) -> Knob:
     """Derive the memory fraction from the solver rather than guessing.
 
-    vLLM's 0.90 default is chosen without knowing the model. Once weights and KV
-    are computed, the right figure is arithmetic — and on a machine that is not
-    dedicated to serving, 0.90 is how an OOM happens two hours in.
+    An engine's built-in default is chosen without knowing the model. Once
+    weights and KV are computed, the right figure is arithmetic — and on a
+    machine that is not dedicated to serving, a stock 0.92 is how an OOM
+    happens two hours in.
     """
     if fit is None or fit.usable_bytes <= 0:
         return Knob(
-            "--gpu-memory-utilization",
-            0.90,
-            "no sizing available; vLLM's default, which is a guess made without "
-            "knowing the model. Re-plan with a model to derive this.",
+            Setting.MEMORY_FRACTION,
+            0.92,
+            "no sizing available, so this is the engine's own default — a figure "
+            "chosen without knowing the model. Re-plan with a model to derive it.",
         )
     need = fit.weight_bytes + fit.kv_bytes + fit.overhead_bytes
     frac = min(0.95, need / fit.usable_bytes + MEMORY_SAFETY_MARGIN)
     return Knob(
-        "--gpu-memory-utilization",
+        Setting.MEMORY_FRACTION,
         round(frac, 2),
         f"weights + KV + overhead is {need / 2**30:.1f} GiB of "
         f"{fit.usable_bytes / 2**30:.1f} GiB usable, plus a "
         f"{MEMORY_SAFETY_MARGIN:.0%} margin for activation spikes and "
-        f"fragmentation. Derived, not vLLM's model-blind 0.90 default.",
+        f"fragmentation. Derived, not the engine's model-blind default.",
     )
 
 
@@ -275,7 +301,7 @@ def _max_num_seqs(req: Requirements) -> Knob:
     """
     if req.workload is Workload.BATCH:
         return Knob(
-            "--max-num-seqs",
+            Setting.MAX_CONCURRENT,
             max(256, req.concurrency),
             "batch work: nobody is waiting, so run the largest batch memory "
             "allows. Every sequence added here is throughput bought at the cost "
@@ -284,14 +310,14 @@ def _max_num_seqs(req: Requirements) -> Knob:
     if req.workload is Workload.REALTIME:
         cap = max(8, min(32, req.concurrency))
         return Knob(
-            "--max-num-seqs",
+            Setting.MAX_CONCURRENT,
             cap,
             f"real-time: each sequence in a step lengthens that step, and the "
             f"budget is per token. Capped at {cap} so tail latency stays bounded "
             f"even when a burst arrives.",
         )
     return Knob(
-        "--max-num-seqs",
+        Setting.MAX_CONCURRENT,
         max(32, min(128, req.concurrency * 2)),
         "interactive: headroom for bursts without letting a full batch stretch "
         "the gap between tokens past what reads as fluent.",
@@ -308,7 +334,7 @@ def _speculative(req: Requirements, fit: Fit | None) -> Knob:
     """
     if req.workload is Workload.BATCH:
         return Knob(
-            "--speculative-config",
+            Setting.SPECULATIVE,
             "off",
             "batch: the accelerator is already saturated, so drafting competes "
             "with real tokens. Speculative decoding is a latency optimisation "
@@ -316,7 +342,7 @@ def _speculative(req: Requirements, fit: Fit | None) -> Knob:
         )
     if req.concurrency > MAX_SPEC_DECODE_CONCURRENCY:
         return Knob(
-            "--speculative-config",
+            Setting.SPECULATIVE,
             "off",
             f"concurrency {req.concurrency} is above {MAX_SPEC_DECODE_CONCURRENCY}: "
             f"there is no spare compute for the draft pass, and published EAGLE "
@@ -324,7 +350,7 @@ def _speculative(req: Requirements, fit: Fit | None) -> Knob:
         )
     slow = fit is not None and fit.tokens_per_sec is not None and fit.tokens_per_sec < 40
     return Knob(
-        "--speculative-config",
+        Setting.SPECULATIVE,
         "eagle3",
         f"concurrency {req.concurrency} leaves compute idle between tokens, which "
         f"is exactly what drafting spends"
@@ -341,14 +367,14 @@ def _chunked_prefill(req: Requirements) -> Knob:
     """Whether a long prompt may monopolise a scheduler step."""
     if req.workload is Workload.BATCH:
         return Knob(
-            "--max-num-batched-tokens",
+            Setting.PREFILL_CHUNK,
             8192,
             "batch: let prefill run in large chunks. There is no token waiting "
             "behind it, so the scheduling fairness chunking buys is worthless "
             "here and its overhead is not.",
         )
     return Knob(
-        "--max-num-batched-tokens",
+        Setting.PREFILL_CHUNK,
         PREFILL_CHUNK_TOKENS,
         f"chunked prefill at {PREFILL_CHUNK_TOKENS} tokens: without it, one "
         f"{req.context:,}-token prompt occupies a full step and every in-flight "
@@ -361,7 +387,7 @@ def _prefix_caching(req: Requirements) -> Knob:
     """Reuse of KV for repeated prefixes."""
     on = req.prefix_sharing >= PREFIX_CACHING_FLOOR
     return Knob(
-        "--enable-prefix-caching",
+        Setting.PREFIX_REUSE,
         on,
         (
             f"{req.prefix_sharing:.0%} of prompt tokens repeat across requests; "
@@ -385,14 +411,14 @@ def _tensor_parallel(hw: Hardware, fit: Fit | None) -> Knob | None:
         return None
     if fit is not None and fit.feasible and fit.weight_bytes < fit.usable_bytes / hw.devices:
         return Knob(
-            "--tensor-parallel-size",
+            Setting.TENSOR_PARALLEL,
             1,
             f"the model fits on one of the {hw.devices} devices. Sharding it "
             f"anyway adds an all-reduce per layer and aggregates bandwidth "
             f"sub-linearly — measurably slower, for nothing.",
         )
     return Knob(
-        "--tensor-parallel-size",
+        Setting.TENSOR_PARALLEL,
         hw.devices,
         f"the model does not fit on one device, so all {hw.devices} are needed. "
         f"Expect well under {hw.devices}× the single-device throughput: "
@@ -404,19 +430,13 @@ def _structured(req: Requirements, engine: Engine) -> Knob | None:
     """Constrained decoding, when the output has to parse."""
     if not req.structured_output:
         return None
-    if engine is Engine.SGLANG:
-        return Knob(
-            "--grammar-backend",
-            "xgrammar",
-            "outputs must be schema-valid. Compiled grammars constrain sampling "
-            "directly, which is a guarantee — retry-until-it-parses is not.",
-        )
     return Knob(
-        "--guided-decoding-backend",
+        Setting.STRUCTURED_OUTPUT,
         "xgrammar",
         "outputs must be schema-valid. Constraining the sampler guarantees a "
         "parse; asking the model nicely and retrying does not, and the retries "
-        "are billed.",
+        "are billed. The flag that carries this differs per engine — and in "
+        "vLLM's case was renamed — so it is emitted by the adapter, not here.",
     )
 
 
@@ -481,7 +501,7 @@ def plan(
 
     knobs: list[Knob] = [
         Knob(
-            "--max-model-len",
+            Setting.CONTEXT_LENGTH,
             req.context,
             f"{req.context:,} tokens, as required. Larger costs KV memory for "
             f"context nobody sends; smaller truncates real requests.",
@@ -499,7 +519,7 @@ def plan(
     if model is not None and quant:
         knobs.append(
             Knob(
-                "--quantization",
+                Setting.QUANTIZATION,
                 quant,
                 "decode is bandwidth-bound, so a smaller weight format is "
                 "directly faster as well as smaller.",
@@ -556,15 +576,15 @@ def demo() -> None:
     # whole thesis of the module.
     batch = plan(h100, Requirements(Workload.BATCH, concurrency=128))
     live = plan(h100, Requirements(Workload.REALTIME, concurrency=8, itl_ms=50))
-    assert batch.get("--max-num-seqs").value > live.get("--max-num-seqs").value
-    assert batch.get("--max-num-batched-tokens").value > live.get("--max-num-batched-tokens").value
-    assert batch.get("--speculative-config").value == "off"
-    assert live.get("--speculative-config").value == "eagle3"
+    assert batch.get(Setting.MAX_CONCURRENT).value > live.get(Setting.MAX_CONCURRENT).value
+    assert batch.get(Setting.PREFILL_CHUNK).value > live.get(Setting.PREFILL_CHUNK).value
+    assert batch.get(Setting.SPECULATIVE).value == "off"
+    assert live.get(Setting.SPECULATIVE).value == "eagle3"
 
     # Speculative decoding is a function of load, not a checkbox.
     busy = plan(h100, Requirements(Workload.INTERACTIVE, concurrency=64))
-    assert busy.get("--speculative-config").value == "off"
-    assert "no spare compute" in busy.get("--speculative-config").why
+    assert busy.get(Setting.SPECULATIVE).value == "off"
+    assert "no spare compute" in busy.get(Setting.SPECULATIVE).why
 
     # Prefix sharing picks the engine.
     agent = plan(h100, Requirements(Workload.INTERACTIVE, concurrency=8, prefix_sharing=0.8))
@@ -573,10 +593,8 @@ def demo() -> None:
     assert plan(h100, Requirements(Workload.INTERACTIVE, prefix_sharing=0.1)).engine is Engine.VLLM
 
     # ...and separately decides prefix caching.
-    assert agent.get("--enable-prefix-caching").value is True
-    assert (
-        plan(h100, Requirements(Workload.INTERACTIVE)).get("--enable-prefix-caching").value is False
-    )
+    assert agent.get(Setting.PREFIX_REUSE).value is True
+    assert plan(h100, Requirements(Workload.INTERACTIVE)).get(Setting.PREFIX_REUSE).value is False
 
     # High-concurrency batch disaggregates.
     assert plan(h100, Requirements(Workload.BATCH, concurrency=256)).engine is Engine.LLMD
@@ -591,22 +609,22 @@ def demo() -> None:
 
     # Structured output is a decoding constraint, not a prompt.
     s = plan(h100, Requirements(Workload.INTERACTIVE, structured_output=True))
-    assert s.get("--guided-decoding-backend").value == "xgrammar"
+    assert s.get(Setting.STRUCTURED_OUTPUT).value == "xgrammar"
     assert (
         plan(
             h100, Requirements(Workload.INTERACTIVE, structured_output=True, prefix_sharing=0.9)
-        ).get("--grammar-backend")
+        ).get(Setting.STRUCTURED_OUTPUT)
         is not None
     )
 
     # Tensor parallelism only appears on multi-device hardware.
-    assert plan(h100, Requirements(Workload.BATCH)).get("--tensor-parallel-size") is None
-    tp = plan(quad, Requirements(Workload.BATCH)).get("--tensor-parallel-size")
+    assert plan(h100, Requirements(Workload.BATCH)).get(Setting.TENSOR_PARALLEL) is None
+    tp = plan(quad, Requirements(Workload.BATCH)).get(Setting.TENSOR_PARALLEL)
     assert tp is not None and tp.value == 4
 
     # Without a model, the memory knob admits it is a guess rather than deriving.
-    mem = plan(h100, Requirements(Workload.BATCH)).get("--gpu-memory-utilization")
-    assert mem.value == 0.90 and "guess" in mem.why
+    mem = plan(h100, Requirements(Workload.BATCH)).get(Setting.MEMORY_FRACTION)
+    assert mem.value == 0.92 and "without knowing the model" in mem.why, mem
 
     # Every knob carries its reasoning. A number you cannot argue with is a
     # number you cannot fix.
