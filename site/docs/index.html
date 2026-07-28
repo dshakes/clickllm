@@ -471,6 +471,18 @@ language models on hardware you control.</p>
 <h4>Inference in a box</h4>
 <p>A <em>box</em> is a portable, tuned artifact: manifest, weights lock, per-target bindings, and the
   benchmark evidence behind the tuning. It ships as a standard OCI artifact through any registry.</p>
+<figure>
+  <img src="../assets/in-a-box.svg" loading="lazy"
+       alt="One artifact landing on three machines and producing three outcomes: run as packed, re-solved with the changes reported, or refused">
+  <figcaption>It is deliberately not a container — a Linux container has no path to Apple's GPU, so
+    one image cannot span a CUDA server and a laptop. The box binds to the host on arrival.</figcaption>
+</figure>
+<figure>
+  <img src="../assets/degradation.svg" loading="lazy"
+       alt="The degradation ladder: quantisation reduced first, then context halved repeatedly, then refusal below a 2k floor">
+  <figcaption>Give something up rather than nothing — and name what was given up. A deployment
+    serving 8k when it was built for 32k is fine if you know, and an incident if you do not.</figcaption>
+</figure>
 <pre><span class="u">$ clickllm pack --model glm-5.2 --out triage.box</span>
 <span class="u">$ clickllm push ghcr.io/acme/triage:v3</span>
 <span class="u">$ clickllm run  ghcr.io/acme/triage:v3</span>

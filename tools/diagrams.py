@@ -594,6 +594,210 @@ def quantization() -> None:
     save("edu-quantization.svg", p)
 
 
+# --- 7. inference in a box -----------------------------------------------------
+
+
+def in_a_box() -> None:
+    """The artifact, and the three things that can happen when it lands.
+
+    The naive mental model is "it is a Docker container". It cannot be: a Linux
+    container has no path to Apple's GPU, so one image cannot span a CUDA server
+    and a laptop. The box is therefore an *artifact plus a binding decision made
+    on arrival* — which is exactly what makes it worth drawing, because the
+    interesting content is the three outcomes, not the packaging.
+
+    Mirrors `clickllm_core::pack::Arrival` so the picture cannot drift from the
+    code: AsPacked / Resolved / Unsupported, with the re-solve reporting what it
+    gave up.
+    """
+    W, H = 900, 580
+    p = head(
+        W,
+        H,
+        "Inference in a box",
+        "One artifact carrying a model reference, a tuned plan, a provenance "
+        "record and an optional benchmark. It lands on three different machines "
+        "and produces three different outcomes: run as packed, re-solved with "
+        "the changes reported, or refused.",
+    )
+    p.append(
+        '<text x="28" y="50" class="sub">One artifact · three machines · three '
+        "honest outcomes. Not a container — a container cannot reach Apple's "
+        "GPU.</text>"
+    )
+
+    # --- the artifact ---------------------------------------------------------
+    bx, by, bw, bh = 300, 78, 300, 112
+    p.append(
+        f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="12" '
+        f'fill="var(--panel)" stroke="var(--s1)" stroke-width="2"/>'
+    )
+    p.append(
+        f'<text x="{bx + bw / 2:.0f}" y="{by + 24}" class="lb" '
+        f'text-anchor="middle" fill="var(--s1)">the box · OCI artifact</text>'
+    )
+    for i, line in enumerate(
+        [
+            "model reference + digest",
+            "the plan it was tuned with",
+            "the host class it was tuned on",
+            "benchmark, or an explicit none",
+        ]
+    ):
+        p.append(f'<text x="{bx + 20}" y="{by + 46 + i * 16}" class="ax">· {line}</text>')
+
+    # --- three hosts ----------------------------------------------------------
+    hosts = [
+        (
+            0,
+            "same host class",
+            "H100 80GB",
+            "AS PACKED",
+            ["plan used unchanged", "benchmark still valid"],
+        ),
+        (
+            1,
+            "different silicon",
+            "M4 Max 128GB",
+            "RE-SOLVED",
+            [
+                "CUDA engines cannot run here",
+                "→ llama.cpp on Metal",
+                "benchmark invalidated",
+            ],
+        ),
+        (
+            2,
+            "smaller machine",
+            "RTX 4090 24GB",
+            "RE-SOLVED, DEGRADED",
+            ["q8 → q4", "context 32k → 8k", "and it says so"],
+        ),
+    ]
+    cw, gap = 262, 20
+    x0 = (W - (len(hosts) * cw + (len(hosts) - 1) * gap)) / 2
+    top = 258
+
+    for i, (slot, why, host, verdict, changes) in enumerate(hosts):
+        x = x0 + i * (cw + gap)
+        mid = x + cw / 2
+        # Connector from the artifact down to this host.
+        p.append(
+            f'<path d="M {bx + bw / 2:.0f} {by + bh} V {top - 46:.0f} '
+            f'H {mid:.0f} V {top:.0f}" fill="none" stroke="var(--grid)" '
+            f'stroke-width="1.5"/>'
+        )
+        p.append(
+            f'<text x="{mid:.0f}" y="{top - 12:.0f}" class="ax" '
+            f'text-anchor="middle">{why}</text>'
+        )
+        p.append(
+            f'<rect x="{x:.0f}" y="{top}" width="{cw}" height="132" rx="10" '
+            f'fill="var(--panel)" stroke="var(--grid)"/>'
+        )
+        p.append(
+            f'<rect x="{x:.0f}" y="{top}" width="{cw}" height="4" rx="2" '
+            f'fill="var(--s{slot})"/>'
+        )
+        p.append(f'<text x="{x + 18:.0f}" y="{top + 30}" class="lb">{host}</text>')
+        p.append(
+            f'<text x="{x + 18:.0f}" y="{top + 52}" class="ax" '
+            f'fill="var(--s{slot})">{verdict}</text>'
+        )
+        for j, c in enumerate(changes):
+            p.append(f'<text x="{x + 18:.0f}" y="{top + 78 + j * 18}" class="ax">{c}</text>')
+
+    # --- the refusal ----------------------------------------------------------
+    ry = top + 152
+    p.append(
+        f'<rect x="{x0:.0f}" y="{ry}" width="{len(hosts) * cw + (len(hosts) - 1) * gap}" '
+        f'height="52" rx="10" fill="var(--panel)" stroke="var(--s3)"/>'
+    )
+    p.append(
+        f'<rect x="{x0:.0f}" y="{ry}" width="4" height="52" rx="2" fill="var(--s3)"/>'
+    )
+    p.append(
+        f'<text x="{x0 + 20:.0f}" y="{ry + 22}" class="lb" fill="var(--s3)">'
+        f"UNSUPPORTED — below 2k context, the honest answer is no</text>"
+    )
+    p.append(
+        f'<text x="{x0 + 20:.0f}" y="{ry + 40}" class="ax">A box that quietly '
+        f"served a quarter of the context it was built for would be worse than "
+        f"one that refuses: nobody finds out until a long request truncates.</text>"
+    )
+
+    p.append(legend(28, ry + 84, [(0, "as packed"), (1, "re-solved"), (3, "refused")]))
+    note(
+        p,
+        28,
+        ry + 112,
+        "The re-solve is the product. Anyone can ship an artifact; the value is "
+        "that it re-derives its own plan on arrival and reports every single "
+        "thing it had to give up.",
+    )
+    save("in-a-box.svg", p)
+
+
+# --- 8. the degradation ladder -------------------------------------------------
+
+
+def degradation() -> None:
+    """What "it fits" costs, step by step.
+
+    A magnitude comparison across an ordered sequence, so: one hue, descending.
+    The floor is drawn as a hard line because it is one — `MIN_DEGRADED_CONTEXT`.
+    """
+    W, H = 900, 366
+    p = head(
+        W,
+        H,
+        "When the box lands somewhere smaller",
+        "The degradation ladder: quantisation is reduced first, then context is "
+        "halved repeatedly, until either the workload fits or it drops below the "
+        "2k floor and is refused.",
+    )
+    p.append(
+        '<text x="28" y="50" class="sub">Give something up rather than nothing — '
+        "and name what was given up</text>"
+    )
+
+    steps = [
+        ("as packed", "q8 · 32k context", 100),
+        ("re-quantise", "q4 · 32k context", 62),
+        ("halve context", "q4 · 16k context", 40),
+        ("halve again", "q4 · 8k context", 28),
+        ("floor reached", "below 2k — refuse", 0),
+    ]
+    x0, y0, bwid, rowh = 200, 92, 380, 44
+
+    for i, (name, detail, frac) in enumerate(steps):
+        y = y0 + i * rowh
+        refused = frac == 0
+        p.append(f'<text x="{x0 - 14}" y="{y + 20}" class="lb" text-anchor="end">{name}</text>')
+        if refused:
+            p.append(
+                f'<rect x="{x0}" y="{y}" width="{bwid}" height="26" rx="4" '
+                f'fill="none" stroke="var(--s3)" stroke-dasharray="6 4"/>'
+            )
+            p.append(
+                f'<text x="{x0 + 14}" y="{y + 18}" class="ax" '
+                f'fill="var(--s3)">{detail}</text>'
+            )
+        else:
+            p.append(bar(x0, y, bwid * frac / 100, 26, 0))
+            p.append(f'<text x="{x0 + bwid + 16}" y="{y + 18}" class="m">{detail}</text>')
+
+    note(
+        p,
+        28,
+        H - 46,
+        "Every rung is reported, never applied silently. A deployment that serves "
+        "8k when it was built for 32k is fine if you know; it is an incident if "
+        "you do not.",
+    )
+    save("degradation.svg", p)
+
+
 if __name__ == "__main__":
     print("writing diagrams:")
     memory_breakdown()
@@ -602,4 +806,6 @@ if __name__ == "__main__":
     batching()
     spec_decode()
     quantization()
+    in_a_box()
+    degradation()
     print("done")
