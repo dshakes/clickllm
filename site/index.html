@@ -429,7 +429,7 @@
   </div>
 </header>
 
-<figure class="hero-anim" id="heroSvg"
+<figure class="hero-anim" id="heroSvg" data-svg="assets/hero-weights.svg"
         aria-label="Animated: blocks of model weights stream out of memory across the bus onto a
                     silicon package whose die carries a neural graph; the nodes light as the
                     weights land and a single word comes out, then the read starts again"
@@ -476,7 +476,10 @@
     equivalence, deploy native config, cut over behind a gate — then keep checking that the
     proof still holds.</p>
   <figure>
-    <img src="assets/loop-animated.svg" alt="Traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning closed-model spend into proven open-model inference">
+    <div class="anim" data-svg="assets/loop-animated.svg" role="img"
+           aria-label="Animated: traffic flowing through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning closed-model spend into proven open-model inference">
+        <noscript><img src="assets/loop-animated.svg" alt="Traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard"></noscript>
+      </div>
     <figcaption>The loop is the product. Everything else is an implementation detail of one
       of these stages.</figcaption>
   </figure>
@@ -528,12 +531,14 @@
   </figure>
 
   <figure>
-    <img src="assets/edu-silicon.svg" loading="lazy"
-         alt="An H100 die with 132 SM squares, one lit; a saturated memory pipe; five HBM stacks
-              filled with weights and KV cache; and a bar chart showing compute utilisation
-              stopping at 6.1% where the KV cache exhausts memory">
-    <figcaption>The same arithmetic, seen on the silicon. One lit square out of 132 — and
-      batching cannot recover the rest, because the KV cache fills the HBM first.</figcaption>
+    <div class="anim" data-svg="assets/edu-silicon.svg" role="img"
+         aria-label="Animated: an H100 drawn as a chip package with 132 engine squares, one of
+                     them pulsing while 131 sit idle; then the loop that explains why — read all
+                     30.5 GB of the model, do a little maths, emit one word, and start again">
+      <noscript><img src="assets/edu-silicon.svg" alt="One lit engine out of 132, because one word costs a whole 30.5 GB read"></noscript>
+    </div>
+    <figcaption>One engine working out of 132 — because a single word costs a read of the
+      entire model, and batching only gets you to eighteen people before the cache fills.</figcaption>
   </figure>
 
   <div class="note"><p><b>Any catalogue entry with <code>kv_scheme: mla</code> must set
@@ -612,13 +617,19 @@
         users, not the model.</figcaption>
     </figure>
     <figure>
-      <img src="assets/edu-prefill-decode.svg" loading="lazy" alt="Timeline of one request: a wide compute-bound prefill then narrow bandwidth-bound decode steps">
+      <div class="anim" data-svg="assets/edu-prefill-decode.svg" role="img"
+           aria-label="Animated: one request in two phases — a wide compute-bound prefill, then narrow bandwidth-bound decode steps arriving one token at a time">
+        <noscript><img src="assets/edu-prefill-decode.svg" alt="Timeline of one request: a wide compute-bound prefill then narrow bandwidth-bound decode steps"></noscript>
+      </div>
       <figcaption><b>Prefill vs decode.</b> A long prompt with a short answer is a prefill
         problem; a short prompt with a long answer is a decode problem. Tuning the wrong one
         buys hardware that doesn't help.</figcaption>
     </figure>
     <figure>
-      <img src="assets/edu-batching.svg" loading="lazy" alt="Static batching idling until the slowest request finishes, against continuous batching refilling each slot">
+      <div class="anim" data-svg="assets/edu-batching.svg" role="img"
+           aria-label="Animated: two timelines on one clock — static batching idles until the slowest request finishes, while continuous batching refills each slot the moment it frees">
+        <noscript><img src="assets/edu-batching.svg" alt="Static batching idling until the slowest request finishes, against continuous batching refilling each slot"></noscript>
+      </div>
       <figcaption><b>Continuous batching.</b> Same tokens, same GPU. The shaded time is what
         static batching throws away — the single biggest throughput win in modern serving.</figcaption>
     </figure>
@@ -773,60 +784,57 @@ addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { p
 })();
 </script>
 <script>
-// The hero SVG is INLINED rather than referenced with <img>.
+// Animated SVGs are INLINED, not referenced with <img>.
 //
 // Measured, not assumed: an SVG loaded as image/svg+xml gets its own document,
-// and that document's animation timeline never starts — document.timeline
-// .currentTime stayed 0 while the host page's advanced normally. Neither CSS
-// keyframes nor SMIL survive it; both render their first frame and freeze. The
-// only embedding that animates is one that shares this document's timeline.
+// and that document's animation timeline never starts — currentTime stayed 0
+// while the host page's advanced normally. Neither CSS keyframes nor SMIL
+// survive it; both paint frame one and freeze. Only sharing this document's
+// timeline animates.
 //
-// Fetched at runtime rather than pasted in, so it cannot drift from the file
-// tools/diagrams.py generates.
+// Fetched at runtime so these cannot drift from what tools/diagrams.py writes.
 (async () => {
-  const host = document.getElementById('heroSvg');
-  if (!host) return;
-  try {
-    const svg = await (await fetch('assets/hero-weights.svg')).text();
-    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
-    const el = doc.documentElement;
-    if (el.nodeName === 'parsererror') return;
+  const hosts = [...document.querySelectorAll('[data-svg]')];
+  await Promise.all(hosts.map(async (host, i) => {
+    const id = host.id || ('anim-' + i);
+    host.id = id;
+    try {
+      const doc = new DOMParser().parseFromString(
+        await (await fetch(host.dataset.svg)).text(), 'image/svg+xml');
+      const el = doc.documentElement;
+      if (el.nodeName === 'parsererror') return;
 
-    // Scope every rule to this figure. The SVG defines :root variables named
-    // --panel, --ink, --ink2 among others, and this page defines its own with
-    // the same names — inlining unscoped would repaint the whole site.
-    // Scope every rule to this figure. The SVG defines :root variables named
-    // --panel, --ink, --ink2 among others, and this page defines its own with
-    // the same names — inlining unscoped would repaint the whole site.
-    //
-    // Walked through the CSSOM, not rewritten with a regex: a regex that
-    // prefixes "every selector before a {" also prefixes the `from{` and `to{`
-    // INSIDE @keyframes, which silently destroys the animation and leaves you
-    // with a correctly-scoped, completely static picture.
-    el.querySelectorAll('style').forEach(s => {
-      const probe = document.createElement('style');
-      probe.textContent = s.textContent;
-      document.head.appendChild(probe);
-      const scope = rules => [...rules].map(r => {
-        if (r.type === CSSRule.KEYFRAMES_RULE) return r.cssText;   // leave alone
-        if (r.type === CSSRule.MEDIA_RULE)
-          return '@media ' + r.conditionText + '{' + scope(r.cssRules) + '}';
-        if (r.type === CSSRule.STYLE_RULE) {
-          const sel = r.selectorText.split(',')
-            .map(x => x.trim() === ':root' ? '#heroSvg' : '#heroSvg ' + x.trim())
-            .join(',');
-          return sel + '{' + r.style.cssText + '}';
-        }
-        return r.cssText;
-      }).join('');
-      const scoped = scope(probe.sheet.cssRules);
-      probe.remove();
-      s.textContent = scoped;
-    });
-    el.removeAttribute('width'); el.removeAttribute('height');
-    el.setAttribute('style', 'width:100%;height:auto;display:block');
-    host.replaceChildren(el);
-  } catch { /* the <noscript> image stands in */ }
+      // Scope every rule to this figure. These SVGs define :root variables
+      // named --panel, --ink and --ink2, and this page defines its own with
+      // the same names — inlining unscoped would repaint the whole site.
+      //
+      // Walked through the CSSOM, not rewritten with a regex: a regex that
+      // prefixes "every selector before a {" also prefixes the from{ and to{
+      // INSIDE @keyframes, which silently destroys the animation and leaves a
+      // correctly-scoped, completely static picture.
+      el.querySelectorAll('style').forEach(s => {
+        const probe = document.createElement('style');
+        probe.textContent = s.textContent;
+        document.head.appendChild(probe);
+        const scope = rules => [...rules].map(r => {
+          if (r.type === CSSRule.KEYFRAMES_RULE) return r.cssText;
+          if (r.type === CSSRule.MEDIA_RULE)
+            return '@media ' + r.conditionText + '{' + scope(r.cssRules) + '}';
+          if (r.type === CSSRule.STYLE_RULE)
+            return r.selectorText.split(',')
+              .map(x => x.trim() === ':root' ? '#' + id : '#' + id + ' ' + x.trim())
+              .join(',') + '{' + r.style.cssText + '}';
+          return r.cssText;
+        }).join('');
+        const scoped = scope(probe.sheet.cssRules);
+        probe.remove();
+        s.textContent = scoped;
+      });
+      el.removeAttribute('width'); el.removeAttribute('height');
+      el.setAttribute('style', 'width:100%;height:auto;display:block');
+      host.replaceChildren(el);
+    } catch { /* the <noscript> image stands in */ }
+  }));
 })();
 </script>
 </body>

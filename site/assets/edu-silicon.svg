@@ -11,7 +11,7 @@
 <text x="28" y="50" class="sub">Why a fast GPU can still feel slow — and the one thing that actually fixes it</text>
 <rect x="73.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="73.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="127.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="127.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="121.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="121.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="173.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="173.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="169.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="169.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="219.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="219.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="217.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="217.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="265.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="265.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="265.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="265.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="311.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="311.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="313.5" y="76.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="313.5" y="403.0" width="5" height="11" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="20.0" y="357.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="361.0" y="357.5" width="11" height="5" rx="2" fill="var(--grid)" opacity="0.55"/><rect x="28" y="84" width="336" height="322" rx="55" fill="var(--grid)" opacity="0.30"/><rect x="28" y="84" width="336" height="322" rx="55" fill="none" stroke="var(--grid)" stroke-width="1.5" opacity="0.9"/><rect x="89.2" y="145.2" width="213.6" height="199.6" rx="32" fill="var(--bg)" opacity="0.55"/>
 <text x="48" y="112" class="lb">the GPU, actual size</text>
-<rect x="50.0" y="130.0" width="22.0" height="22.0" rx="4" fill="var(--s2)"/>
+<rect class="pulse" x="50" y="130" width="22" height="22" rx="4" fill="var(--s2)"/>
 <rect x="74" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
 <rect x="98" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
 <rect x="122" y="130" width="22" height="22" rx="4" fill="none" stroke="var(--grid)"/>
@@ -152,13 +152,13 @@
 <text x="398" y="342" class="lb" style="fill:var(--s0)">So the GPU is not the slow part.</text>
 <text x="398" y="362" class="lb" style="fill:var(--s0)">The memory is.</text>
 <text x="28" y="442" class="lb">Because one word costs a whole read</text>
-<rect x="28.0" y="460.0" width="470.0" height="46.0" rx="4" fill="var(--s1)"/>
+<rect class="pop" style="animation-delay:0s" x="28" y="460" width="470" height="46" rx="4" fill="var(--s1)"/>
 <text x="263" y="488" class="lb" text-anchor="middle" style="fill:var(--bg)">read all 30.5 GB of the model</text>
 <path d="M 508 477 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
-<rect x="530.0" y="460.0" width="66.0" height="46.0" rx="4" fill="var(--s3)"/>
+<rect class="pop" style="animation-delay:.55s" x="530" y="460" width="66" height="46" rx="4" fill="var(--s3)"/>
 <text x="563" y="488" class="ax" text-anchor="middle" style="fill:var(--bg)">a little</text>
 <path d="M 606 477 l 10 6 l -10 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
-<rect x="628.0" y="460.0" width="54.0" height="46.0" rx="4" fill="var(--s2)"/>
+<rect class="pop" style="animation-delay:1.1s" x="628" y="460" width="54" height="46" rx="4" fill="var(--s2)"/>
 <text x="655" y="488" class="ax" text-anchor="middle" style="fill:var(--bg)">1 word</text>
 <text x="700" y="481" class="ax">and then it starts</text>
 <text x="700" y="498" class="ax">again for word two.</text>

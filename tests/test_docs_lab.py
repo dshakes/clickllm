@@ -275,14 +275,97 @@ def test_animated_diagrams_are_inlined_not_referenced_with_img():
     }
     assert animated, "no animated diagrams found — has the motion been removed?"
 
-    html = (Path(__file__).resolve().parents[1] / "site" / "docs" / "index.html").read_text()
-    # Strip <noscript> blocks: a static <img> in there is the correct fallback.
-    live = re.sub(r"<noscript>.*?</noscript>", "", html, flags=re.S)
-
-    offenders = [
-        name for name in animated if re.search(rf'<img[^>]+src="[^"]*{re.escape(name)}\.svg', live)
-    ]
+    # BOTH pages. The first version of this test checked only the docs page, and
+    # the landing page went on serving an animated diagram through <img> — the
+    # same defect, sitting in the file nobody thought to re-check.
+    offenders = []
+    for page in (
+        Path(__file__).resolve().parents[1] / "site" / "index.html",
+        Path(__file__).resolve().parents[1] / "site" / "docs" / "index.html",
+    ):
+        # Strip <noscript> blocks: a static <img> in there is the correct fallback.
+        live = re.sub(r"<noscript>.*?</noscript>", "", page.read_text(), flags=re.S)
+        offenders += [
+            f"{page.parent.name}/{page.name}: {name}"
+            for name in animated
+            if re.search(rf'<img[^>]+src="[^"]*{re.escape(name)}\.svg', live)
+        ]
     assert not offenders, (
         "animated diagrams embedded with <img> will render as a frozen first "
         f"frame: {sorted(offenders)}"
     )
+
+
+# --- diagrams must not be stretched out of proportion --------------------------
+
+SITE = Path(__file__).resolve().parents[1] / "site"
+PAGES = (SITE / "index.html", SITE / "docs" / "index.html")
+
+
+def figure_media_rules(css: str) -> list[tuple[str, str]]:
+    """(selector, declarations) for rules that size figure images or inline SVG.
+
+    Comments are stripped first: leaving them in makes a failure message that
+    quotes an entire paragraph of prose as if it were a selector.
+    """
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    out = []
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        s = " ".join(sel.split())
+        if re.search(r"figure\s+(img|svg|\.anim svg)|\.hero-anim\s+(img|svg)", s):
+            out.append((s, " ".join(body.split())))
+    return out
+
+
+@pytest.mark.parametrize("page", PAGES, ids=lambda p: p.parent.name + "/" + p.name)
+def test_no_rule_forces_a_width_on_a_height_capped_diagram(page):
+    """This shipped, and it is nastier than it sounds.
+
+    A rule setting `width:100%` alongside a `max-height` pins BOTH axes of an
+    <img>, and the default `object-fit:fill` then STRETCHES rather than scales.
+    A 900x690 diagram in a 1112px column became a 1112x526 box — aspect 2.11
+    against a source aspect of 1.30, a 38% vertical crush.
+
+    "Too big" is obvious. "Subtly squashed" just reads as the graphics looking
+    wrong, which is exactly how it was reported.
+    """
+    rules = figure_media_rules(page.read_text())
+    assert rules, f"{page.name}: no figure media rules found — has the markup moved?"
+
+    capped = [r for r in rules if "max-height" in r[1]]
+    assert capped, f"{page.name}: nothing caps diagram height; one will tower over the fold"
+
+    forcing = [s for s, b in rules if re.search(r"(?<!max-)\bwidth\s*:\s*100%", b)]
+    assert not forcing, (
+        f"{page.name}: these force a width while another rule caps the height, "
+        f"which stretches the image instead of scaling it: {forcing}"
+    )
+
+
+@pytest.mark.parametrize("page", PAGES, ids=lambda p: p.parent.name + "/" + p.name)
+def test_height_capped_diagrams_declare_object_fit_contain(page):
+    """The belt to the braces above: with `contain`, deformation is impossible
+    no matter what a future rule pins, so the picture letterboxes instead."""
+    capped = [(s, b) for s, b in figure_media_rules(page.read_text()) if "max-height" in b]
+    for sel, body in capped:
+        assert "object-fit:contain" in body.replace(" ", ""), (
+            f"{page.name}: '{sel}' caps height without object-fit:contain — "
+            f"any forced width will squash the diagram"
+        )
+
+
+def test_every_generated_svg_is_intrinsically_proportional():
+    """width/height attributes must agree with the viewBox, or the picture is
+    born distorted before any CSS touches it."""
+    bad = []
+    for f in sorted((Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg")):
+        head = f.read_text(errors="ignore")[:600]
+        vb = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', head)
+        wh = re.search(r'width="(\d+)"\s+height="(\d+)"', head)
+        if not (vb and wh):
+            continue  # hand-authored files need not declare both
+        vw, vh = float(vb.group(1)), float(vb.group(2))
+        w, h = float(wh.group(1)), float(wh.group(2))
+        if abs((w / h) - (vw / vh)) > 0.01:
+            bad.append(f"{f.name}: attrs {w}x{h} vs viewBox {vw}x{vh}")
+    assert not bad, "intrinsically distorted: " + "; ".join(bad)
