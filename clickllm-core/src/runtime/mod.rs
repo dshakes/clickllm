@@ -132,13 +132,6 @@ pub enum Target {
     Container,
     /// Kubernetes manifests.
     Kubernetes,
-    /// An Amazon ECS task definition.
-    ///
-    /// **EC2 launch type only.** Fargate has no GPU support, so a Fargate task
-    /// definition for an inference workload would register cleanly and then
-    /// never schedule. The emitted definition says so in its own fields rather
-    /// than leaving it to be discovered.
-    Ecs,
     /// A systemd unit, for a plain VM or a Mac mini under launchd's cousin.
     ///
     /// The answer to "I have an EC2 box" — which is not a platform, it is a
@@ -148,11 +141,10 @@ pub enum Target {
 
 impl Target {
     /// Every target, for callers that render all of them.
-    pub const ALL: [Target; 5] = [
+    pub const ALL: [Target; 4] = [
         Target::LocalProcess,
         Target::Container,
         Target::Kubernetes,
-        Target::Ecs,
         Target::Systemd,
     ];
 }
@@ -215,93 +207,6 @@ pub(crate) fn provenance(runtime: &str, plan: &RuntimePlan, comment: &str) -> St
     s
 }
 
-/// An ECS task definition, EC2 launch type.
-///
-/// Verified against AWS's own GPU-workload docs (2026-07-27):
-/// `resourceRequirements` with `type: "GPU"`, and `NVIDIA_VISIBLE_DEVICES` set
-/// by ECS itself. `NVIDIA_DRIVER_CAPABILITIES` is *not* set by ECS and is
-/// required unless the image is CUDA-based, so it is emitted here.
-///
-/// **No Fargate.** Fargate cannot attach a GPU, so a Fargate task definition
-/// for this would register and never schedule — a failure that looks like a
-/// capacity problem and is a configuration one. `requiresCompatibilities` is
-/// EC2 and the note says why.
-pub(crate) fn ecs_task_definition(
-    family: &str,
-    image: &str,
-    args: &[String],
-    skip: usize,
-    port: u16,
-    gpus: u32,
-    plan: &RuntimePlan,
-) -> String {
-    // Built with serde_json rather than format!. The first version assembled
-    // this by hand and produced invalid JSON the moment an argument contained a
-    // quote — `--speculative-config {"method":"eagle3"}` broke the document.
-    // A task definition that will not parse is worse than none, and hand-rolled
-    // escaping is a bug waiting for the first nested value.
-    let command: Vec<&str> = args.iter().skip(skip).map(String::as_str).collect();
-    // EC2 GPU instances put roughly 4 vCPU / 12 GiB of host resources behind
-    // each GPU (g4dn.xlarge, g5.xlarge: 4 vCPU, 16 GiB, 1 GPU). A flat
-    // reservation ignores GPU count: it under-provisions a tensor-parallel
-    // task spread across several GPUs, and over-reserves memory on the very
-    // single-GPU instance types it is meant to target, so neither schedules.
-    let gpus_for_sizing = gpus.max(1);
-    let cpu = 4096u32.saturating_mul(gpus_for_sizing);
-    let memory = 12288u32.saturating_mul(gpus_for_sizing);
-    let doc = serde_json::json!({
-        "family": family,
-        "requiresCompatibilities": ["EC2"],
-        "networkMode": "awsvpc",
-        "cpu": cpu.to_string(),
-        "memory": memory.to_string(),
-        "containerDefinitions": [{
-            "name": family,
-            "image": image,
-            "essential": true,
-            "command": command,
-            "resourceRequirements": [{"type": "GPU", "value": gpus.to_string()}],
-            // ECS sets NVIDIA_VISIBLE_DEVICES itself but not this one, and a
-            // non-CUDA base image needs it to see the driver at all.
-            "environment": [
-                {"name": "NVIDIA_DRIVER_CAPABILITIES", "value": "utility,compute"}
-            ],
-            "portMappings": [{"containerPort": port, "protocol": "tcp"}],
-            // RegisterTaskDefinition rejects unknown top-level parameters, so
-            // provenance cannot live at the document root (it did, and AWS
-            // would refuse the whole task definition). dockerLabels is a real,
-            // documented field with no restricted charset, unlike `tags`.
-            "dockerLabels": {
-                "clickllm.generated-by": format!(
-                    "clickllm {} — {}, {} @ {} context. Runs with clickllm uninstalled.",
-                    crate::VERSION, plan.model.id, plan.quant, plan.max_model_len
-                ),
-                "clickllm.launch-type": "EC2 only — Fargate cannot attach a GPU, so a \
-                    Fargate task definition for this would register and never schedule",
-                "clickllm.region-placeholder": "awslogs-region below defaults to \
-                    us-east-1 — edit it before registering if deploying elsewhere"
-            },
-            "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": format!("/ecs/{family}"),
-                    // No region is derivable from a `RuntimePlan` — it describes a
-                    // model and hardware, not an AWS account. us-east-1 is a
-                    // placeholder, called out here rather than left to be
-                    // discovered as a silent failure to register in any other
-                    // region.
-                    "awslogs-region": "us-east-1",
-                    "awslogs-stream-prefix": "ecs",
-                    // Without this, a log group that does not already exist makes
-                    // the task fail at startup with ResourceInitializationError
-                    // instead of just logging.
-                    "awslogs-create-group": "true"
-                }
-            }
-        }]
-    });
-    serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".into())
-}
 
 /// A systemd unit for a plain VM.
 ///
@@ -480,18 +385,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ecs_log_config_creates_its_own_log_group() {
-        // A log group that does not already exist in CloudWatch otherwise makes
-        // the task fail at startup with ResourceInitializationError.
-        let plan = crate::runtime::vllm::tests::sample_plan();
-        let doc = ecs_task_definition("family", "image:latest", &[], 0, 8000, 1, &plan);
-        let d: serde_json::Value = serde_json::from_str(&doc).unwrap();
-        let opts = &d["containerDefinitions"][0]["logConfiguration"]["options"];
-        assert_eq!(opts["awslogs-create-group"], "true");
-        assert!(
-            opts["awslogs-region"].as_str().is_some(),
-            "region must be present, even if a placeholder"
-        );
-    }
 }

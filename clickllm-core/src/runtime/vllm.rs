@@ -225,18 +225,6 @@ impl Runtime for Vllm {
                     plan.tensor_parallel,
                 ),
             }]),
-            Target::Ecs => Ok(vec![Artifact {
-                path: "taskdef.json".into(),
-                contents: super::ecs_task_definition(
-                    &k8s_name_for(&plan.model.id),
-                    "vllm/vllm-openai:latest",
-                    &args,
-                    1,
-                    8000,
-                    plan.tensor_parallel,
-                    plan,
-                ),
-            }]),
             Target::Systemd => Ok(vec![Artifact {
                 path: "clickllm-vllm.service".into(),
                 contents: super::systemd_unit(&plan.model.id, &args, plan),
@@ -524,92 +512,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn the_ecs_task_definition_is_ec2_only_and_says_why() {
-        // Fargate cannot attach a GPU, so a Fargate task definition would
-        // register cleanly and never schedule — a configuration failure that
-        // presents as a capacity problem.
-        let p = sample_plan();
-        let a = &Vllm::new().render(&p, Target::Ecs).unwrap()[0];
-        assert_eq!(a.path, "taskdef.json");
-        let j = &a.contents;
-        // Assert on the parsed document, not on its formatting. Substring
-        // matching against pretty-printed JSON breaks on line wrapping and
-        // tests the serialiser rather than the content.
-        let d: serde_json::Value =
-            serde_json::from_str(j).expect("the task definition must be valid JSON");
-        assert_eq!(d["requiresCompatibilities"], serde_json::json!(["EC2"]));
-        // RegisterTaskDefinition rejects unknown top-level parameters, so
-        // provenance must not live at the document root.
-        assert!(d.get("_generatedBy").is_none(), "{j}");
-        assert!(d.get("_launchType").is_none(), "{j}");
-        let labels = &d["containerDefinitions"][0]["dockerLabels"];
-        assert!(
-            labels["clickllm.launch-type"]
-                .as_str()
-                .is_some_and(|s| s.contains("Fargate cannot")),
-            "the reason Fargate is excluded must be in the document: {j}"
-        );
-        assert!(
-            labels["clickllm.generated-by"]
-                .as_str()
-                .is_some_and(|s| s.contains(&p.model.id)),
-            "{j}"
-        );
-        let req = &d["containerDefinitions"][0]["resourceRequirements"][0];
-        assert_eq!(req["type"], "GPU");
-        assert_eq!(
-            req["value"],
-            p.tensor_parallel.to_string(),
-            "gpu count from the plan"
-        );
-        // ECS sets NVIDIA_VISIBLE_DEVICES itself but not this one.
-        let env = &d["containerDefinitions"][0]["environment"][0];
-        assert_eq!(env["name"], "NVIDIA_DRIVER_CAPABILITIES");
-        // It must be real JSON, not merely JSON-shaped. The hand-rolled first
-        // version passed a brace count and still produced a document AWS would
-        // reject, because `--speculative-config {"method":"eagle3"}` embeds
-        // quotes that were never escaped.
-        let cmd = d["containerDefinitions"][0]["command"]
-            .as_array()
-            .expect("command is an array");
-        assert!(cmd.iter().any(|v| v.as_str() == Some("serve")));
-        // The nested JSON argument must survive as one intact string.
-        assert!(
-            cmd.iter()
-                .any(|v| v.as_str().is_some_and(|s| s.contains("eagle3"))),
-            "the speculative config was mangled: {cmd:?}"
-        );
-    }
 
-    #[test]
-    fn ecs_cpu_and_memory_scale_with_gpu_count() {
-        // A flat reservation either starves a multi-GPU tensor-parallel task
-        // or reserves more memory than a single-GPU instance type actually
-        // has (g4dn.xlarge / g5.xlarge: 4 vCPU, 16 GiB, 1 GPU) — in both
-        // cases the task cannot schedule.
-        let single = Vllm::new().render(&sample_plan(), Target::Ecs).unwrap();
-        let single_doc: serde_json::Value =
-            serde_json::from_str(&single[0].contents).unwrap();
-        assert_eq!(single_doc["cpu"], "4096");
-        assert_eq!(single_doc["memory"], "12288");
-
-        let quad = Hardware {
-            devices: 4,
-            usable_bytes: 288 * GIB,
-            ..h100()
-        };
-        let quad_plan = Vllm::new().plan(&quad, &model(), &Workload::default()).unwrap();
-        assert_eq!(quad_plan.tensor_parallel, 4);
-        let quad_arts = Vllm::new().render(&quad_plan, Target::Ecs).unwrap();
-        let quad_doc: serde_json::Value =
-            serde_json::from_str(&quad_arts[0].contents).unwrap();
-        assert_eq!(quad_doc["cpu"], "16384", "cpu must scale with GPU count");
-        assert_eq!(
-            quad_doc["memory"], "49152",
-            "memory must scale with GPU count"
-        );
-    }
 
     #[test]
     fn the_systemd_unit_survives_a_slow_start_and_restarts() {

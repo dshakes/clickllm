@@ -161,25 +161,6 @@ impl Runtime for Sglang {
                     name = k8s_name_for(&plan.model.id),
                 ),
             }],
-            Target::Ecs => vec![Artifact {
-                path: "taskdef.json".into(),
-                contents: super::ecs_task_definition(
-                    &k8s_name_for(&plan.model.id),
-                    "lmsysorg/sglang:latest",
-                    &args,
-                    // SGLang's argv starts `python3 -m sglang.launch_server`,
-                    // same as the Container and Kubernetes targets above,
-                    // which both skip that leading `python3` because the
-                    // image's own entrypoint supplies it. ECS `command`
-                    // overrides CMD/args, not ENTRYPOINT, so matching that
-                    // contract here (skip = 1) avoids running `python3
-                    // python3 -m sglang.launch_server ...` and failing.
-                    1,
-                    30000,
-                    plan.tensor_parallel,
-                    plan,
-                ),
-            }],
             Target::Systemd => vec![Artifact {
                 path: "clickllm-sglang.service".into(),
                 contents: super::systemd_unit(&plan.model.id, &args, plan),
@@ -388,25 +369,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ecs_command_matches_the_image_entrypoint_contract() {
-        // The Container and Kubernetes targets both skip the leading
-        // `python3` because the image's own entrypoint supplies it; ECS
-        // `command` overrides CMD/args rather than ENTRYPOINT, so it must
-        // follow the same contract or the container runs `python3 python3
-        // -m sglang.launch_server ...` and fails to start.
-        let plan = Sglang.plan(&gpu(80, 1), &model(), &workload(4)).unwrap();
-        let a = &Sglang.render(&plan, Target::Ecs).unwrap()[0];
-        let d: serde_json::Value = serde_json::from_str(&a.contents).unwrap();
-        let cmd = d["containerDefinitions"][0]["command"]
-            .as_array()
-            .expect("command is an array");
-        assert_eq!(cmd[0], "-m", "{cmd:?}");
-        assert!(
-            !cmd.iter().any(|v| v.as_str() == Some("python3")),
-            "the image entrypoint already supplies python3: {cmd:?}"
-        );
-    }
 
     #[test]
     fn the_kubernetes_name_is_a_valid_dns_label() {
