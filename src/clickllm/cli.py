@@ -279,6 +279,56 @@ def _drop_in_dir() -> pathlib.Path:
     return pathlib.Path(base) / "clickllm" / "models.d"
 
 
+def cmd_build(args: argparse.Namespace) -> int:
+    """Say what you are building; get a deployment and how to prove it.
+
+    The whole flow in one command: read the sentence, size the machine, choose,
+    configure, critique, and hand over. It stops at the door — nothing here runs
+    anything.
+    """
+    from .session import Session
+
+    s = Session()
+    if args.resume:
+        s = Session.from_json(pathlib.Path(args.resume).read_text())
+    if args.description:
+        s.tell(" ".join(args.description))
+    s.on(args.on)
+
+    for name in ("concurrency", "context", "ttft_ms", "itl_ms", "prefix_sharing"):
+        v = getattr(args, name, None)
+        if v is not None:
+            s.set(**{name: _parse_size(v) if name == "context" else v})
+
+    turn = s.step()
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "stage": turn.stage.value,
+                    "said": turn.said,
+                    "question": turn.question,
+                    "evidence": list(turn.evidence),
+                    "assuming": list(turn.assuming),
+                    "answer": s.answer(),
+                    "state": json.loads(s.to_json()),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print()
+    print(turn.render())
+    print()
+    print(s.answer())
+    print()
+    if args.save:
+        pathlib.Path(args.save).write_text(s.to_json())
+        print(f"  session saved to {args.save} — resume with --resume {args.save}\n")
+    return 0
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     """Notice new models without being asked. Stages; never publishes."""
     from . import watch
@@ -735,6 +785,19 @@ def main(argv: list[str] | None = None) -> int:
 
     cs = sub.add_parser("catalog-sources", help="where the catalogue's models come from")
     cs.set_defaults(fn=cmd_catalog_sources)
+
+    b = sub.add_parser("build", help="say what you're building; get a deployment and a proof plan")
+    b.add_argument("description", nargs="*", help='e.g. "coding assistant for 20 engineers"')
+    b.add_argument("--on", help="hardware profile id; omit to detect this machine")
+    b.add_argument("--concurrency", type=int)
+    b.add_argument("--context")
+    b.add_argument("--ttft-ms", type=int, dest="ttft_ms")
+    b.add_argument("--itl-ms", type=int, dest="itl_ms")
+    b.add_argument("--prefix-sharing", type=float, dest="prefix_sharing")
+    b.add_argument("--save", help="write the session state here")
+    b.add_argument("--resume", help="continue a saved session")
+    b.add_argument("--json", action="store_true")
+    b.set_defaults(fn=cmd_build)
 
     w = sub.add_parser("watch", help="discover new models on a schedule; stages, never publishes")
     w.add_argument("--list", action="store_true", help="show what is staged and waiting")

@@ -177,7 +177,15 @@ def get(profile_id: str) -> Profile:
     for p in PROFILES:
         if p.id == profile_id:
             return p
-    raise KeyError(f"unknown hardware profile: {profile_id}")
+    # Name the alternatives. A bare "unknown profile" makes the user go and read
+    # the source to find out that they wanted "h100" rather than "h100-80gb".
+    near = [p.id for p in PROFILES if profile_id.split("-")[0] in p.id]
+    hint = (
+        f" Did you mean: {', '.join(near)}?"
+        if near
+        else f" Known: {', '.join(p.id for p in PROFILES)}"
+    )
+    raise KeyError(f"unknown hardware profile: {profile_id}.{hint}")
 
 
 def demo() -> None:
