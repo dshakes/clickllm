@@ -539,11 +539,22 @@ pub(crate) mod tests {
         let d: serde_json::Value =
             serde_json::from_str(j).expect("the task definition must be valid JSON");
         assert_eq!(d["requiresCompatibilities"], serde_json::json!(["EC2"]));
+        // RegisterTaskDefinition rejects unknown top-level parameters, so
+        // provenance must not live at the document root.
+        assert!(d.get("_generatedBy").is_none(), "{j}");
+        assert!(d.get("_launchType").is_none(), "{j}");
+        let labels = &d["containerDefinitions"][0]["dockerLabels"];
         assert!(
-            d["_launchType"]
+            labels["clickllm.launch-type"]
                 .as_str()
                 .is_some_and(|s| s.contains("Fargate cannot")),
             "the reason Fargate is excluded must be in the document: {j}"
+        );
+        assert!(
+            labels["clickllm.generated-by"]
+                .as_str()
+                .is_some_and(|s| s.contains(&p.model.id)),
+            "{j}"
         );
         let req = &d["containerDefinitions"][0]["resourceRequirements"][0];
         assert_eq!(req["type"], "GPU");
@@ -568,6 +579,35 @@ pub(crate) mod tests {
             cmd.iter()
                 .any(|v| v.as_str().is_some_and(|s| s.contains("eagle3"))),
             "the speculative config was mangled: {cmd:?}"
+        );
+    }
+
+    #[test]
+    fn ecs_cpu_and_memory_scale_with_gpu_count() {
+        // A flat reservation either starves a multi-GPU tensor-parallel task
+        // or reserves more memory than a single-GPU instance type actually
+        // has (g4dn.xlarge / g5.xlarge: 4 vCPU, 16 GiB, 1 GPU) — in both
+        // cases the task cannot schedule.
+        let single = Vllm::new().render(&sample_plan(), Target::Ecs).unwrap();
+        let single_doc: serde_json::Value =
+            serde_json::from_str(&single[0].contents).unwrap();
+        assert_eq!(single_doc["cpu"], "4096");
+        assert_eq!(single_doc["memory"], "12288");
+
+        let quad = Hardware {
+            devices: 4,
+            usable_bytes: 288 * GIB,
+            ..h100()
+        };
+        let quad_plan = Vllm::new().plan(&quad, &model(), &Workload::default()).unwrap();
+        assert_eq!(quad_plan.tensor_parallel, 4);
+        let quad_arts = Vllm::new().render(&quad_plan, Target::Ecs).unwrap();
+        let quad_doc: serde_json::Value =
+            serde_json::from_str(&quad_arts[0].contents).unwrap();
+        assert_eq!(quad_doc["cpu"], "16384", "cpu must scale with GPU count");
+        assert_eq!(
+            quad_doc["memory"], "49152",
+            "memory must scale with GPU count"
         );
     }
 

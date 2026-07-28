@@ -241,18 +241,20 @@ pub(crate) fn ecs_task_definition(
     // A task definition that will not parse is worse than none, and hand-rolled
     // escaping is a bug waiting for the first nested value.
     let command: Vec<&str> = args.iter().skip(skip).map(String::as_str).collect();
+    // EC2 GPU instances put roughly 4 vCPU / 12 GiB of host resources behind
+    // each GPU (g4dn.xlarge, g5.xlarge: 4 vCPU, 16 GiB, 1 GPU). A flat
+    // reservation ignores GPU count: it under-provisions a tensor-parallel
+    // task spread across several GPUs, and over-reserves memory on the very
+    // single-GPU instance types it is meant to target, so neither schedules.
+    let gpus_for_sizing = gpus.max(1);
+    let cpu = 4096u32.saturating_mul(gpus_for_sizing);
+    let memory = 12288u32.saturating_mul(gpus_for_sizing);
     let doc = serde_json::json!({
         "family": family,
-        "_generatedBy": format!(
-            "clickllm — {}, {} @ {} context. Runs with clickllm uninstalled.",
-            plan.model.id, plan.quant, plan.max_model_len
-        ),
-        "_launchType": "EC2 only — Fargate cannot attach a GPU, so a Fargate task \
-                        definition for this would register and never schedule",
         "requiresCompatibilities": ["EC2"],
         "networkMode": "awsvpc",
-        "cpu": "4096",
-        "memory": "30720",
+        "cpu": cpu.to_string(),
+        "memory": memory.to_string(),
         "containerDefinitions": [{
             "name": family,
             "image": image,
@@ -265,6 +267,18 @@ pub(crate) fn ecs_task_definition(
                 {"name": "NVIDIA_DRIVER_CAPABILITIES", "value": "utility,compute"}
             ],
             "portMappings": [{"containerPort": port, "protocol": "tcp"}],
+            // RegisterTaskDefinition rejects unknown top-level parameters, so
+            // provenance cannot live at the document root (it did, and AWS
+            // would refuse the whole task definition). dockerLabels is a real,
+            // documented field with no restricted charset, unlike `tags`.
+            "dockerLabels": {
+                "clickllm.generated-by": format!(
+                    "clickllm {} — {}, {} @ {} context. Runs with clickllm uninstalled.",
+                    crate::VERSION, plan.model.id, plan.quant, plan.max_model_len
+                ),
+                "clickllm.launch-type": "EC2 only — Fargate cannot attach a GPU, so a \
+                    Fargate task definition for this would register and never schedule"
+            },
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
