@@ -26,7 +26,11 @@ from __future__ import annotations
 import math
 import pathlib
 
-OUT = pathlib.Path(__file__).resolve().parents[1] / "docs" / "assets"
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+# Both trees, because they are served by different things: docs/assets/ is what
+# the repo markdown links to, site/assets/ is what the published page fetches.
+# Writing to only one is how a diagram exists and still 404s.
+OUTS = (ROOT / "docs" / "assets", ROOT / "site" / "assets")
 
 # --- the design system, in one place ------------------------------------------
 
@@ -120,9 +124,11 @@ def note(parts: list[str], x: int, y: int, text: str, per_line: int = 116) -> No
 
 def save(name: str, parts: list[str]) -> None:
     parts.append("</svg>")
-    p = OUT / name
-    p.write_text("\n".join(parts))
-    print(f"  {name}  {p.stat().st_size / 1024:.1f} KB")
+    body = "\n".join(parts)
+    for out in OUTS:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / name).write_text(body)
+    print(f"  {name}  {len(body) / 1024:.1f} KB  →  {len(OUTS)} trees")
 
 
 # --- 1. where the memory goes --------------------------------------------------
@@ -589,7 +595,6 @@ def quantization() -> None:
 
 
 if __name__ == "__main__":
-    OUT.mkdir(parents=True, exist_ok=True)
     print("writing diagrams:")
     memory_breakdown()
     prefill_decode()

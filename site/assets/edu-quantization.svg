@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 392" width="860" height="392" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>Quantization buys bandwidth, not just space</title><desc id='d'>Weight size for a 32B model at four precisions, from 16-bit down to 4-bit. Decode re-reads every weight per token, so a smaller format is directly faster as well as smaller.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="860" height="392" fill="var(--bg)"/>
+<text x="28" y="30" class="t">Quantization buys bandwidth, not just space</text>
+<text x="28" y="50" class="sub">32B model · decode re-reads every weight for every token, so halving the bytes roughly halves the time</text>
+<text x="182" y="112" class="lb" text-anchor="end">16-bit (fp16/bf16)</text>
+<rect x="196.0" y="92.0" width="356.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="564" y="111" class="m">64 GiB</text>
+<text x="636" y="111" class="ax">reference quality</text>
+<text x="182" y="158" class="lb" text-anchor="end">8-bit (fp8/int8)</text>
+<rect x="196.0" y="138.0" width="178.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="386" y="157" class="m">32 GiB</text>
+<text x="636" y="157" class="ax">no measurable loss, most tasks</text>
+<text x="182" y="204" class="lb" text-anchor="end">6-bit</text>
+<rect x="196.0" y="184.0" width="133.5" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="342" y="203" class="m">24 GiB</text>
+<text x="636" y="203" class="ax">small loss, rarely noticed</text>
+<text x="182" y="250" class="lb" text-anchor="end">4-bit (Q4_K_M/AWQ)</text>
+<rect x="196.0" y="230.0" width="89.0" height="26.0" rx="4" fill="var(--s0)"/>
+<text x="297" y="249" class="m">16 GiB</text>
+<text x="636" y="249" class="ax">hurts hard reasoning; fine to extract</text>
+<text x="28" y="346" class="note">clickllm caps its own recommendation at 8-bit: below that the quality question stops being free, and it is a</text>
+<text x="28" y="362" class="note">decision to make deliberately rather than a default to inherit.</text>
+</svg>

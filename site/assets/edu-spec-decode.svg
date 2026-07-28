@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 468" width="860" height="468" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
+<title id='t'>Speculative decoding is a bet on idle compute</title><desc id='d'>Throughput change from speculative decoding against batch size. Strongly positive at batch 1, decaying as batch grows, and negative beyond roughly batch 32 where the draft pass competes with real tokens.</desc>
+<style>
+:root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
+:root[data-theme=light]{--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}
+.t{fill:var(--ink);font-size:15px;font-weight:650}.sub{fill:var(--ink2);font-size:11.5px}.lb{fill:var(--ink2);font-size:11px}.ax{fill:var(--muted);font-size:10.5px}.m{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10.5px;fill:var(--ink2)}.g{stroke:var(--grid);stroke-width:1}.note{fill:var(--muted);font-size:10.5px;font-style:italic}
+</style>
+<rect width="860" height="468" fill="var(--bg)"/>
+<text x="28" y="30" class="t">Speculative decoding is a bet on idle compute</text>
+<text x="28" y="50" class="sub">It pays when the accelerator has spare cycles between tokens. At high batch there are none.</text>
+<line x1="92" y1="317.5" x2="692" y2="317.5" class="g"/>
+<text x="82" y="321.0" class="ax" text-anchor="end">-40%</text>
+<line x1="92" y1="283.4" x2="692" y2="283.4" class="g"/>
+<text x="82" y="286.9" class="ax" text-anchor="end">-20%</text>
+<line x1="92" y1="249.3" x2="692" y2="249.3" class="g"/>
+<text x="82" y="252.8" class="ax" text-anchor="end">+0%</text>
+<line x1="92" y1="215.3" x2="692" y2="215.3" class="g"/>
+<text x="82" y="218.8" class="ax" text-anchor="end">+20%</text>
+<line x1="92" y1="181.2" x2="692" y2="181.2" class="g"/>
+<text x="82" y="184.7" class="ax" text-anchor="end">+40%</text>
+<line x1="92" y1="147.1" x2="692" y2="147.1" class="g"/>
+<text x="82" y="150.6" class="ax" text-anchor="end">+60%</text>
+<line x1="92" y1="113.0" x2="692" y2="113.0" class="g"/>
+<text x="82" y="116.5" class="ax" text-anchor="end">+80%</text>
+<line x1="92" y1="249.3" x2="692" y2="249.3" stroke="var(--ink2)" stroke-width="1.5"/>
+<rect x="111.0" y="116.4" width="30.0" height="132.9" rx="4" fill="var(--s0)"/>
+<text x="126.0" y="108.4" class="ax" text-anchor="middle" fill="var(--s0)">+78%</text>
+<text x="126.0" y="344.0" class="ax" text-anchor="middle">1</text>
+<rect x="187.0" y="136.9" width="30.0" height="112.4" rx="4" fill="var(--s0)"/>
+<text x="202.0" y="128.9" class="ax" text-anchor="middle" fill="var(--s0)">+66%</text>
+<text x="202.0" y="344.0" class="ax" text-anchor="middle">2</text>
+<rect x="263.0" y="167.6" width="30.0" height="81.8" rx="4" fill="var(--s0)"/>
+<text x="278.0" y="159.6" class="ax" text-anchor="middle" fill="var(--s0)">+48%</text>
+<text x="278.0" y="344.0" class="ax" text-anchor="middle">4</text>
+<rect x="339.0" y="198.2" width="30.0" height="51.1" rx="4" fill="var(--s0)"/>
+<text x="354.0" y="190.2" class="ax" text-anchor="middle" fill="var(--s0)">+30%</text>
+<text x="354.0" y="344.0" class="ax" text-anchor="middle">8</text>
+<rect x="415.0" y="228.9" width="30.0" height="20.4" rx="4" fill="var(--s0)"/>
+<text x="430.0" y="220.9" class="ax" text-anchor="middle" fill="var(--s0)">+12%</text>
+<text x="430.0" y="344.0" class="ax" text-anchor="middle">16</text>
+<rect x="491.0" y="249.3" width="30.0" height="3.4" rx="4" fill="var(--s3)"/>
+<text x="506.0" y="267.7" class="ax" text-anchor="middle" fill="var(--s3)">-2%</text>
+<text x="506.0" y="344.0" class="ax" text-anchor="middle">32</text>
+<rect x="567.0" y="249.3" width="30.0" height="30.7" rx="4" fill="var(--s3)"/>
+<text x="582.0" y="295.0" class="ax" text-anchor="middle" fill="var(--s3)">-18%</text>
+<text x="582.0" y="344.0" class="ax" text-anchor="middle">64</text>
+<rect x="643.0" y="249.3" width="30.0" height="52.8" rx="4" fill="var(--s3)"/>
+<text x="658.0" y="317.1" class="ax" text-anchor="middle" fill="var(--s3)">-31%</text>
+<text x="658.0" y="344.0" class="ax" text-anchor="middle">128</text>
+<text x="392" y="364" class="ax" text-anchor="middle">batch size (concurrent requests)</text>
+<line x1="475.6" y1="96" x2="475.6" y2="326" stroke="var(--s3)" stroke-width="2" stroke-dasharray="6 4"/><text x="483.6" y="110" class="lb" fill="var(--s3)">break-even</text>
+<rect x="92" y="377" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="106" y="385" class="lb">throughput gained</text><rect x="230" y="377" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="244" y="385" class="lb">throughput lost</text>
+<text x="28" y="424" class="note">Illustrative shape, not measured numbers — the crossover moves with the model, the drafter and the hardware. The</text>
+<text x="28" y="440" class="note">lesson is that the quantity has a sign, which is why clickllm derives it from your concurrency instead of offering</text>
+<text x="28" y="456" class="note">it as a checkbox.</text>
+</svg>
