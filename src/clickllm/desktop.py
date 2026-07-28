@@ -110,7 +110,7 @@ def desktop_entry(exec_path: Path) -> str:
         "[Desktop Entry]\n"
         "Type=Application\n"
         f"Name={APP_NAME}\n"
-        "Comment=Prove which open model can replace your closed one\n"
+        "Comment=Run open models properly on your own hardware\n"
         f"Exec={exec_path}\n"
         "Terminal=false\n"
         "Categories=Development;Science;\n"

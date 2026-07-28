@@ -344,6 +344,73 @@ def cmd_guard(args: argparse.Namespace) -> int:
     return 0 if proposal.valid else 1
 
 
+def cmd_prove(args: argparse.Namespace) -> int:
+    """Run the eval suite over an eval set and print the verdict.
+
+    The kiosk over `clickllm.prove`. Deliberately has no flag that moves traffic:
+    it prints a proposal, and a human runs the thing that acts on it.
+    """
+    from datetime import date
+
+    from .mcp import SERVER_INFO
+    from .prove import EvalItem, suite
+
+    raw = json.loads(pathlib.Path(args.evalset).read_text())
+    if isinstance(raw, dict):
+        rows, shares, names = raw.get("items", []), raw.get("shares", {}), raw.get("names", {})
+    else:  # a bare list of items — shares fall back to equal weight
+        rows, shares, names = raw, {}, {}
+
+    if not rows:
+        raise ValueError(f"{args.evalset} contains no eval items")
+
+    items = [
+        EvalItem(
+            item_id=str(r.get("item_id", i)),
+            cluster=str(r.get("cluster", "all")),
+            prompt=str(r.get("prompt", "")),
+            baseline=str(r.get("baseline", "")),
+            candidate=str(r.get("candidate", "")),
+            baseline_tool_calls=tuple(r.get("baseline_tool_calls", ()) or ()),
+            candidate_tool_calls=tuple(r.get("candidate_tool_calls", ()) or ()),
+            response_format=r.get("response_format"),
+        )
+        for i, r in enumerate(rows)
+    ]
+
+    # No shares given means every cluster weighs the same. Said out loud, because
+    # an unweighted verdict on unevenly-distributed traffic is a different claim.
+    if not shares:
+        keys = sorted({i.cluster for i in items})
+        shares = {k: 1 / len(keys) for k in keys}
+        print(f"\n  no traffic shares supplied — weighting {len(keys)} clusters equally")
+
+    result = suite(
+        items,
+        shares=shares,
+        names=names,
+        issued=args.issued or date.today().isoformat(),
+        candidate=args.candidate,
+        incumbent=args.incumbent,
+        bar=args.bar,
+        tool_version=SERVER_INFO["version"],
+    )
+
+    if args.json:
+        print(result.receipt.to_json())
+        return 0
+
+    print()
+    print(result.render())
+    print()
+    if args.out:
+        pathlib.Path(args.out).write_text(result.receipt.to_json())
+        print(f"  receipt written to {args.out}\n")
+
+    # Nonzero when nothing can move, so this is usable as a CI gate.
+    return 0 if result.policy.moved_share > 0 else 1
+
+
 def cmd_receipt(args: argparse.Namespace) -> int:
     """Render or verify a receipt someone handed you."""
     from .prove.receipt import Receipt, verify
@@ -419,7 +486,7 @@ def cmd_kernel(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="clickllm",
-        description="Prove which open model can replace your closed one.",
+        description="Run open models properly on your own hardware — and prove they hold.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -469,6 +536,21 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--today", help="ISO date to evaluate against (default: today)")
     g.add_argument("--json", action="store_true")
     g.set_defaults(fn=cmd_guard)
+
+    pv = sub.add_parser("prove", help="run the eval suite and print the verdict")
+    pv.add_argument("evalset", help="path to an eval-set JSON file")
+    pv.add_argument("--candidate", default="candidate", help="the open model under test")
+    pv.add_argument("--incumbent", default="incumbent", help="the model being replaced")
+    pv.add_argument("--issued", default="", help="ISO date stamped on the receipt")
+    pv.add_argument(
+        "--bar",
+        type=float,
+        default=0.90,
+        help="equivalence bar; a cluster moves only when the whole interval clears it",
+    )
+    pv.add_argument("--out", help="write the receipt to this path")
+    pv.add_argument("--json", action="store_true", help="print the receipt as JSON")
+    pv.set_defaults(fn=cmd_prove)
 
     rc = sub.add_parser("receipt", help="render or verify a migration receipt")
     rc.add_argument("receipt", help="path to a receipt JSON file")

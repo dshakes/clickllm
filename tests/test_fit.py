@@ -258,6 +258,7 @@ def test_mcp_tool_schemas_are_well_formed():
 
 
 def test_distill_and_prove_self_checks():
+    import clickllm.prove as suite
     from clickllm.distill import cluster as dcluster
     from clickllm.distill import shape as dshape
     from clickllm.prove import equivalence, graders, judge, stats
@@ -268,6 +269,7 @@ def test_distill_and_prove_self_checks():
     graders.demo()
     judge.demo()
     equivalence.demo()
+    suite.demo()
 
 
 def test_a_perfect_score_on_few_samples_is_not_certainty():
