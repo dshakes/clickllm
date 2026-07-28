@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-563-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-582-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -75,6 +75,7 @@ is calling the same code.
 clickllm_fit       // what runs on this machine, at this context and concurrency
 clickllm_explain   // the full arithmetic behind one verdict — weights, KV, headroom
 clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
+clickllm_advise    // what to change unprompted, and where production diverged
 clickllm_catalog   // parameters, MoE split, context, licence
 ```
 
@@ -85,6 +86,30 @@ evaluation* and recommend a migration, and **structurally cannot** be the thing
 that moves production traffic. Add such a tool and the build fails. The
 vocabulary is deliberately broad: the failure it guards against is someone
 adding a helpful-looking `clickllm_promote` and nothing objecting.
+
+**It tells you what you didn't ask.** A planner that only answers the question
+asked is a form. Somebody deploys an agent fleet with a 2,000-token system prompt
+on every request, never sets a prefix-sharing figure because no form demanded one,
+and pays to recompute the same prefix a million times. The plan was correct — and
+40% more expensive than it needed to be, with nothing saying so.
+
+```bash
+clickllm advise --context 128k --concurrency 16 --seen-concurrency 40
+```
+```
+  PRODUCTION DIVERGED FROM THE PLAN
+
+  [high] Re-plan for concurrency 40.
+    because: the plan assumes 16 in-flight requests; production is running 40.
+             KV cache, batch limits and the speculative decision were all
+             derived from the smaller number.
+    expect:  settings that match the traffic.
+```
+
+Feed it real telemetry and it reconciles what production *did* against what the
+plan *assumed* — the self-healing seam. Every item carries the observation that
+triggered it, so a wrong suggestion is dismissible rather than mysterious, and
+every effect is labelled an estimate. It proposes; it never applies.
 
 **You never write a config.** Not a YAML you fill in, not a template you fork —
 you state the intent and it derives the engine and the flags. What it emits is a
@@ -184,6 +209,7 @@ And two the suite enforces underneath:
 | ② | **Distill** — structural clustering, representative sampling | ✅ |
 | ③ | **Fit** — MoE/GQA/MLA-correct sizing, 17 hardware classes, `--explain` | ✅ |
 | — | **Plan** — engine *and* flags derived from what the deployment is for | ✅ |
+| — | **Advise** — `clickllm advise`: what to change unprompted, and drift against real telemetry | ✅ |
 | — | **Intent** — a sentence in, a plan out; asks about what it cannot infer | ✅ |
 | ④ | **Prove** — `clickllm prove`: grader stack, position-swapped judge, equivalence matrix | ✅ |
 | — | **Receipt** — a portable, reproducible proof you can hand to an auditor | ✅ |
@@ -292,10 +318,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 314 Python
+uv run --with pytest --python 3.13 pytest -q       # 333 Python
 ```
 
-**563 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**582 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-core/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That

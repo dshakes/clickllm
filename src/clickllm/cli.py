@@ -344,6 +344,67 @@ def cmd_guard(args: argparse.Namespace) -> int:
     return 0 if proposal.valid else 1
 
 
+def cmd_advise(args: argparse.Namespace) -> int:
+    """What to change about a deployment, unprompted — and what production says.
+
+    Prints proposals with their evidence. Applies nothing: the whole point is
+    that a suggestion you cannot argue with is one you cannot trust.
+    """
+    from .advise import Observed, reconcile, suggest
+    from .plan import Requirements, Workload, plan
+
+    hw = hardware.detect()
+    req = Requirements(
+        workload=Workload(args.workload),
+        concurrency=args.concurrency,
+        context=_parse_size(args.context),
+        ttft_ms=args.ttft_ms,
+        itl_ms=args.itl_ms,
+        prefix_sharing=args.prefix_sharing,
+        structured_output=args.structured_output,
+    )
+    p = plan(hw, req)
+
+    seen = Observed(
+        concurrency=args.seen_concurrency,
+        prefix_sharing=args.seen_prefix_sharing,
+        ttft_ms=args.seen_ttft_ms,
+        peak_context=_parse_size(args.seen_peak_context) if args.seen_peak_context else None,
+        kv_utilisation=args.seen_kv_utilisation,
+    )
+    drift = reconcile(req, p, seen)
+    ideas = suggest(req, p)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "engine": p.engine.value,
+                    "suggestions": [s.__dict__ | {"impact": s.impact.value} for s in ideas],
+                    "drift": [s.__dict__ | {"impact": s.impact.value} for s in drift],
+                },
+                default=str,
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"\n  {hw.name} · {p.engine.value}\n")
+    if drift:
+        print("  PRODUCTION DIVERGED FROM THE PLAN\n")
+        for s in drift:
+            print(f"  {s.render()}\n")
+    if ideas:
+        print("  WORTH CHANGING\n")
+        for s in ideas:
+            print(f"  {s.render()}\n")
+    if not drift and not ideas:
+        print("  Nothing to suggest — the plan matches the requirements as stated.\n")
+
+    # Nonzero only when production has diverged, so this is usable as a probe.
+    return 1 if drift else 0
+
+
 def cmd_prove(args: argparse.Namespace) -> int:
     """Run the eval suite over an eval set and print the verdict.
 
@@ -536,6 +597,25 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--today", help="ISO date to evaluate against (default: today)")
     g.add_argument("--json", action="store_true")
     g.set_defaults(fn=cmd_guard)
+
+    ad = sub.add_parser("advise", help="what to change, and where production diverged")
+    ad.add_argument("--context", default="32k")
+    ad.add_argument("--concurrency", type=int, default=1)
+    ad.add_argument(
+        "--workload", default="interactive", choices=["interactive", "realtime", "batch"]
+    )
+    ad.add_argument("--ttft-ms", type=int, dest="ttft_ms")
+    ad.add_argument("--itl-ms", type=int, dest="itl_ms")
+    ad.add_argument("--prefix-sharing", type=float, default=0.0, dest="prefix_sharing")
+    ad.add_argument("--structured-output", action="store_true", dest="structured_output")
+    # Observed reality — any subset. Telemetry arrives in pieces.
+    ad.add_argument("--seen-concurrency", type=int, dest="seen_concurrency")
+    ad.add_argument("--seen-prefix-sharing", type=float, dest="seen_prefix_sharing")
+    ad.add_argument("--seen-ttft-ms", type=int, dest="seen_ttft_ms")
+    ad.add_argument("--seen-peak-context", dest="seen_peak_context")
+    ad.add_argument("--seen-kv-utilisation", type=float, dest="seen_kv_utilisation")
+    ad.add_argument("--json", action="store_true")
+    ad.set_defaults(fn=cmd_advise)
 
     pv = sub.add_parser("prove", help="run the eval suite and print the verdict")
     pv.add_argument("evalset", help="path to an eval-set JSON file")

@@ -74,6 +74,61 @@ def _explain(model_id: str, context: str = "32k", concurrency: int = 1) -> dict[
     return {"model": model_id, "fits": f.feasible, "arithmetic": f.explain()}
 
 
+def _advise(
+    context: str = "32k",
+    concurrency: int = 1,
+    workload: str = "interactive",
+    ttft_ms: int | None = None,
+    itl_ms: int | None = None,
+    prefix_sharing: float = 0.0,
+    structured_output: bool = False,
+    observed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Proactive suggestions for a deployment, and drift against observed reality.
+
+    Read-only: it proposes, with the evidence for each proposal, and applies
+    nothing.
+    """
+    from .advise import Observed, reconcile, suggest
+    from .cli import _parse_size
+    from .plan import Requirements, Workload, plan
+
+    hw = hardware.detect()
+    req = Requirements(
+        workload=Workload(workload),
+        concurrency=concurrency,
+        context=_parse_size(context),
+        ttft_ms=ttft_ms,
+        itl_ms=itl_ms,
+        prefix_sharing=prefix_sharing,
+        structured_output=structured_output,
+    )
+    p = plan(hw, req)
+
+    def _out(s: Any) -> dict[str, Any]:
+        return {
+            "id": s.id,
+            "impact": s.impact.value,
+            "action": s.action,
+            "because": s.because,
+            "expect": s.expect,
+            "setting": s.setting.value if s.setting else None,
+        }
+
+    drift = reconcile(req, p, Observed(**observed)) if observed else []
+    return {
+        "engine": p.engine.value,
+        "engine_why": p.engine_why,
+        "suggestions": [_out(s) for s in suggest(req, p)],
+        "drift": [_out(s) for s in drift],
+        "cannot_meet": list(p.warnings),
+        "advisory": (
+            "Proposals with evidence, not actions. Effects are estimates unless "
+            "labelled otherwise; nothing here has been applied."
+        ),
+    }
+
+
 def _prove(
     eval_set: str,
     candidate: str = "candidate",
@@ -211,6 +266,38 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                     "concurrency": {"type": "integer", "minimum": 1},
                 },
                 "required": ["model_id"],
+            },
+        },
+    ),
+    "clickllm_advise": (
+        _advise,
+        {
+            "description": (
+                "What a careful reviewer would raise about a deployment unprompted: the "
+                "knob nobody set, the headroom nobody spent, the budget nobody stated. "
+                "Pass 'observed' with real telemetry to also get drift — where production "
+                "diverged from what the plan assumed. Every item carries the observation "
+                "that triggered it; report that, not just the action. Proposals only: "
+                "nothing here is applied."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "context": {"type": "string", "description": "e.g. '8k', '32k'."},
+                    "concurrency": {"type": "integer", "minimum": 1},
+                    "workload": {"enum": ["interactive", "realtime", "batch"]},
+                    "ttft_ms": {"type": "integer", "description": "Time-to-first-token budget."},
+                    "itl_ms": {"type": "integer", "description": "Inter-token latency budget."},
+                    "prefix_sharing": {"type": "number", "minimum": 0, "maximum": 1},
+                    "structured_output": {"type": "boolean"},
+                    "observed": {
+                        "type": "object",
+                        "description": (
+                            "Measured reality: concurrency, prefix_sharing, ttft_ms, "
+                            "itl_ms, peak_context, kv_utilisation. Any subset."
+                        ),
+                    },
+                },
             },
         },
     ),
