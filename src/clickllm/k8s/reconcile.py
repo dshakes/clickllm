@@ -55,6 +55,9 @@ IMAGES = {
     Engine.LLMD: "ghcr.io/llm-d/llm-d:latest",
 }
 
+#: Engines whose argv starts with the binary rather than `python3 -m`.
+VLLM_FAMILY = (Engine.VLLM, Engine.VLLM_TPU)
+
 #: Port each engine serves on by default.
 PORTS = {Engine.SGLANG: 30000}
 DEFAULT_PORT = 8000
@@ -125,16 +128,43 @@ def select_node(
     return best, f"largest usable accelerator memory among {len(usable)} candidate node(s)"
 
 
+def _num(spec: dict[str, Any], key: str, default: float, cast=int) -> Any:
+    """Read a numeric spec field, tolerating null and nonsense.
+
+    `concurrency: null` is valid YAML and reaches us as `None`, where `int(None)`
+    raises `TypeError`. In a cluster-wide controller that is a denial of service:
+    anyone able to write an InferenceWorkload could crash-loop the daemon for
+    everybody with one field. The CRD schema rejects most of this, but a
+    controller must not depend on admission having been enforced.
+    """
+    raw = spec.get(key)
+    if raw is None:
+        return cast(default)
+    try:
+        return cast(raw)
+    except (TypeError, ValueError):
+        return cast(default)
+
+
 def _requirements(spec: dict[str, Any]) -> Requirements:
-    """Map CRD spec fields onto the planner's own input type."""
+    """Map CRD spec fields onto the planner's own input type.
+
+    Every field is read defensively — see [`_num`]. An unrecognised `workload`
+    falls back to interactive rather than raising, because a plan built on a
+    conservative default is more useful than a controller that stopped.
+    """
+    try:
+        workload = Workload(spec.get("workload") or "interactive")
+    except ValueError:
+        workload = Workload.INTERACTIVE
     return Requirements(
-        workload=Workload(spec.get("workload", "interactive")),
-        concurrency=int(spec.get("concurrency", 8)),
-        context=int(spec.get("context", 32_768)),
-        ttft_ms=spec.get("ttftMs"),
-        itl_ms=spec.get("itlMs"),
-        prefix_sharing=float(spec.get("prefixSharing", 0.0)),
-        structured_output=bool(spec.get("structuredOutput", False)),
+        workload=workload,
+        concurrency=max(1, _num(spec, "concurrency", 8)),
+        context=max(512, _num(spec, "context", 32_768)),
+        ttft_ms=_num(spec, "ttftMs", 0) or None,
+        itl_ms=_num(spec, "itlMs", 0) or None,
+        prefix_sharing=min(1.0, max(0.0, _num(spec, "prefixSharing", 0.0, float))),
+        structured_output=bool(spec.get("structuredOutput") or False),
     )
 
 
@@ -192,7 +222,12 @@ def deployment_for(
                             "image": image,
                             # Skip argv[0..] up to the model: the image's own
                             # entrypoint supplies the binary.
-                            "args": argv[1:] if p.engine is Engine.VLLM else argv[3:],
+                            # vLLM-family argv is `vllm serve MODEL …`, so drop
+                            # only the binary. SGLang's is `python3 -m mod …`,
+                            # so drop three. Getting this wrong for vllm-tpu
+                            # dropped the model name and the container crashed
+                            # on boot with no argument at all.
+                            "args": argv[1:] if p.engine in VLLM_FAMILY else argv[3:],
                             "ports": [{"containerPort": port}],
                             "resources": resources,
                         }

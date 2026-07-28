@@ -279,7 +279,15 @@ class SglangAdapter(Adapter):
         return argv, gaps
 
 
-_ADAPTERS: dict[str, Adapter] = {"vllm": VllmAdapter(), "sglang": SglangAdapter()}
+_ADAPTERS: dict[str, Adapter] = {
+    "vllm": VllmAdapter(),
+    # vLLM's TPU backend is a different engine (JAX lowering via tpu-inference)
+    # wearing the same CLI, so it shares the dialect. Registered explicitly
+    # rather than by prefix match: if the CLIs ever diverge this is the line
+    # that has to change, and it should be obvious.
+    "vllm-tpu": VllmAdapter(),
+    "sglang": SglangAdapter(),
+}
 
 
 def adapter_for(engine: str) -> Adapter | None:

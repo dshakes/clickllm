@@ -66,6 +66,19 @@ has to work at 3am with nobody watching — and it will never raise it. Moving m
 production traffic onto a candidate is a human decision. That rule is enforced
 independently here, in `prove.gate`, and in the gateway's control surface.
 
+The controller learns about a regression from an annotation the quality gate
+writes onto the resource:
+
+```bash
+kubectl annotate iw triage clickllm.dev/regressed=true   clickllm.dev/regression-reason="extract fell to 61% [54-68]"
+```
+
+Two processes rather than one, deliberately: the gate needs the eval corpus and
+the controller needs cluster credentials, and giving either one both is a larger
+blast radius than the feature is worth. Only a literal `true` triggers a
+rollback — a typo or an `unknown` is treated as *not regressed*, because rolling
+back on a value nobody understood would make a stray annotation an incident.
+
 **It polls, it does not watch.** The controller shells out to `kubectl` rather
 than embedding a Kubernetes client, which keeps `clickllm fit` dependency-free
 and inherits your kubeconfig, contexts and cloud exec plugins for free. The cost
@@ -76,11 +89,12 @@ it stops being one, only `controller.py` changes.
 ## Running the controller
 
 ```bash
-python -m clickllm.k8s.controller           # loop
+python -m clickllm.k8s.controller                    # loop, all namespaces
+python -m clickllm.k8s.controller -n ml --interval 15
+python -m clickllm.k8s.controller --once             # one pass — for a CronJob
+python -m clickllm.k8s.controller --dry-run          # applies nothing
+python -m clickllm.k8s.controller --self-check       # built-in self-check
 ```
-
-Or as a CronJob — `run(max_passes=1)` exists so a one-shot invocation is a
-supported mode rather than a hack.
 
 ## A node it cannot size
 

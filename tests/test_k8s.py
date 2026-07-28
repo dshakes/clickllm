@@ -263,10 +263,26 @@ def test_one_broken_workload_does_not_stop_the_others():
     assert not got["ml/bad"].ready
 
 
+def _patch_bodies(calls) -> list[str]:
+    """Bodies of every `kubectl patch`.
+
+    They arrive in argv as `-p <json>`, not on stdin. An earlier version of
+    these tests looked at stdin, where patch bodies never appear — so the
+    "never writes spec" assertion below passed vacuously and would not have
+    caught a controller that rewrote spec on every pass.
+    """
+    out = []
+    for args, _stdin in calls:
+        if args and args[0] == "patch" and "-p" in args:
+            out.append(args[args.index("-p") + 1])
+    return out
+
+
 def test_a_healthy_pass_never_writes_spec():
     _, calls = run_loop([workload()])
-    spec_writes = [s for a, s in calls if a[0] == "patch" and s and "spec" in str(s)]
-    assert not spec_writes
+    bodies = _patch_bodies(calls)
+    assert bodies, "the pass should have written status at least"
+    assert not [b for b in bodies if '"spec"' in b], bodies
     assert any(a[0] == "apply" for a, _ in calls)
     assert any("--subresource=status" in a for a, _ in calls)
 
@@ -309,3 +325,134 @@ def test_the_crd_manifest_declares_what_the_reconciler_reads_and_writes():
     # Every phase the reconciler can produce must be a legal enum value.
     for phase in PHASE_ORDER:
         assert phase in text
+
+
+# --- the four defects the PR reviewers caught ----------------------------------
+# Each of these was shipped and blocked at review. They are pinned here because
+# every one of them is invisible until production.
+
+
+def test_the_rollback_path_is_actually_consulted_by_the_loop():
+    """The worst of the four: documented at length, never wired.
+
+    `reconcile_once` called `reconcile(wl, nodes)` with no regression input, so
+    `regressed` was always False and the automatic rollback could not once have
+    fired. Three paragraphs of documentation describing behaviour that did not
+    exist.
+    """
+    wl = workload(phase="canary")
+    got, calls = run_loop([wl])
+    assert got["ml/triage"].demote_to is None, "no regression, no demotion"
+
+    Recorder.CALLS, Recorder.ITEMS = [], [wl]
+    got = dict(
+        reconcile_once(
+            Recorder(), nodes=CLUSTER, regression_check=lambda _: (True, "extract fell to 61%")
+        )
+    )
+    r = got["ml/triage"]
+    assert r.demote_to == "shadow", "a regression must lower the phase"
+    # ...and it must reach the cluster, not just the return value.
+    spec_patches = [b for b in _patch_bodies(Recorder.CALLS) if '"spec"' in b]
+    assert spec_patches, "the demotion was computed but never applied"
+    assert '"phase": "shadow"' in spec_patches[0]
+
+
+def test_the_default_regression_check_reads_the_gates_verdict():
+    from clickllm.k8s.controller import REGRESSION_ANNOTATION, gate_from_annotation
+
+    assert gate_from_annotation({"metadata": {"annotations": {REGRESSION_ANNOTATION: "true"}}})[0]
+    assert gate_from_annotation({})[0] is False
+
+
+@pytest.mark.parametrize("value", ["", "false", "unknown", "TRUE-ish", "1", "yes", None])
+def test_only_a_literal_true_triggers_a_rollback(value):
+    # Rolling back on a value we do not understand would make a stray annotation
+    # a production incident.
+    from clickllm.k8s.controller import REGRESSION_ANNOTATION, gate_from_annotation
+
+    ann = {} if value is None else {REGRESSION_ANNOTATION: value}
+    assert gate_from_annotation({"metadata": {"annotations": ann}})[0] is False
+
+
+def test_a_tpu_workload_produces_a_runnable_deployment():
+    """Two bugs made this impossible: no adapter registered for vllm-tpu, and an
+    argv slice that dropped the model name for anything not exactly VLLM."""
+    tpu = from_json(
+        {
+            "items": [
+                node_json(
+                    "tpu-a",
+                    labels={
+                        TPU_ACCELERATOR_LABEL: "tpu-v6e-slice",
+                        TPU_TOPOLOGY_LABEL: "2x4",
+                    },
+                    alloc={"google.com/tpu": "8", "memory": "1500Gi", "cpu": "180"},
+                )
+            ]
+        }
+    )
+    r = reconcile(workload(), tpu)
+    assert r.ready, r.status.get("conditions")
+    assert r.status["engine"] == "vllm-tpu"
+    c = r.objects[0]["spec"]["template"]["spec"]["containers"][0]
+    # The model name must survive the argv slice — without it the container
+    # boots with no model and crashes immediately.
+    assert "Qwen/Qwen3-32B" in c["args"], c["args"]
+    assert c["args"][0] == "serve", c["args"][:3]
+    assert "google.com/tpu" in c["resources"]["limits"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"concurrency": None},
+        {"context": None},
+        {"prefixSharing": None},
+        {"context": "not-a-number"},
+        {"workload": "nonsense"},
+        {"workload": None},
+        {"structuredOutput": None},
+        {"prefixSharing": 7},
+    ],
+)
+def test_a_malformed_field_cannot_crash_the_shared_controller(bad):
+    """`concurrency: null` is valid YAML and reached `int(None)`, raising
+    TypeError — uncaught, so anyone able to write an InferenceWorkload could
+    crash-loop the cluster-wide daemon for everybody."""
+    got, _ = run_loop([workload(**bad)])
+    r = got["ml/triage"]
+    assert r.status, "a malformed field must still produce a status"
+    assert r.status["conditions"][0]["reason"] != "ReconcileFailed", r.status
+
+
+def test_one_workload_raising_an_unexpected_error_does_not_stop_the_pass():
+    class Exploding(Recorder):
+        def run(self, args, stdin=None):
+            if args[0] == "apply" and stdin and "triage" in stdin:
+                raise TypeError("something nobody anticipated")
+            return super().run(args, stdin)
+
+    Recorder.CALLS, Recorder.ITEMS = [], [workload(), workload() | {}]
+    Recorder.ITEMS = [
+        workload(),
+        {"metadata": {"name": "other", "namespace": "ml"}, "spec": dict(workload()["spec"])},
+    ]
+    got = dict(reconcile_once(Exploding(), nodes=CLUSTER))
+    assert got["ml/triage"].status["conditions"][0]["reason"] == "ReconcileFailed"
+    assert got["ml/other"].ready, "the other workload must still reconcile"
+
+
+def test_the_module_entrypoint_runs_the_loop_not_the_self_check():
+    # `deploy/README.md` tells operators to run `python -m clickllm.k8s.controller`.
+    # It used to run demo() and exit.
+    import inspect
+
+    from clickllm.k8s import controller as mod
+
+    assert hasattr(mod, "main")
+    src = inspect.getsource(mod)
+    tail = src[src.index('if __name__ == "__main__":') :]
+    assert "main()" in tail and "demo()" not in tail
+    # The self-check is still reachable, just not the default.
+    assert "--self-check" in inspect.getsource(mod.main)

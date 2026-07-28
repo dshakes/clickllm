@@ -33,12 +33,21 @@ import contextlib
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from clickllm.k8s.nodes import read_cluster
 from clickllm.k8s.reconcile import Reconciled, reconcile
 
-__all__ = ["Kubectl", "demo", "reconcile_once", "run"]
+__all__ = ["Kubectl", "RegressionCheck", "demo", "gate_from_annotation", "reconcile_once", "run"]
+
+#: A function the loop calls per workload to ask "has this regressed?".
+#:
+#: Returns `(regressed, reason)`. Injected rather than computed here because
+#: judging a regression needs eval data this package deliberately does not
+#: reach for — but the loop MUST consult something, or the rollback path is
+#: documentation rather than behaviour.
+RegressionCheck = Callable[[dict], tuple[bool, str]]
 
 #: Seconds between passes. Long enough not to hammer the API server, short
 #: enough that a node joining is noticed before anyone files a ticket.
@@ -124,10 +133,35 @@ class Kubectl:
         )
 
 
+#: Annotation the quality gate writes when it finds a regression.
+#:
+#: The gate runs where the eval data is — it reads the capture store, scores
+#: candidate against baseline, and stamps its verdict here. The controller then
+#: acts on it. Two processes rather than one because the gate needs the eval
+#: corpus and the controller needs cluster credentials, and giving either one
+#: both is a larger blast radius than the feature is worth.
+REGRESSION_ANNOTATION = "clickllm.dev/regressed"
+REGRESSION_REASON_ANNOTATION = "clickllm.dev/regression-reason"
+
+
+def gate_from_annotation(wl: dict) -> tuple[bool, str]:
+    """Default regression check: read the gate's verdict off the resource.
+
+    Treats anything other than a literal `"true"` as *not* regressed — including
+    a missing annotation, a typo, or `"unknown"`. Rolling back on a value we do
+    not understand would make a stray annotation a production incident.
+    """
+    ann = (wl.get("metadata", {}) or {}).get("annotations", {}) or {}
+    regressed = str(ann.get(REGRESSION_ANNOTATION, "")).strip().lower() == "true"
+    reason = ann.get(REGRESSION_REASON_ANNOTATION, "") or "the quality gate reported a regression"
+    return regressed, reason
+
+
 def reconcile_once(
     kc: Kubectl,
     namespace: str | None = None,
     nodes: list | None = None,
+    regression_check: RegressionCheck | None = None,
 ) -> list[tuple[str, Reconciled]]:
     """One pass over every workload.
 
@@ -140,6 +174,7 @@ def reconcile_once(
     blast radius should be their workload, not the cluster's.
     """
     nodes = read_cluster(kc.context) if nodes is None else nodes
+    check = regression_check or gate_from_annotation
     results: list[tuple[str, Reconciled]] = []
 
     for wl in kc.workloads(namespace):
@@ -147,7 +182,13 @@ def reconcile_once(
         name, ns = meta.get("name", "?"), meta.get("namespace", "default")
         ref = f"{ns}/{name}"
         try:
-            r = reconcile(wl, nodes)
+            # The rollback path is only real if something consults it. An
+            # earlier version of this loop called reconcile() with no regression
+            # input at all, which meant `regressed` was always False and the
+            # automatic rollback — three paragraphs of documentation — could
+            # never once have fired in production.
+            regressed, reason = check(wl)
+            r = reconcile(wl, nodes, regressed=regressed, regression_reason=reason)
             for obj in r.objects:
                 kc.apply(obj)
             if r.status:
@@ -155,9 +196,13 @@ def reconcile_once(
             if r.demote_to:
                 kc.demote(name, ns, r.demote_to)
             results.append((ref, r))
-        except (RuntimeError, OSError, ValueError, KeyError) as e:
-            # Report it on the resource itself. A controller that only logs is a
-            # controller whose failures nobody sees.
+        except Exception as e:  # noqa: BLE001 - deliberate; see below
+            # Deliberately broad. This is a cluster-wide daemon, and any
+            # exception escaping here takes down reconciliation for *every*
+            # workload — so one person's malformed YAML would crash-loop the
+            # controller for everybody. The blast radius of a bad resource must
+            # be that resource. Reported on the object itself, because a
+            # controller that only logs is one whose failures nobody sees.
             failed = Reconciled(
                 status={
                     "conditions": [
@@ -185,6 +230,7 @@ def run(
     interval: int = DEFAULT_INTERVAL,
     max_passes: int | None = None,
     nodes: list | None = None,
+    regression_check: RegressionCheck | None = None,
 ) -> None:
     """Reconcile forever.
 
@@ -195,7 +241,7 @@ def run(
     passes = 0
     while max_passes is None or passes < max_passes:
         try:
-            for ref, r in reconcile_once(kc, namespace, nodes):
+            for ref, r in reconcile_once(kc, namespace, nodes, regression_check):
                 state = "ok" if r.ready else "blocked"
                 extra = f" → demoted to {r.demote_to}" if r.demote_to else ""
                 print(f"[clickllm] {ref}: {state}{extra}", flush=True)
@@ -272,5 +318,38 @@ def demo() -> None:
     print("k8s.controller: ok")
 
 
+def main(argv: list[str] | None = None) -> int:
+    """Entrypoint. `python -m clickllm.k8s.controller` runs the loop.
+
+    It previously ran `demo()`, which meant the command `deploy/README.md` told
+    operators to run started a self-check and exited — a documented entrypoint
+    that did not do the documented thing.
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(prog="clickllm-controller")
+    p.add_argument("-n", "--namespace", help="watch one namespace (default: all)")
+    p.add_argument("--context", help="kubectl context")
+    p.add_argument("--interval", type=int, default=DEFAULT_INTERVAL)
+    p.add_argument("--once", action="store_true", help="one pass, then exit — for a CronJob")
+    p.add_argument("--dry-run", action="store_true", help="server-side dry run; applies nothing")
+    p.add_argument("--self-check", action="store_true", help="run the built-in self-check and exit")
+    a = p.parse_args(argv)
+
+    if a.self_check:
+        demo()
+        return 0
+    try:
+        run(
+            Kubectl(context=a.context, dry_run=a.dry_run),
+            namespace=a.namespace,
+            interval=a.interval,
+            max_passes=1 if a.once else None,
+        )
+    except KeyboardInterrupt:
+        return 130
+    return 0
+
+
 if __name__ == "__main__":
-    demo()
+    raise SystemExit(main())
