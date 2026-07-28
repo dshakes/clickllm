@@ -33,19 +33,19 @@
 <circle cx="265.3" cy="276.4" r="4.5" fill="var(--s0)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="438.7" cy="255.3" r="4.5" fill="var(--s0)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="612.0" cy="234.3" r="4.5" fill="var(--s0)" stroke="var(--bg)" stroke-width="2"/>
-<text x="626" y="238.3" class="lb" fill="var(--s0)">MHA</text>
+<text x="626" y="238.3" class="lb" style="fill:var(--s0)">MHA</text>
 <polyline points="92.0,328.9 265.3,307.9 438.7,286.9 612.0,265.9" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <circle cx="92.0" cy="328.9" r="4.5" fill="var(--s1)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="265.3" cy="307.9" r="4.5" fill="var(--s1)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="438.7" cy="286.9" r="4.5" fill="var(--s1)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="612.0" cy="265.9" r="4.5" fill="var(--s1)" stroke="var(--bg)" stroke-width="2"/>
-<text x="626" y="269.9" class="lb" fill="var(--s1)">GQA (8 groups)</text>
+<text x="626" y="269.9" class="lb" style="fill:var(--s1)">GQA (8 groups)</text>
 <polyline points="92.0,356.5 265.3,335.5 438.7,314.4 612.0,293.4" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <circle cx="92.0" cy="356.5" r="4.5" fill="var(--s2)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="265.3" cy="335.5" r="4.5" fill="var(--s2)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="438.7" cy="314.4" r="4.5" fill="var(--s2)" stroke="var(--bg)" stroke-width="2"/>
 <circle cx="612.0" cy="293.4" r="4.5" fill="var(--s2)" stroke="var(--bg)" stroke-width="2"/>
-<text x="626" y="297.4" class="lb" fill="var(--s2)">MLA (latent)</text>
+<text x="626" y="297.4" class="lb" style="fill:var(--s2)">MLA (latent)</text>
 <rect x="92" y="381" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="106" y="389" class="lb">MHA</text><rect x="137" y="381" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="151" y="389" class="lb">GQA (8 groups)</text><rect x="255" y="381" width="9" height="9" rx="2.5" fill="var(--s2)"/><text x="269" y="389" class="lb">MLA (latent)</text>
 <text x="28" y="448" class="note">Using the MHA formula on an MLA model overestimates its KV cache by around fifty times — which is how a model that fits comfortably gets rejected as too big.</text>
 </svg>

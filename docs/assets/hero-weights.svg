@@ -37,7 +37,7 @@
 <text x="667" y="49.0" class="ax" text-anchor="middle">the model, on the silicon</text>
 <path d="M 742 124 l 9 6 l -9 6" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
 <rect class="light" style="animation-delay:1.6s" x="756" y="116" width="52" height="26" rx="5" fill="var(--s2)"/>
-<text x="782" y="133" class="ax" text-anchor="middle" fill="var(--bg)">1 word</text>
+<text x="782" y="133" class="ax" text-anchor="middle" style="fill:var(--bg)">1 word</text>
 <text x="28" y="220" class="note">Then it happens again, from the start, for the next word. That loop is the product: the bus is the ceiling, and</text>
 <text x="28" y="236" class="note">everything clickllm tunes — batching, quantisation, KV layout — is a way of getting more words out of one trip</text>
 <text x="28" y="252" class="note">across it.</text>

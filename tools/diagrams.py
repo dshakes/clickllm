@@ -309,7 +309,8 @@ def memory_breakdown() -> None:
     p.append(
         f'<line x1="{x0}" y1="{yc:.1f}" x2="{W - 250}" y2="{yc:.1f}" '
         f'stroke="var(--s3)" stroke-width="2" stroke-dasharray="7 4"/>'
-        f'<text x="{W - 246}" y="{yc + 3.5:.1f}" class="lb" fill="var(--s3)">80 GB card</text>'
+        f'<text x="{W - 246}" y="{yc + 3.5:.1f}" '
+        f'class="lb" style="fill:var(--s3)">80 GB card</text>'
     )
 
     for i, c in enumerate(levels):
@@ -325,7 +326,7 @@ def memory_breakdown() -> None:
         p.append(
             f'<text x="{x + bw / 2:.1f}" y="{ypx(total) - 10:.1f}" '
             f'class="lb" text-anchor="middle" '
-            f'fill="{"var(--s3)" if over else "var(--ink2)"}">{total:.0f} GiB</text>'
+            f'style="fill:{"var(--s3)" if over else "var(--ink2)"}">{total:.0f} GiB</text>'
         )
         p.append(
             f'<text x="{x + bw / 2:.1f}" y="{y0 + plot_h + 18:.1f}" class="ax" '
@@ -335,7 +336,7 @@ def memory_breakdown() -> None:
         if c >= 16:
             p.append(
                 f'<text x="{x + bw / 2:.1f}" y="{ypx(weights + overhead + kv / 2) + 4:.1f}" '
-                f'class="m" text-anchor="middle" fill="var(--bg)">KV {kv:.0f}</text>'
+                f'class="m" text-anchor="middle" style="fill:var(--bg)">KV {kv:.0f}</text>'
             )
 
     p.append(
@@ -379,7 +380,7 @@ def prefill_decode() -> None:
     p.append(bar(x0, y, pw, 44, 0, r=6))
     p.append(
         f'<text x="{x0 + pw / 2:.0f}" y="{y + 28}" class="m" text-anchor="middle" '
-        f'fill="var(--bg)">prefill</text>'
+        f'style="fill:var(--bg)">prefill</text>'
     )
 
     tx = x0 + pw + 14
@@ -394,7 +395,7 @@ def prefill_decode() -> None:
         )
     p.append(
         f'<text x="{tx + 11 * 26:.0f}" y="{y - 12}" class="lb" text-anchor="middle" '
-        f'fill="var(--s1)">decode — one token per step, {22} steps shown</text>'
+        f'style="fill:var(--s1)">decode — one token per step, {22} steps shown</text>'
     )
 
     box = y + 84
@@ -428,7 +429,8 @@ def prefill_decode() -> None:
         )
         p.append(f'<rect x="{bx}" y="{box}" width="4" height="112" rx="2" fill="var(--s{slot})"/>')
         p.append(
-            f'<text x="{bx + 18}" y="{box + 24}" class="lb" fill="var(--s{slot})">{name}</text>'
+            f'<text x="{bx + 18}" y="{box + 24}" '
+            f'class="lb" style="fill:var(--s{slot})">{name}</text>'
         )
         for j, line in enumerate(lines):
             p.append(f'<text x="{bx + 18}" y="{box + 46 + j * 17}" class="ax">{line}</text>')
@@ -517,7 +519,7 @@ def kv_growth() -> None:
         ey = ypx(per_tok * ctxs[-1] / 1000)
         p.append(
             f'<text x="{x0 + pw + 14}" y="{ey + 4:.1f}" class="lb" '
-            f'fill="var(--s{slot})">{name}</text>'
+            f'style="fill:var(--s{slot})">{name}</text>'
         )
 
     p.append(legend(x0, y0 + ph + 76, [(s, n) for s, n, _ in schemes]))
@@ -577,7 +579,7 @@ def batching() -> None:
         y = 100 + i * 30
         row(y, f"slot {i + 1}", [(0, ln, i % 4)], [(ln, 9)])
     p.append(
-        f'<text x="{x0 + 9 * unit + 12}" y="{100 + 45}" class="lb" fill="var(--s3)">'
+        f'<text x="{x0 + 9 * unit + 12}" y="{100 + 45}" class="lb" style="fill:var(--s3)">'
         f"idle until the slowest finishes</text>"
     )
 
@@ -662,7 +664,7 @@ def spec_decode() -> None:
         p.append(
             f'<text x="{xpx(i):.1f}" y="{(top - 8) if d >= 0 else (ypx(d) + 15):.1f}" '
             f'class="ax" text-anchor="middle" '
-            f'fill="var(--s{slot})">{d:+.0%}</text>'
+            f'style="fill:var(--s{slot})">{d:+.0%}</text>'
         )
         p.append(
             f'<text x="{xpx(i):.1f}" y="{y0 + ph + 18:.1f}" class="ax" '
@@ -677,7 +679,7 @@ def spec_decode() -> None:
     p.append(
         f'<line x1="{xc:.1f}" y1="{y0}" x2="{xc:.1f}" y2="{y0 + ph}" '
         f'stroke="var(--s3)" stroke-width="2" stroke-dasharray="6 4"/>'
-        f'<text x="{xc + 8:.1f}" y="{y0 + 14}" class="lb" fill="var(--s3)">'
+        f'<text x="{xc + 8:.1f}" y="{y0 + 14}" class="lb" style="fill:var(--s3)">'
         f"break-even</text>"
     )
 
@@ -783,7 +785,7 @@ def in_a_box() -> None:
     )
     p.append(
         f'<text x="{bx + bw / 2:.0f}" y="{by + 24}" class="lb" '
-        f'text-anchor="middle" fill="var(--s1)">the box · OCI artifact</text>'
+        f'text-anchor="middle" style="fill:var(--s1)">the box · OCI artifact</text>'
     )
     for i, line in enumerate(
         [
@@ -849,7 +851,7 @@ def in_a_box() -> None:
         p.append(f'<text x="{x + 18:.0f}" y="{top + 30}" class="lb">{host}</text>')
         p.append(
             f'<text x="{x + 18:.0f}" y="{top + 52}" class="ax" '
-            f'fill="var(--s{slot})">{verdict}</text>'
+            f'style="fill:var(--s{slot})">{verdict}</text>'
         )
         for j, c in enumerate(changes):
             p.append(f'<text x="{x + 18:.0f}" y="{top + 78 + j * 18}" class="ax">{c}</text>')
@@ -862,7 +864,7 @@ def in_a_box() -> None:
     )
     p.append(f'<rect x="{x0:.0f}" y="{ry}" width="4" height="52" rx="2" fill="var(--s3)"/>')
     p.append(
-        f'<text x="{x0 + 20:.0f}" y="{ry + 22}" class="lb" fill="var(--s3)">'
+        f'<text x="{x0 + 20:.0f}" y="{ry + 22}" class="lb" style="fill:var(--s3)">'
         f"UNSUPPORTED — below 2k context, the honest answer is no</text>"
     )
     p.append(
@@ -925,7 +927,8 @@ def degradation() -> None:
                 f'fill="none" stroke="var(--s3)" stroke-dasharray="6 4"/>'
             )
             p.append(
-                f'<text x="{x0 + 14}" y="{y + 18}" class="ax" fill="var(--s3)">{detail}</text>'
+                f'<text x="{x0 + 14}" y="{y + 18}" '
+                f'class="ax" style="fill:var(--s3)">{detail}</text>'
             )
         else:
             p.append(bar(x0, y, bwid * frac / 100, 26, 0))
@@ -1069,7 +1072,7 @@ def kernels() -> None:
         )
         p.append(
             f'<text x="{mid:.0f}" y="{by + 26}" class="lb" text-anchor="middle"'
-            + (' fill="var(--s0)">' if hot else ">")
+            + (' style="fill:var(--s0)">' if hot else ">")
             + f"{name}</text>"
         )
         p.append(f'<text x="{mid:.0f}" y="{by + 48}" class="ax" text-anchor="middle">{l1}</text>')
@@ -1093,7 +1096,8 @@ def kernels() -> None:
         f'fill="var(--panel)" stroke="var(--s0)"/>'
     )
     p.append(
-        f'<text x="{cx + 18}" y="{cy + 25}" class="m" fill="var(--s0)">vllm.general_plugins</text>'
+        f'<text x="{cx + 18}" y="{cy + 25}" '
+        f'class="m" style="fill:var(--s0)">vllm.general_plugins</text>'
     )
     p.append(
         f'<text x="{cx + 18}" y="{cy + 46}" class="ax">An entry point vLLM '
@@ -1151,7 +1155,7 @@ def kernels() -> None:
     )
     p.append(
         f'<text x="{rx0}" y="{ry0 + len(rows) * rh + 14}" class="m" '
-        f'fill="var(--ink)">{total:.0f} MB moved per layer</text>'
+        f'style="fill:var(--ink)">{total:.0f} MB moved per layer</text>'
     )
 
     # --- what fusion buys -----------------------------------------------------
@@ -1261,7 +1265,8 @@ def silicon() -> None:
 
     tx = dx + dw + 34
     p.append(
-        f'<text x="{tx}" y="{dy + 96}" class="t" fill="var(--s2)" font-size="34">1 of {SMS}</text>'
+        f'<text x="{tx}" y="{dy + 96}" '
+        f'class="t" style="fill:var(--s2)" font-size="34">1 of {SMS}</text>'
     )
     p.append(f'<text x="{tx}" y="{dy + 124}" class="lb">engines busy</text>')
     for i, line in enumerate(
@@ -1274,10 +1279,12 @@ def silicon() -> None:
     ):
         p.append(f'<text x="{tx}" y="{dy + 164 + i * 19}" class="ax">{line}</text>')
     p.append(
-        f'<text x="{tx}" y="{dy + 258}" class="lb" fill="var(--s0)">'
+        f'<text x="{tx}" y="{dy + 258}" class="lb" style="fill:var(--s0)">'
         f"So the GPU is not the slow part.</text>"
     )
-    p.append(f'<text x="{tx}" y="{dy + 278}" class="lb" fill="var(--s0)">The memory is.</text>')
+    p.append(
+        f'<text x="{tx}" y="{dy + 278}" class="lb" style="fill:var(--s0)">The memory is.</text>'
+    )
 
     # --- beat 2: why ----------------------------------------------------------
     by = 442
@@ -1289,7 +1296,7 @@ def silicon() -> None:
     p.append(bar(28, ry, 470, rh2, 1))
     p.append(
         f'<text x="{28 + 235}" y="{ry + 28}" class="lb" text-anchor="middle" '
-        f'fill="var(--bg)">read all {WEIGHTS_GB} GB of the model</text>'
+        f'style="fill:var(--bg)">read all {WEIGHTS_GB} GB of the model</text>'
     )
     p.append(
         f'<path d="M 508 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
@@ -1298,7 +1305,7 @@ def silicon() -> None:
     p.append(bar(530, ry, 66, rh2, 3))
     p.append(
         f'<text x="563" y="{ry + 28}" class="ax" text-anchor="middle" '
-        f'fill="var(--bg)">a little</text>'
+        f'style="fill:var(--bg)">a little</text>'
     )
     p.append(
         f'<path d="M 606 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
@@ -1307,7 +1314,7 @@ def silicon() -> None:
     p.append(bar(628, ry, 54, rh2, 2))
     p.append(
         f'<text x="655" y="{ry + 28}" class="ax" text-anchor="middle" '
-        f'fill="var(--bg)">1 word</text>'
+        f'style="fill:var(--bg)">1 word</text>'
     )
     p.append(f'<text x="700" y="{ry + 21}" class="ax">and then it starts</text>')
     p.append(f'<text x="700" y="{ry + 38}" class="ax">again for word two.</text>')
@@ -1341,12 +1348,12 @@ def silicon() -> None:
             p.append(bar(146, y, 200, 22, 1))
             p.append(
                 f'<text x="246" y="{y + 16}" class="ax" text-anchor="middle" '
-                f'fill="var(--bg)">{what}</text>'
+                f'style="fill:var(--bg)">{what}</text>'
             )
             p.append(bar(358, y, 96, 22, 2))
             p.append(
                 f'<text x="406" y="{y + 16}" class="ax" text-anchor="middle" '
-                f'fill="var(--bg)">{out}</text>'
+                f'style="fill:var(--bg)">{out}</text>'
             )
         else:
             p.append(
@@ -1355,7 +1362,7 @@ def silicon() -> None:
             )
             p.append(
                 f'<text x="300" y="{y + 16}" class="ax" text-anchor="middle" '
-                f'fill="var(--s3)">{what}</text>'
+                f'style="fill:var(--s3)">{what}</text>'
             )
         if why:
             p.append(f'<text x="470" y="{y + 16}" class="ax">{why}</text>')
@@ -1465,7 +1472,7 @@ def weights_flow() -> None:
     )
     p.append(
         f'<text x="{tx + 26}" y="{lane_y + 25}" class="ax" text-anchor="middle" '
-        f'fill="var(--bg)">1 word</text>'
+        f'style="fill:var(--bg)">1 word</text>'
     )
 
     note(

@@ -11,7 +11,7 @@
 <text x="28" y="50" class="sub">One request, two phases with opposite bottlenecks — which is why they are tuned, and increasingly served, separately</text>
 <text x="88" y="130" class="ax" text-anchor="end">time →</text>
 <rect x="100.0" y="108.0" width="128.0" height="44.0" rx="6" fill="var(--s0)"/>
-<text x="164" y="136" class="m" text-anchor="middle" fill="var(--bg)">prefill</text>
+<text x="164" y="136" class="m" text-anchor="middle" style="fill:var(--bg)">prefill</text>
 <rect class="pop" style="animation-delay:0.50s" x="242" y="108" width="22" height="44" rx="5" fill="var(--s1)"/>
 <rect class="pop" style="animation-delay:0.65s" x="268" y="108" width="22" height="44" rx="5" fill="var(--s1)"/>
 <rect class="pop" style="animation-delay:0.80s" x="294" y="108" width="22" height="44" rx="5" fill="var(--s1)"/>
@@ -34,17 +34,17 @@
 <rect class="pop" style="animation-delay:3.35s" x="736" y="108" width="22" height="44" rx="5" fill="var(--s1)"/>
 <rect class="pop" style="animation-delay:3.50s" x="762" y="108" width="22" height="44" rx="5" fill="var(--s1)"/>
 <rect class="pop" style="animation-delay:3.65s" x="788" y="108" width="22" height="44" rx="5" fill="var(--s1)"/>
-<text x="528" y="96" class="lb" text-anchor="middle" fill="var(--s1)">decode — one token per step, 22 steps shown</text>
+<text x="528" y="96" class="lb" text-anchor="middle" style="fill:var(--s1)">decode — one token per step, 22 steps shown</text>
 <rect x="28" y="192" width="392" height="112" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
 <rect x="28" y="192" width="4" height="112" rx="2" fill="var(--s0)"/>
-<text x="46" y="216" class="lb" fill="var(--s0)">prefill</text>
+<text x="46" y="216" class="lb" style="fill:var(--s0)">prefill</text>
 <text x="46" y="238" class="ax">reads the whole prompt at once</text>
 <text x="46" y="255" class="ax">all tokens in parallel → compute-bound</text>
 <text x="46" y="272" class="ax">sets time-to-first-token</text>
 <text x="46" y="289" class="ax">wants: big chunks, tensor cores busy</text>
 <rect x="440" y="192" width="392" height="112" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
 <rect x="440" y="192" width="4" height="112" rx="2" fill="var(--s1)"/>
-<text x="458" y="216" class="lb" fill="var(--s1)">decode</text>
+<text x="458" y="216" class="lb" style="fill:var(--s1)">decode</text>
 <text x="458" y="238" class="ax">emits one token, then the next</text>
 <text x="458" y="255" class="ax">re-reads all weights per token → bandwidth-bound</text>
 <text x="458" y="272" class="ax">sets the gap between tokens</text>

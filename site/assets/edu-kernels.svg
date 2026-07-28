@@ -29,7 +29,7 @@
 <text x="522" y="143" class="ax" text-anchor="middle">layer by layer</text>
 <path d="M 446 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
 <rect x="603" y="78" width="126" height="84" rx="10" fill="var(--panel)" stroke="var(--s0)" stroke-width="2"/>
-<text x="666" y="104" class="lb" text-anchor="middle" fill="var(--s0)">KERNELS</text>
+<text x="666" y="104" class="lb" text-anchor="middle" style="fill:var(--s0)">KERNELS</text>
 <text x="666" y="126" class="ax" text-anchor="middle">attention · GEMM</text>
 <text x="666" y="143" class="ax" text-anchor="middle">norm · sampling</text>
 <path d="M 590 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
@@ -40,7 +40,7 @@
 <path d="M 734 115 l 5 5 l -5 5" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
 <path d="M 666 162 V 214" fill="none" stroke="var(--s0)" stroke-width="1.5" stroke-dasharray="4 3"/>
 <rect x="440" y="214" width="433" height="64" rx="10" fill="var(--panel)" stroke="var(--s0)"/>
-<text x="458" y="239" class="m" fill="var(--s0)">vllm.general_plugins</text>
+<text x="458" y="239" class="m" style="fill:var(--s0)">vllm.general_plugins</text>
 <text x="458" y="260" class="ax">An entry point vLLM imports in every process it spawns.</text>
 <text x="28" y="226" class="ax">clickllm generates the config behind boxes 2–3. Box 4 is</text>
 <text x="28" y="243" class="ax">vLLM's, and forking it is a permanent tax. Box 5 is the only</text>
@@ -69,7 +69,7 @@
 <rect x="182.0" y="493.0" width="2.0" height="18.0" rx="4" fill="var(--s3)"/>
 <text x="194" y="506" class="m">&lt;0.1%</text>
 <text x="170" y="534" class="ax" text-anchor="end">total</text>
-<text x="182" y="534" class="m" fill="var(--ink)">489 MB moved per layer</text>
+<text x="182" y="534" class="m" style="fill:var(--ink)">489 MB moved per layer</text>
 <text x="566" y="326" class="lb">What fusion actually saves</text>
 <text x="566" y="346" class="m">y = silu(gate) * up</text>
 <text x="566" y="374" class="ax">unfused · 2 kernels · 5 HBM trips</text>

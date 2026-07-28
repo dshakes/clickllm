@@ -22,7 +22,7 @@
 <text x="114" y="206" class="ax" text-anchor="end">slot 4</text>
 <rect x="542" y="190" width="0" height="24" rx="4" fill="var(--grid)" opacity="0.55"/>
 <rect class="pop" style="animation-delay:0.00s" x="129" y="190" width="411" height="24" rx="4" fill="var(--s3)"/>
-<text x="554" y="145" class="lb" fill="var(--s3)">idle until the slowest finishes</text>
+<text x="554" y="145" class="lb" style="fill:var(--s3)">idle until the slowest finishes</text>
 <text x="28" y="252" class="lb">continuous batching</text>
 <text x="114" y="280" class="ax" text-anchor="end">slot 1</text>
 <rect x="450" y="264" width="92" height="24" rx="4" fill="var(--grid)" opacity="0.55"/>

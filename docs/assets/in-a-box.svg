@@ -10,7 +10,7 @@
 <text x="28" y="30" class="t">Inference in a box</text>
 <text x="28" y="50" class="sub">One artifact · three machines · three honest outcomes. Not a container — a container cannot reach Apple's GPU.</text>
 <rect x="300" y="78" width="300" height="112" rx="12" fill="var(--panel)" stroke="var(--s1)" stroke-width="2"/>
-<text x="450" y="102" class="lb" text-anchor="middle" fill="var(--s1)">the box · OCI artifact</text>
+<text x="450" y="102" class="lb" text-anchor="middle" style="fill:var(--s1)">the box · OCI artifact</text>
 <text x="320" y="124" class="ax">· model reference + digest</text>
 <text x="320" y="140" class="ax">· the plan it was tuned with</text>
 <text x="320" y="156" class="ax">· the host class it was tuned on</text>
@@ -20,7 +20,7 @@
 <rect x="37" y="258" width="262" height="132" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
 <rect x="37" y="258" width="262" height="4" rx="2" fill="var(--s0)"/>
 <text x="55" y="288" class="lb">H100 80GB</text>
-<text x="55" y="310" class="ax" fill="var(--s0)">AS PACKED</text>
+<text x="55" y="310" class="ax" style="fill:var(--s0)">AS PACKED</text>
 <text x="55" y="336" class="ax">plan used unchanged</text>
 <text x="55" y="354" class="ax">benchmark still valid</text>
 <path d="M 450 190 V 212 H 450 V 258" fill="none" stroke="var(--grid)" stroke-width="1.5"/>
@@ -28,7 +28,7 @@
 <rect x="319" y="258" width="262" height="132" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
 <rect x="319" y="258" width="262" height="4" rx="2" fill="var(--s1)"/>
 <text x="337" y="288" class="lb">M4 Max 128GB</text>
-<text x="337" y="310" class="ax" fill="var(--s1)">RE-SOLVED</text>
+<text x="337" y="310" class="ax" style="fill:var(--s1)">RE-SOLVED</text>
 <text x="337" y="336" class="ax">CUDA engines cannot run here</text>
 <text x="337" y="354" class="ax">→ llama.cpp on Metal</text>
 <text x="337" y="372" class="ax">benchmark invalidated</text>
@@ -37,13 +37,13 @@
 <rect x="601" y="258" width="262" height="132" rx="10" fill="var(--panel)" stroke="var(--grid)"/>
 <rect x="601" y="258" width="262" height="4" rx="2" fill="var(--s2)"/>
 <text x="619" y="288" class="lb">RTX 4090 24GB</text>
-<text x="619" y="310" class="ax" fill="var(--s2)">RE-SOLVED, DEGRADED</text>
+<text x="619" y="310" class="ax" style="fill:var(--s2)">RE-SOLVED, DEGRADED</text>
 <text x="619" y="336" class="ax">q8 → q4</text>
 <text x="619" y="354" class="ax">context 32k → 8k</text>
 <text x="619" y="372" class="ax">and it says so</text>
 <rect x="37" y="410" width="826" height="52" rx="10" fill="var(--panel)" stroke="var(--s3)"/>
 <rect x="37" y="410" width="4" height="52" rx="2" fill="var(--s3)"/>
-<text x="57" y="432" class="lb" fill="var(--s3)">UNSUPPORTED — below 2k context, the honest answer is no</text>
+<text x="57" y="432" class="lb" style="fill:var(--s3)">UNSUPPORTED — below 2k context, the honest answer is no</text>
 <text x="57" y="450" class="ax">A box that quietly served a quarter of the context it was built for would be worse than one that refuses: nobody finds out until a long request truncates.</text>
 <rect x="28" y="487" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="42" y="495" class="lb">as packed</text><rect x="113" y="487" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="127" y="495" class="lb">re-solved</text><rect x="198" y="487" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="212" y="495" class="lb">refused</text>
 <text x="28" y="522" class="note">The re-solve is the product. Anyone can ship an artifact; the value is that it re-derives its own plan on arrival</text>
