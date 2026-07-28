@@ -277,14 +277,25 @@ pub(crate) fn ecs_task_definition(
                     crate::VERSION, plan.model.id, plan.quant, plan.max_model_len
                 ),
                 "clickllm.launch-type": "EC2 only — Fargate cannot attach a GPU, so a \
-                    Fargate task definition for this would register and never schedule"
+                    Fargate task definition for this would register and never schedule",
+                "clickllm.region-placeholder": "awslogs-region below defaults to \
+                    us-east-1 — edit it before registering if deploying elsewhere"
             },
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
                     "awslogs-group": format!("/ecs/{family}"),
+                    // No region is derivable from a `RuntimePlan` — it describes a
+                    // model and hardware, not an AWS account. us-east-1 is a
+                    // placeholder, called out here rather than left to be
+                    // discovered as a silent failure to register in any other
+                    // region.
                     "awslogs-region": "us-east-1",
-                    "awslogs-stream-prefix": "ecs"
+                    "awslogs-stream-prefix": "ecs",
+                    // Without this, a log group that does not already exist makes
+                    // the task fail at startup with ResourceInitializationError
+                    // instead of just logging.
+                    "awslogs-create-group": "true"
                 }
             }
         }]
@@ -299,17 +310,23 @@ pub(crate) fn ecs_task_definition(
 /// gigabytes of weights from disk is not a hung service, and the default would
 /// kill a healthy start.
 pub(crate) fn systemd_unit(name: &str, argv: &[String], plan: &RuntimePlan) -> String {
-    // systemd splits ExecStart on whitespace, so `--speculative-config
-    // {"method": "eagle3"}` becomes four arguments and the unit fails to start.
-    // Quote anything containing whitespace and escape embedded quotes, which is
-    // systemd's own escaping rule for a quoted argument.
-    let exec = argv
-        .iter()
+    // systemd requires ExecStart='s first token to be an absolute path — a bare
+    // command name like `vllm` or `python3` is rejected at load with "Executable
+    // path is not absolute". `/usr/bin/env` is itself absolute and resolves the
+    // real executable from $PATH, same trick as a `#!/usr/bin/env` shebang.
+    let exec = std::iter::once("/usr/bin/env".to_string())
+        .chain(argv.iter().cloned())
         .map(|a| {
-            if a.contains(char::is_whitespace) {
+            // systemd splits ExecStart on whitespace, so `--speculative-config
+            // {"method": "eagle3"}` becomes four arguments and the unit fails to
+            // start. Quoting is triggered by whitespace *or* any character that
+            // is special to systemd's own quoted-argument parser (`"`, `'`,
+            // `\`) — a lone quote elsewhere in the argument would otherwise be
+            // read as an unbalanced quote or silently stripped.
+            if a.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '\\') {
                 format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\""))
             } else {
-                a.clone()
+                a
             }
         })
         .collect::<Vec<_>>()
@@ -409,5 +426,72 @@ mod tests {
         for line in &plan.rationale {
             assert!(p.contains(line.as_str()), "rationale {line:?} must survive");
         }
+    }
+
+    #[test]
+    fn systemd_exec_start_is_an_absolute_path() {
+        // systemd rejects a unit at load time with "Executable path is not
+        // absolute" unless ExecStart='s first token starts with `/`.
+        let plan = crate::runtime::vllm::tests::sample_plan();
+        let u = systemd_unit("model", &["vllm".into(), "serve".into()], &plan);
+        let exec = u
+            .lines()
+            .find(|l| l.starts_with("ExecStart="))
+            .expect("no ExecStart");
+        let first_token = exec
+            .trim_start_matches("ExecStart=")
+            .split_whitespace()
+            .next()
+            .unwrap();
+        assert!(
+            first_token.starts_with('/'),
+            "ExecStart must start with an absolute path: {exec}"
+        );
+        assert_eq!(first_token, "/usr/bin/env");
+    }
+
+    #[test]
+    fn systemd_quotes_arguments_with_bare_quotes_or_backslashes() {
+        // Whitespace is not the only character systemd's ExecStart parser treats
+        // specially. A lone `'` without surrounding whitespace produces an
+        // unbalanced quote and the unit fails to load; a lone `"` gets silently
+        // stripped, corrupting the argument the model runtime receives.
+        let plan = crate::runtime::vllm::tests::sample_plan();
+        let u = systemd_unit(
+            "model",
+            &[
+                "vllm".into(),
+                "--user-model=user's-model".into(),
+                "--flag=\"quoted\"".into(),
+            ],
+            &plan,
+        );
+        let exec = u
+            .lines()
+            .find(|l| l.starts_with("ExecStart="))
+            .expect("no ExecStart");
+        assert!(
+            exec.contains("\"--user-model=user's-model\""),
+            "argument with a bare single quote must be wrapped in quotes: {exec}"
+        );
+        assert!(
+            exec.contains(r#""--flag=\"quoted\"""#),
+            "argument with bare double quotes must be wrapped and escaped: {exec}"
+        );
+    }
+
+    #[test]
+    fn ecs_log_config_creates_its_own_log_group() {
+        // A log group that does not already exist in CloudWatch otherwise makes
+        // the task fail at startup with ResourceInitializationError.
+        let plan = crate::runtime::vllm::tests::sample_plan();
+        let doc = ecs_task_definition("family", "image:latest", &[], 0, 8000, 1, &plan);
+        let d: serde_json::Value = serde_json::from_str(&doc).unwrap();
+        let opts = &d["containerDefinitions"][0]["logConfiguration"]["options"];
+        assert_eq!(opts["awslogs-create-group"], "true");
+        assert!(
+            opts["awslogs-region"].as_str().is_some(),
+            "region must be present, even if a placeholder"
+        );
     }
 }
