@@ -1202,192 +1202,398 @@ def kernels() -> None:
 
 
 def silicon() -> None:
-    """How much of the machine you are actually using, in plain words.
+    """The roofline argument with its arithmetic on the page, not asserted.
 
-    The first version of this taught nothing. It had 132 tiny squares, five
-    memory stacks, a bandwidth pipe, a six-row roofline chart and a legend, and
-    it spoke in "arithmetic intensity" and "FLOP per byte" and "the ridge
-    point". All of that is true and none of it is *informative* to someone who
-    has not already met the concept — it was an expert's artefact wearing a
-    teaching diagram's clothes, in a module whose whole brief is to take a
-    non-specialist to competence.
+    This diagram has been wrong twice in opposite directions. The first version
+    was dense and unglossed — it said "arithmetic intensity" and "the ridge
+    point" to a reader meeting both for the first time, which is an expert's
+    artefact wearing a teaching diagram's clothes. The replacement stripped the
+    jargon *and the numbers with it*, and three plain beats about "engines" and
+    "words" turned out to teach nothing either: a reader cannot check a claim
+    they were given no quantities for.
 
-    So this is the same fact told as three plain beats, with no jargon and no
-    second chart bolted underneath:
+    So the rule here is neither dense-nor-plain but both: every technical term
+    survives, and every one arrives with its gloss in the same breath —
+    "arithmetic intensity — FLOPs computed per byte read". The numbers are the
+    lesson; the gloss is what makes them legible. A test holds the pairing.
 
-        1. The machine has 132 engines. About one of them is busy.
-        2. Why: to write a single word it re-reads all 30.5 GB of the model.
-           The maths it does with those bytes is trivial by comparison.
-        3. The fix and its ceiling: serve 18 people and that same one read
-           produces 18 words. Ask for 19 and the cache has nowhere to live.
+    The argument, in the order the panels make it:
 
-    Every figure is `clickllm fit`'s for Qwen3 32B at q8 and 8k context on an
-    H100 — the 30.5 / 36.0 / 72.5-vs-72 numbers are a real solve, not a
-    illustration, and a test holds them to it.
+        1. 32.8 GB crosses the bus for every single token, and 65.6 GFLOP is
+           all the arithmetic done with it — 2.00 FLOP per byte against a chip
+           that needs 295 to keep its units fed. Hence 1 of 132 SMs with work.
+        2. Batching is the lever: 18 sequences share one read of the weights
+           and lift intensity 18x, to 36.0 FLOP/byte.
+        3. And the KV cache is where the lever stops. 18 fits with 1.51 GiB
+           spare; a 19th needs 2.00 and there is nowhere to put it.
+
+    Every figure is a real `clickllm fit` solve — Qwen3-32B at q8, 8k context,
+    one H100 80 GB SXM — and `tests/test_docs_lab.py` re-runs the solver
+    against the constants below so the picture cannot drift from the tool.
     """
-    W, H = 900, 690
+    W, H = 980, 898
+
+    # Sizing figures: a real solve, re-checked by test_docs_lab.py.
+    WEIGHTS_GB, SMS, LIT = 30.55, 132, 1
+    GOOD_BATCH, OVER_BATCH = 18, 19
+    NEED_GB, HAVE_GB = 72.49, 72.0
+    OVERHEAD_GB, KV_PER_GB = 3.94, 2.00
+    # Throughput figures. Decimal GB here, not GiB: bandwidth is quoted in
+    # decimal by every vendor, and mixing the two is how a 7% error walks in.
+    READ_GB, FLOP_G = 32.8, 65.6
+    AI_ONE, AI_BATCH, RIDGE = 2.00, 36.0, 295
+    GAP_ONE = 147  # 295 / 2.00, as `clickllm fit` reports it
+    TPS, BW_TBS, PEAK_TF, ACHIEVABLE = 73.5, 3.35, 989.4, 0.72
+
     p = head(
         W,
         H,
-        "You bought 132 engines. Your memory feeds about one.",
-        "An H100 serving a 32B model. Only one of its 132 compute engines has "
-        "work at any moment, because producing a single word means re-reading "
-        "the entire 30.5 GB model from memory. Serving 18 people at once shares "
-        "that one read across 18 words; a 19th does not fit, because the "
-        "conversation cache has nowhere left to live.",
+        "One token costs a 32.8 GB read and 65.6 GFLOP",
+        "The roofline argument for a 32B model on an H100, with the arithmetic "
+        "shown. Every token re-reads all 32.8 GB of weights and computes only "
+        "65.6 GFLOP with them — 2.00 FLOP per byte against a chip that needs "
+        "295 FLOP per byte to keep its units fed, so 1 of 132 SMs has work. "
+        "Batching 18 sequences shares one read and lifts that to 36.0 FLOP per "
+        "byte; a 19th sequence needs 2.00 GiB of KV cache that does not exist.",
     )
     p.append(
-        '<text x="28" y="50" class="sub">Why a fast GPU can still feel slow — '
-        "and the one thing that actually fixes it</text>"
+        '<text x="28" y="50" class="sub">Read the numbers, not the shapes — '
+        "every quantity here is a solve, and the arithmetic that produced it is "
+        "printed beside it</text>"
+    )
+    p.append(
+        '<text x="28" y="74" class="m">Qwen3-32B · 32.8B params · q8 (8 bits per '
+        "weight) · 8,192-token context · NVIDIA H100 80 GB SXM · 72.0 GiB usable "
+        "after runtime overhead</text>"
     )
 
-    WEIGHTS_GB, SMS, LIT = 30.5, 132, 1
-    GOOD_BATCH, OVER_BATCH = 18, 19
-    NEED_GB, HAVE_GB = 72.5, 72.0
+    # --- 1. the physical path, annotated ---------------------------------------
+    # Left to right is the direction the bytes actually travel, so the picture
+    # and the sentence agree: memory → bus → die.
 
-    # --- beat 1: the machine --------------------------------------------------
-    dx, dy, dw, dh = 28, 84, 336, 322
+    mx, my, mw, mh = 28, 150, 112, 170
+    p.append(
+        f'<rect x="{mx}" y="{my}" width="{mw}" height="{mh}" rx="9" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
+    )
+    for i in range(7):
+        p.append(bar(mx + 12, my + 14 + i * 21, mw - 24, 14, 0, r=3))
+    p.append(
+        f'<text x="{mx + mw / 2:.0f}" y="{my - 26}" class="ax" '
+        f'text-anchor="middle">HBM3 memory</text>'
+    )
+    p.append(
+        f'<text x="{mx + mw / 2:.0f}" y="{my - 10}" class="m" '
+        f'text-anchor="middle">{READ_GB} GB</text>'
+    )
+    p.append(
+        f'<text x="{mx + mw / 2:.0f}" y="{my + mh + 20}" class="ax" '
+        f'text-anchor="middle">the weights,</text>'
+    )
+    p.append(
+        f'<text x="{mx + mw / 2:.0f}" y="{my + mh + 35}" class="ax" '
+        f'text-anchor="middle">all of them</text>'
+    )
+
+    # The one animated element in the diagram, and it encodes the claim the
+    # whole page rests on: this traffic is not a one-off load, it repeats per
+    # token. A still lane can say "32.8 GB crosses here"; only a moving one
+    # says "again". Honoured by the reduced-motion block in head().
+    lx0, lx1, ly, lh = 156, 470, 215, 40
+    p.append(
+        f'<rect x="{lx0}" y="{ly}" width="{lx1 - lx0}" height="{lh}" rx="8" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
+    )
+    p.append(
+        f'<clipPath id="bus"><rect x="{lx0 + 2}" y="{ly + 2}" '
+        f'width="{lx1 - lx0 - 4}" height="{lh - 4}" rx="7"/></clipPath>'
+    )
+    # One block beyond each end and a translate of exactly one pitch, so the
+    # loop is seamless rather than visibly snapping back.
+    pitch = 46
+    p.append('<g clip-path="url(#bus)">')
+    for i in range(-1, (lx1 - lx0) // pitch + 2):
+        p.append(
+            f'<g class="stream"><rect x="{lx0 + i * pitch + 6}" y="{ly + 11}" '
+            f'width="30" height="18" rx="4" fill="var(--s0)" opacity="0.85"/></g>'
+        )
+    p.append("</g>")
+    p.append(
+        f'<text x="{(lx0 + lx1) / 2:.0f}" y="{ly - 26}" class="ax" '
+        f'text-anchor="middle">the memory bus · {BW_TBS} TB/s peak</text>'
+    )
+    p.append(
+        f'<text x="{(lx0 + lx1) / 2:.0f}" y="{ly - 10}" class="lb" '
+        f'text-anchor="middle" style="fill:var(--s0)">'
+        f"all {READ_GB} GB again, for every token</text>"
+    )
+    for i, ln in enumerate(
+        [
+            f"{BW_TBS} TB/s × {ACHIEVABLE:.0%} achievable ÷ {READ_GB} GB per token",
+            f"= {TPS} tokens/s — bandwidth estimate, not a measurement",
+        ]
+    ):
+        p.append(
+            f'<text x="{(lx0 + lx1) / 2:.0f}" y="{ly + lh + 22 + i * 16}" '
+            f'class="{"m" if i == 0 else "ax"}" text-anchor="middle">{ln}</text>'
+        )
+    p.append(
+        f'<path d="M {lx1 + 6} {ly + lh / 2 - 6:.0f} l 10 6 l -10 6" fill="none" '
+        f'stroke="var(--muted)" stroke-width="1.5"/>'
+    )
+
+    # The die. 132 cells because there are 132 SMs, countable rather than
+    # textured — the reader has to be able to check the ratio by eye.
+    dx, dy, dw, dh = 496, 96, 272, 278
     p.append(chip(dx, dy, dw, dh, pins_per_side=6, net=False))
-    p.append(f'<text x="{dx + 20}" y="{dy + 28}" class="lb">the GPU, actual size</text>')
-    # Cells big enough to count at a glance. The first version made them 17px in
-    # a cramped box, which read as texture rather than as 132 separate things.
-    cols, cell, pitch = 12, 22, 24
-    gx, gy = dx + 22, dy + 46
+    p.append(f'<text x="{dx + 26}" y="{dy + 26}" class="lb">H100 die · {SMS} SMs</text>')
+    p.append(f'<text x="{dx + 26}" y="{dy + 44}" class="ax">SM = streaming multiprocessor,</text>')
+    p.append(f'<text x="{dx + 26}" y="{dy + 58}" class="ax">one independent compute engine</text>')
+
+    cols, cell, cpitch = 12, 16, 18
+    gx, gy = dx + 28, dy + 70
     for i in range(SMS):
-        cx, cy = gx + (i % cols) * pitch, gy + (i // cols) * pitch
+        cx, cy = gx + (i % cols) * cpitch, gy + (i // cols) * cpitch
         if i < LIT:
             p.append(
-                f'<rect class="pulse" x="{cx}" y="{cy}" width="{cell}" '
-                f'height="{cell}" rx="4" fill="var(--s2)"/>'
+                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="3" fill="var(--ink)"/>'
             )
         else:
             p.append(
-                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="4" '
+                f'<rect x="{cx}" y="{cy}" width="{cell}" height="{cell}" rx="3" '
                 f'fill="none" stroke="var(--grid)"/>'
             )
 
-    tx = dx + dw + 34
+    sx = dx + dw + 22
     p.append(
-        f'<text x="{tx}" y="{dy + 96}" '
-        f'class="t" style="fill:var(--s2)" font-size="34">1 of {SMS}</text>'
+        f'<text x="{sx}" y="{dy + 106}" class="t" style="font-size:32px">{LIT} of {SMS}</text>'
     )
-    p.append(f'<text x="{tx}" y="{dy + 124}" class="lb">engines busy</text>')
-    for i, line in enumerate(
+    p.append(f'<text x="{sx}" y="{dy + 128}" class="lb">SMs with work</text>')
+    for i, ln in enumerate(
         [
-            "The other 131 are not working on",
-            "anything. They are waiting for the",
-            "memory to hand them the next piece",
-            "of the model.",
+            "at one sequence at a time.",
+            "",
+            f"{SMS - LIT} sit idle waiting on the",
+            "bus — they are not the",
+            "constraint, and buying a",
+            "faster one does not help.",
         ]
     ):
-        p.append(f'<text x="{tx}" y="{dy + 164 + i * 19}" class="ax">{line}</text>')
+        if ln:
+            p.append(f'<text x="{sx}" y="{dy + 156 + i * 16}" class="ax">{ln}</text>')
+
+    # --- 2. the arithmetic, and where it lands on the scale ---------------------
+    px, py, pw, ph = 28, 396, 924, 150
     p.append(
-        f'<text x="{tx}" y="{dy + 258}" class="lb" style="fill:var(--s0)">'
-        f"So the GPU is not the slow part.</text>"
+        f'<rect x="{px}" y="{py}" width="{pw}" height="{ph}" rx="10" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
     )
     p.append(
-        f'<text x="{tx}" y="{dy + 278}" class="lb" style="fill:var(--s0)">The memory is.</text>'
+        f'<text x="{px + 18}" y="{py + 24}" class="lb">Why {SMS - LIT} engines '
+        f"idle: the machine reads far more than it computes</text>"
     )
 
-    # --- beat 2: why ----------------------------------------------------------
-    by = 442
-    p.append(f'<text x="28" y="{by}" class="lb">Because one word costs a whole read</text>')
-
-    ry, rh2 = by + 18, 46
-    # The widths carry the argument: an enormous read, a sliver of maths, one
-    # word out. Drawn to scale against each other rather than labelled as such.
-    p.append(
-        f'<rect class="pop" style="animation-delay:0s" x="28" y="{ry}" width="470" '
-        f'height="{rh2}" rx="4" fill="var(--s1)"/>'
-    )
-    p.append(
-        f'<text x="{28 + 235}" y="{ry + 28}" class="lb" text-anchor="middle" '
-        f'style="fill:var(--bg)">read all {WEIGHTS_GB} GB of the model</text>'
-    )
-    p.append(
-        f'<path d="M 508 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
-        f'stroke-width="1.5"/>'
-    )
-    p.append(
-        f'<rect class="pop" style="animation-delay:.55s" x="530" y="{ry}" width="66" '
-        f'height="{rh2}" rx="4" fill="var(--s3)"/>'
-    )
-    p.append(
-        f'<text x="563" y="{ry + 28}" class="ax" text-anchor="middle" '
-        f'style="fill:var(--bg)">a little</text>'
-    )
-    p.append(
-        f'<path d="M 606 {ry + 17} l 10 6 l -10 6" fill="none" stroke="var(--muted)" '
-        f'stroke-width="1.5"/>'
-    )
-    p.append(
-        f'<rect class="pop" style="animation-delay:1.1s" x="628" y="{ry}" width="54" '
-        f'height="{rh2}" rx="4" fill="var(--s2)"/>'
-    )
-    p.append(
-        f'<text x="655" y="{ry + 28}" class="ax" text-anchor="middle" '
-        f'style="fill:var(--bg)">1 word</text>'
-    )
-    p.append(f'<text x="700" y="{ry + 21}" class="ax">and then it starts</text>')
-    p.append(f'<text x="700" y="{ry + 38}" class="ax">again for word two.</text>')
-
-    # --- beat 3: the fix, and where it stops ----------------------------------
-    fy = ry + 88
-    p.append(f'<text x="28" y="{fy}" class="lb">Which is why you serve people in batches</text>')
-
-    rows = [
-        (f"{1} person", f"read {WEIGHTS_GB} GB", "1 word", True, ""),
+    # label · value · how the value was obtained. The third column is the point:
+    # a number a reader cannot re-derive is a number they have to take on trust.
+    ledger = [
+        ("bytes read per token", f"{READ_GB} GB", "every weight, once, per token", 0),
         (
-            f"{GOOD_BATCH} people",
-            f"read {WEIGHTS_GB} GB",
-            f"{GOOD_BATCH} words",
-            True,
-            f"the same read, {GOOD_BATCH}x the output",
+            "arithmetic done per token",
+            f"{FLOP_G} GFLOP",
+            f"= 2 × {READ_GB}B parameters · GFLOP = 10⁹ float ops",
+            None,
         ),
         (
-            f"{OVER_BATCH} people",
-            "no room left",
-            "—",
-            False,
-            f"needs {NEED_GB} GB, the card has {HAVE_GB:.0f}",
+            "arithmetic intensity",
+            f"{AI_ONE:.2f} FLOP/byte",
+            f"FLOPs computed per byte read = {FLOP_G} ÷ {READ_GB}",
+            0,
+        ),
+        (
+            "H100 ridge point",
+            f"{RIDGE} FLOP/byte",
+            f"{PEAK_TF} TFLOPS ÷ {BW_TBS} TB/s — where the two break even",
+            3,
         ),
     ]
-    y0, rh3 = fy + 20, 34
-    for i, (who, what, out, ok, why) in enumerate(rows):
-        y = y0 + i * rh3
-        p.append(f'<text x="132" y="{y + 16}" class="ax" text-anchor="end">{who}</text>')
-        if ok:
-            p.append(bar(146, y, 200, 22, 1))
-            p.append(
-                f'<text x="246" y="{y + 16}" class="ax" text-anchor="middle" '
-                f'style="fill:var(--bg)">{what}</text>'
-            )
-            p.append(bar(358, y, 96, 22, 2))
-            p.append(
-                f'<text x="406" y="{y + 16}" class="ax" text-anchor="middle" '
-                f'style="fill:var(--bg)">{out}</text>'
-            )
-        else:
-            p.append(
-                f'<rect x="146" y="{y}" width="308" height="22" rx="4" fill="none" '
-                f'stroke="var(--s3)" stroke-dasharray="5 4"/>'
-            )
-            p.append(
-                f'<text x="300" y="{y + 16}" class="ax" text-anchor="middle" '
-                f'style="fill:var(--s3)">{what}</text>'
-            )
-        if why:
-            p.append(f'<text x="470" y="{y + 16}" class="ax">{why}</text>')
+    for i, (name, value, how, slot) in enumerate(ledger):
+        y = py + 52 + i * 24
+        p.append(f'<text x="{px + 176}" y="{y}" class="ax" text-anchor="end">{name}</text>')
+        style = f' style="fill:var(--s{slot})"' if slot is not None else ""
+        p.append(f'<text x="{px + 186}" y="{y}" class="m"{style}>{value}</text>')
+        p.append(f'<text x="{px + 300}" y="{y}" class="ax">{how}</text>')
+
+    # A log axis, because 2 and 295 do not share a linear scale legibly — and
+    # the gap between them IS the finding, so it must be visible as a distance.
+    ax0, ax1, ay = 640, 930, py + 104
+    p.append(
+        f'<text x="{ax0}" y="{py + 52}" class="ax">where that intensity sits, log scale</text>'
+    )
+    p.append(
+        f'<text x="{ax0}" y="{py + 68}" class="ax">(FLOP/byte · FLOP = one '
+        f"floating-point operation)</text>"
+    )
+
+    def aix(v: float) -> float:
+        return ax0 + math.log10(v) / 3.0 * (ax1 - ax0)
+
+    p.append(f'<line x1="{ax0}" y1="{ay}" x2="{ax1}" y2="{ay}" class="g"/>')
+    for dec in range(4):
+        v = 10**dec
+        x = aix(v)
+        p.append(f'<line x1="{x:.1f}" y1="{ay - 4}" x2="{x:.1f}" y2="{ay + 4}" class="g"/>')
+        p.append(f'<text x="{x:.1f}" y="{ay + 18}" class="ax" text-anchor="middle">{v:,}</text>')
+
+    for v, label, slot, dy2 in (
+        (AI_ONE, f"{AI_ONE:.2f}", 0, -10),
+        (AI_BATCH, f"{AI_BATCH:.0f}", 0, -10),
+        (RIDGE, f"{RIDGE}", 3, -10),
+    ):
+        x = aix(v)
+        p.append(
+            f'<line x1="{x:.1f}" y1="{ay - 6}" x2="{x:.1f}" y2="{ay + 6}" '
+            f'stroke="var(--s{slot})" stroke-width="2"/>'
+        )
+        p.append(
+            f'<text x="{x:.1f}" y="{ay + dy2}" class="m" text-anchor="middle" '
+            f'style="fill:var(--s{slot})">{label}</text>'
+        )
+    p.append(
+        f'<text x="{aix(AI_ONE):.1f}" y="{ay - 24}" class="ax" text-anchor="middle">1 seq</text>'
+    )
+    p.append(
+        f'<text x="{aix(AI_BATCH):.1f}" y="{ay - 24}" class="ax" '
+        f'text-anchor="middle">{GOOD_BATCH} seqs</text>'
+    )
+    p.append(
+        f'<text x="{aix(RIDGE):.1f}" y="{ay - 24}" class="ax" text-anchor="middle">'
+        f"break even</text>"
+    )
+    p.append(
+        f'<text x="{ax0}" y="{ay + 36}" class="lb" style="fill:var(--s3)">'
+        f"{GAP_ONE}× short at one sequence, {RIDGE / AI_BATCH:.0f}× "
+        f"at {GOOD_BATCH}</text>"
+    )
+
+    # --- 3. batching, and the memory wall that ends it -------------------------
+    qx, qy, qw, qh = 28, 566, 924, 244
+    p.append(
+        f'<rect x="{qx}" y="{qy}" width="{qw}" height="{qh}" rx="10" '
+        f'fill="var(--panel)" stroke="var(--grid)"/>'
+    )
+    p.append(
+        f'<text x="{qx + 18}" y="{qy + 24}" class="lb">Batching is the lever — '
+        f"and the KV cache is where it stops</text>"
+    )
+    p.append(
+        f'<text x="{qx + 18}" y="{qy + 42}" class="ax">KV cache = the attention '
+        f"keys and values each sequence keeps for its own context; every "
+        f"concurrent sequence needs its own copy</text>"
+    )
+
+    bx0, span, ceiling_gib = 150, 400, 80.0
+    scale = span / ceiling_gib
+
+    rows = [
+        ("1 sequence", KV_PER_GB, f"{AI_ONE:.2f} FLOP/byte", ["the read is spent on one token"]),
+        (
+            f"{GOOD_BATCH} sequences",
+            KV_PER_GB * GOOD_BATCH,
+            f"{AI_BATCH:.1f} FLOP/byte",
+            [
+                f"{HAVE_GB - (WEIGHTS_GB + OVERHEAD_GB + KV_PER_GB * GOOD_BATCH):.2f} GiB spare "
+                f"— the last batch that fits",
+            ],
+        ),
+        (
+            f"{OVER_BATCH} sequences",
+            KV_PER_GB * OVER_BATCH,
+            "refused",
+            [
+                f"{NEED_GB - HAVE_GB:.2f} GiB over — the 19th needs {KV_PER_GB:.2f} GiB of KV",
+            ],
+        ),
+    ]
+    ry0, rh = qy + 56, 38
+    yc_top, yc_bot = ry0 - 6, ry0 + len(rows) * rh - 4
+
+    for i, (label, kv, intensity, notes) in enumerate(rows):
+        y = ry0 + i * rh
+        total = WEIGHTS_GB + OVERHEAD_GB + kv
+        over = total > HAVE_GB
+        p.append(f'<text x="{bx0 - 12}" y="{y + 18}" class="ax" text-anchor="end">{label}</text>')
+        # Stacked, 1px surface gaps, in the same slot order as edu-memory.svg so
+        # the two diagrams read as one legend.
+        x = bx0
+        for gib, slot in ((WEIGHTS_GB, 0), (OVERHEAD_GB, 1), (kv, 2)):
+            p.append(bar(x, y, gib * scale - 1, 26, slot, r=3))
+            x += gib * scale
+        if over:
+            # The excess drawn as excess: past the ceiling, in the refusal hue.
+            p.append(bar(bx0 + HAVE_GB * scale, y, (total - HAVE_GB) * scale, 26, 3, r=3))
+        p.append(
+            f'<text x="{max(bx0 + total * scale + 10, bx0 + span + 20):.1f}" '
+            f'y="{y + 18}" class="m"'
+            + (' style="fill:var(--s3)">' if over else ">")
+            + f"{total:.2f} GiB</text>"
+        )
+        p.append(
+            f'<text x="{qx + 612}" y="{y + 12}" class="ax"'
+            + (' style="fill:var(--s3)">' if over else ">")
+            + f"{intensity}</text>"
+        )
+        for j, ln in enumerate(notes):
+            p.append(f'<text x="{qx + 612}" y="{y + 28 + j * 14}" class="ax">{ln}</text>')
+
+    for gib in range(0, 81, 20):
+        x = bx0 + gib * scale
+        p.append(
+            f'<line x1="{x:.1f}" y1="{yc_bot + 6}" x2="{x:.1f}" y2="{yc_bot + 11}" class="g"/>'
+        )
+        p.append(
+            f'<text x="{x:.1f}" y="{yc_bot + 24}" class="ax" text-anchor="middle">{gib}</text>'
+        )
+    p.append(
+        f'<text x="{bx0 + span / 2:.0f}" y="{yc_bot + 42}" class="ax" '
+        f'text-anchor="middle">GPU memory used, GiB</text>'
+    )
+
+    xc = bx0 + HAVE_GB * scale
+    p.append(
+        f'<line x1="{xc:.1f}" y1="{yc_top}" x2="{xc:.1f}" y2="{yc_bot}" '
+        f'stroke="var(--s3)" stroke-width="2" stroke-dasharray="6 4"/>'
+    )
+    p.append(
+        f'<text x="{xc + 8:.1f}" y="{yc_top + 10}" class="lb" style="fill:var(--s3)">'
+        f"{HAVE_GB:.1f} GiB usable</text>"
+    )
+
+    p.append(
+        legend(
+            qx + 18,
+            qy + qh - 14,
+            [
+                (0, f"weights {WEIGHTS_GB} GiB"),
+                (1, f"runtime overhead {OVERHEAD_GB} GiB"),
+                (2, f"KV cache {KV_PER_GB:.2f} GiB per sequence"),
+                (3, "over the ceiling"),
+            ],
+        )
+    )
 
     note(
         p,
         28,
-        y0 + len(rows) * rh3 + 26,
-        "Batching is the whole game, and the conversation cache is what ends it: every "
-        "extra person needs their own copy, so you run out of memory long before you run "
-        "out of engines. Making that cache smaller — a lighter quantisation, a shorter "
-        "context, an MLA model — is the same thing as buying more of the GPU you already "
-        "own. Figures are a real `clickllm fit` solve, not an illustration.",
+        qy + qh + 22,
+        f"The ceiling is memory, not maths: {GOOD_BATCH} sequences share one "
+        f"{READ_GB} GB read and reach {AI_BATCH:.1f} FLOP/byte — still "
+        f"{RIDGE / AI_BATCH:.0f}× under the {RIDGE} the chip needs — and the batch "
+        f"stops at {GOOD_BATCH} because KV cache ran out, not compute. Shrinking "
+        f"that cache (lighter quantisation, shorter context, an MLA model) buys "
+        f"batch, and batch is the only thing that buys intensity. "
+        f"Figures are a real `clickllm fit` solve; {TPS} tokens/s is a bandwidth "
+        f"estimate, not a measurement.",
+        per_line=140,
     )
     save("edu-silicon.svg", p)
 

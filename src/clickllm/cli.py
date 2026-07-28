@@ -340,6 +340,194 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    """Serve a model on this machine. The only command here that starts anything.
+
+    Still no cutover: this binds loopback and hands you a URL. Moving production
+    traffic onto it is a separate, human decision — see `clickllm prove`.
+    """
+    from . import launch
+
+    p = launch.plan(
+        args.model,
+        quant=args.quant,
+        context=_parse_size(args.context),
+        concurrency=args.concurrency,
+        port=args.port,
+        host=args.host,
+    )
+    print()
+    print(p.render())
+    print()
+    if isinstance(p, launch.Refusal):
+        return 1
+    if args.dry_run:
+        print("  --dry-run: nothing was started.\n")
+        return 0
+
+    ep = launch.serve(p)
+    print(f"\n  ready in {ep.ready_seconds:.0f}s — {ep.base}/v1  (pid {ep.pid})")
+    print(f"  curl {ep.base}/v1/models")
+    print("  ctrl-c to stop\n")
+    return ep.wait()
+
+
+def cmd_host(args: argparse.Namespace) -> int:
+    """Where to run a model this machine cannot, cheapest first.
+
+    The other side of `run`: that one refuses when the model does not fit and
+    names this. Nothing here spends money or holds a credential — it ranks the
+    options against a dated price registry and, with `--write`, emits a deploy
+    artifact you run yourself.
+    """
+    from . import host
+
+    m = catalog.get(args.model)
+    s = host.survey(
+        m,
+        quant=args.quant,
+        context=_parse_size(args.context),
+        concurrency=args.concurrency,
+        free_only=args.free_only,
+    )
+
+    if args.json:
+        print(json.dumps(host.to_dict(s), indent=2))
+        return 0
+
+    print()
+    print(s.render())
+
+    if not s.options:
+        return 1
+
+    chosen = host.find(s, args.provider) if args.provider else s.cheapest
+    if chosen is None:
+        known = ", ".join(sorted({o.provider.id for o in s.options}))
+        raise ValueError(f"no option at provider {args.provider!r} fits this model. Fits: {known}")
+
+    print("  PICK")
+    print(chosen.render())
+    for note in chosen.provider.notes:
+        for line in _wrap(note, 72):
+            print(f"    {line}")
+    print()
+
+    if not args.write:
+        print(f"  clickllm host {m.id} --write ./deploy   # emit the deploy files")
+        print(f"  clickllm host {m.id} --free-only        # only what costs nothing")
+        print("  Nothing was written, nothing was started, no provider was contacted.\n")
+        return 0
+
+    art = host.artifact(chosen, context=_parse_size(args.context), concurrency=args.concurrency)
+    written = art.write(args.write)
+    print(f"  WROTE  ({len(written)} file(s) to {args.write})")
+    for path in written:
+        print(f"    {path}")
+    print("\n  NEXT")
+    for i, step in enumerate(art.how, 1):
+        for j, line in enumerate(_wrap(step, 70)):
+            print(f"    {f'{i}.' if j == 0 else '  ':<4}{line}")
+    print(
+        "\n  Run these yourself. clickllm never authenticates to a provider, and\n"
+        "  these files bill your account, not ours.\n"
+    )
+    return 0
+
+
+def cmd_cache(args: argparse.Namespace) -> int:
+    """What proving N models left on disk, and — only when asked twice — less of it.
+
+    Reads the engines' cache, never a cache of ours. Deletion needs both an
+    explicit `evict` and `--yes`, and a pinned repo is never in the plan: an
+    eval sweep that evicts the incumbent destroys the comparison it exists for.
+    """
+    from . import cache
+
+    state = cache.load_state()
+    budget = cache.parse_bytes(args.budget) if args.budget else state.budget_bytes
+
+    if args.action in ("pin", "unpin"):
+        if not args.repo:
+            raise ValueError(f"{args.action} needs a repo, e.g. mlx-community/Llama-3.1-8B-4bit")
+        st = cache.pin(args.repo, None) if args.action == "pin" else cache.unpin(args.repo, None)
+        print(f"\n  pinned: {', '.join(st.pinned) or 'nothing'}\n")
+        return 0
+
+    root = cache.hub_dir()
+    found = cache.entries(root)
+
+    if args.action == "evict":
+        if budget is None:
+            raise ValueError("evict needs a budget, e.g. --budget 200G")
+        plan = cache.plan_eviction(found, budget, state.pinned)
+        print(plan.render())
+        if not plan.evict:
+            return 0
+        result = cache.apply_eviction(plan, confirm=args.yes, root=root)
+        print(result.render())
+        return 0
+
+    remembered = bool(args.budget) and budget != state.budget_bytes
+    if remembered:
+        cache.save_state(cache.State(pinned=state.pinned, budget_bytes=budget))
+    u = cache.usage(root, budget_bytes=budget, pinned=state.pinned)
+    print(u.render())
+    if remembered:
+        print(f"  budget remembered: {cache.human(budget or 0)} — evict defaults to it now\n")
+    if u.entries:
+        print("  clickllm cache pin <repo>              # never evict this one")
+        print("  clickllm cache evict --budget 200G     # show what would go\n")
+    return 0
+
+
+def cmd_box(args: argparse.Namespace) -> int:
+    """Assemble the OCI artifact of ADR-0005. Writes files; pushes nothing.
+
+    The push commands are printed for you to run. clickllm holds no registry
+    credential, reads no token, and contacts no registry — the same boundary
+    `host` keeps.
+    """
+    from . import box
+    from .prove.receipt import Receipt
+
+    receipt = None
+    if args.receipt:
+        receipt = Receipt.from_json(pathlib.Path(args.receipt).read_text())
+
+    b = box.build(
+        args.model,
+        quant=args.quant,
+        context=_parse_size(args.context),
+        concurrency=args.concurrency,
+        receipt=receipt,
+        ref=args.ref,
+    )
+
+    print()
+    print(b.render())
+    print()
+
+    if not args.write:
+        print(f"  clickllm box {b.model.id} --write ./{b.model.id}-box   # emit the artifact")
+        print(f"  clickllm box {b.model.id} --receipt receipt.json       # attach the proof")
+        print("  Nothing was written, nothing was pushed, no registry was contacted.\n")
+        return 0
+
+    written = b.write(args.write)
+    print(f"  WROTE  ({len(written)} file(s) to {args.write})")
+    for path in written:
+        print(f"    {path}")
+    print("\n  PUSH")
+    for command in b.push_commands(args.write):
+        print(f"    {command}")
+    print(
+        "\n  Run these yourself. clickllm holds no registry credential, reads no\n"
+        "  token, and has contacted no registry.\n"
+    )
+    return 0
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     """Notice new models without being asked. Stages; never publishes."""
     from . import watch
@@ -809,6 +997,71 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--resume", help="continue a saved session")
     b.add_argument("--json", action="store_true")
     b.set_defaults(fn=cmd_build)
+
+    r = sub.add_parser("run", help="serve a model here: resolve weights, launch, wait for healthy")
+    r.add_argument("model", help="catalogue model id, e.g. qwen3-30b-a3b")
+    r.add_argument("--quant", help="force a quantisation; default is the best that fits")
+    r.add_argument("--context", default="32k", help="context length, e.g. 8k, 32k")
+    r.add_argument(
+        "--concurrency",
+        type=int,
+        default=4,
+        help="simultaneous requests to tune for (a server is not a single-stream benchmark)",
+    )
+    r.add_argument("--host", default="127.0.0.1", help="bind address (loopback by default)")
+    r.add_argument("--port", type=int, default=8000)
+    r.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="print the plan and the exact command; start nothing",
+    )
+    r.set_defaults(fn=cmd_run)
+
+    ho = sub.add_parser("host", help="where to run a model this machine cannot; free tiers first")
+    ho.add_argument("model", help="catalogue model id, e.g. deepseek-v3")
+    ho.add_argument("--context", default="32k", help="context length, e.g. 8k, 32k")
+    ho.add_argument("--concurrency", type=int, default=4, help="simultaneous requests")
+    ho.add_argument(
+        "--quant", help="force a quantisation; default is the best that fits each shape"
+    )
+    ho.add_argument(
+        "--free-only",
+        action="store_true",
+        dest="free_only",
+        help="only shapes that cost nothing",
+    )
+    ho.add_argument("--provider", help="pick this provider instead of the cheapest that fits")
+    ho.add_argument("--write", metavar="DIR", help="emit the deploy artifact here")
+    ho.add_argument("--json", action="store_true")
+    ho.set_defaults(fn=cmd_host)
+
+    cc = sub.add_parser("cache", help="what the engines downloaded, and what to evict")
+    cc.add_argument(
+        "action",
+        nargs="?",
+        choices=["evict", "pin", "unpin"],
+        help="omit to report; evict needs --yes before anything is deleted",
+    )
+    cc.add_argument("repo", nargs="?", help="repo to pin or unpin, e.g. org/Model-4bit")
+    cc.add_argument("--budget", help="cache budget, e.g. 200G; remembered once set")
+    cc.add_argument("--yes", action="store_true", help="actually delete (evict prints otherwise)")
+    cc.set_defaults(fn=cmd_cache)
+
+    bx = sub.add_parser("box", help="build the OCI box: one artifact, every platform")
+    bx.add_argument("model", help="catalogue model id, e.g. qwen3-30b-a3b")
+    bx.add_argument("--write", metavar="DIR", help="emit the box here")
+    bx.add_argument("--context", default="32k", help="context length to tune for, e.g. 8k, 32k")
+    bx.add_argument(
+        "--concurrency",
+        type=int,
+        default=8,
+        help="simultaneous requests to tune for (a box is published for a fleet)",
+    )
+    bx.add_argument("--quant", help="force a quantisation; default is the best that fits each host")
+    bx.add_argument("--receipt", help="attach this proof; without it the box claims nothing")
+    bx.add_argument("--ref", help="registry reference the printed push commands use")
+    bx.set_defaults(fn=cmd_box)
 
     w = sub.add_parser("watch", help="discover new models on a schedule; stages, never publishes")
     w.add_argument("--list", action="store_true", help="show what is staged and waiting")
