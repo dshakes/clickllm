@@ -1,7 +1,8 @@
 name: release
 
-# One-click release: tag → publish GitHub Release (notes from CHANGELOG) → open the
-# Homebrew formula-bump PR. Runs on GitHub's runners, which have the ref-write access a
+# One-click release: tag → publish GitHub Release (notes from CHANGELOG) → publish to
+# PyPI when a token is configured → open the Homebrew formula-bump PR. Runs on GitHub's
+# runners, which have the ref-write access a
 # local/sandboxed clone may not — so "cut a release" becomes a single tap from the
 # Actions tab or GitHub Mobile (Run workflow), no terminal required.
 #
@@ -87,6 +88,94 @@ jobs:
           else
             printf '%s' "$NOTES" | gh release create "$VERSION" --latest --title "$VERSION — compass" --notes-file -
           fi
+
+      # Until this runs green, `pip install clickllm` is a 404 and every install
+      # instruction that names a bare package is fiction — which is exactly what
+      # shipped: the README, the landing page's install tabs and install.sh all
+      # advertised a package no workflow had ever published. Gated on the token
+      # so a fork or an unconfigured repo still cuts a Release; NOT silent when
+      # absent, because "released" and "installable" reading the same green tick
+      # is the defect. `tests/test_docs_lab.py` holds the docs to whatever this
+      # step actually achieves.
+      - name: Check for PYPI_API_TOKEN
+        id: pypi
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -n "$PYPI_API_TOKEN" ]; then
+            echo "present=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "present=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      # `build` reads the version out of pyproject.toml and ignores the tag, so a
+      # v0.2.0 release would upload 0.1.0 — and `--skip-existing` below turns
+      # every release after the first into a silent no-op that still prints
+      # "published". Refusing is the only safe answer: rewriting pyproject here
+      # would ship an artifact whose version is in no commit.
+      - name: The tag and the packaged version must agree
+        if: steps.pypi.outputs.present == 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          packaged="$(python3 - <<'EOF'
+          import re, pathlib
+          m = re.search(r'^version\s*=\s*"([^"]+)"', pathlib.Path("pyproject.toml").read_text(), re.M)
+          print(m.group(1) if m else "")
+          EOF
+          )"
+          tag="${VERSION#v}"
+          if [ -z "$packaged" ]; then
+            echo "::error::could not read version from pyproject.toml"; exit 1
+          fi
+          if [ "$packaged" != "$tag" ]; then
+            echo "::error::tag $VERSION would publish $packaged — pyproject.toml says $packaged, the tag says $tag. Bump pyproject.toml and re-tag; publishing the wrong version silently is worse than not publishing."
+            exit 1
+          fi
+          echo "tag $VERSION matches packaged $packaged"
+
+      - name: Build the sdist + wheel
+        if: steps.pypi.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          # A dedicated outdir, not `dist/`: that directory is gitignored and is
+          # where the locally-built `clickllm_core` wheel lands, and a
+          # `twine upload dist/*` would happily push whatever else it found there.
+          rm -rf dist-pypi
+          pipx run build --outdir dist-pypi
+          ls -l dist-pypi/
+
+      - name: Publish to PyPI
+        if: steps.pypi.outputs.present == 'true'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # --skip-existing keeps the workflow idempotent: re-running a release
+          # must not fail on the version it already uploaded.
+          pipx run twine upload --non-interactive --skip-existing dist-pypi/*
+          {
+            printf '## Published to PyPI\n\n'
+            printf '`pip install clickllm` now resolves at %s.\n\n' "$VERSION"
+            printf 'Add `clickllm` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py`, '
+            printf 'then the docs may use bare-name install commands again.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Say so when the release was NOT published to PyPI
+        if: steps.pypi.outputs.present != 'true'
+        run: |
+          {
+            printf '## ⚠️ NOT published to PyPI\n\n'
+            printf 'A GitHub Release was cut, and that is all. **`pip install clickllm` still 404s.**\n\n'
+            printf 'Reason: `PYPI_API_TOKEN` is not set on this repository.\n\n'
+            printf 'Until it is, the only working install is the git ref:\n\n'
+            printf '```\nuvx --from git+https://github.com/%s clickllm fit\n```\n\n' "$GITHUB_REPOSITORY"
+            printf 'This is not a publish that found nothing to do — it is the absence of one.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+          echo "::warning::PYPI_API_TOKEN is not set — this release was NOT published to PyPI; pip install clickllm still fails"
 
       - name: Open the Homebrew formula-bump PR
         env:

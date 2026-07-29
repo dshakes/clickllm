@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-869-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-875-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -26,8 +26,13 @@ into one decision — and prints the arithmetic behind every number in it.**
 
 ## Try it in ten seconds
 
+> **clickllm is not on PyPI yet.** `pip install clickllm` fails — nothing has been
+> published. `uvx` builds it straight from the git ref instead: nothing to clone,
+> nothing installed. The bare `clickllm …` commands further down assume it is on your
+> PATH; [Install](#install) is the one command that puts it there.
+
 ```bash
-uvx clickllm fit --context 32k --concurrency 8
+uvx --from git+https://github.com/dshakes/clickllm clickllm fit --context 32k --concurrency 8
 ```
 
 ```
@@ -46,7 +51,7 @@ uvx clickllm fit --context 32k --concurrency 8
 Then ask the inverse — *what would I need to run this?*
 
 ```bash
-uvx clickllm where deepseek-v3 --context 16k
+uvx --from git+https://github.com/dshakes/clickllm clickllm where deepseek-v3 --context 16k
 ```
 
 ```
@@ -397,13 +402,20 @@ That reversed an earlier decision; [ADR-0010](docs/adr/0010-retire-the-weights-c
 
 ## Install
 
+**There is no published package yet.** `pip install clickllm`, `pipx install
+clickllm`, `brew install dshakes/tap/clickllm` and `pip install clickllm-core` all
+fail: `https://pypi.org/pypi/clickllm/json` is a 404, the tap carries no clickllm
+formula, and cutting a release publishes a GitHub Release only. The git ref is the
+whole install story, and it works today:
+
 ```bash
-uvx clickllm fit                        # no install
-pipx install clickllm                   # or
-brew install dshakes/tap/clickllm       # or
-docker run --rm ghcr.io/dshakes/clickllm:latest fit
-curl -fsSL https://dshakes.github.io/clickllm/install.sh | sh
+uvx --from git+https://github.com/dshakes/clickllm clickllm fit            # run it, install nothing
+uv tool install --from git+https://github.com/dshakes/clickllm clickllm    # or put it on PATH
 ```
+
+Once the package is published, `uvx clickllm` becomes the short form. Until then a
+command naming a bare `clickllm` is a command that does not run — which is why
+`tests/test_docs_lab.py` fails the build if one appears in these docs again.
 
 **Native launcher** — `clickllm desktop install` writes a real `.app` on macOS or a
 `.desktop` entry on Linux. It launches `clickllm ui` rather than reimplementing it,
@@ -433,10 +445,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --python 3.13 pytest -q       # 642 Python
+uv run --with pytest --python 3.13 pytest -q       # 648 Python
 ```
 
-**869 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**875 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That

@@ -433,12 +433,12 @@
         <i class="tl" style="background:#34d399"></i>
         <span class="termtitle">clickllm — ~/payments-api</span>
       </div>
-<pre><span class="ln" style="--d:0.00s"><span class="p">$</span> <span class="u">uvx clickllm fit --context 32k --concurrency 8</span></span><span class="ln" style="--d:0.10s">&nbsp;</span><span class="ln" style="--d:0.15s">  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span></span><span class="ln" style="--d:0.25s">&nbsp;</span><span class="ln" style="--d:0.30s">  model                 quant  total   ~tok/s  licence</span><span class="ln" style="--d:0.40s">  <span class="c">─────────────────────────────────────────────────</span></span><span class="ln" style="--d:0.50s">  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">119</span>     Apache-2.0</span><span class="ln" style="--d:0.60s">  Phi-4 14B             q8     66.3G   <span class="k">27</span>      MIT</span><span class="ln" style="--d:0.70s">&nbsp;</span><span class="ln" style="--d:0.75s">  <span class="r">NOT FEASIBLE</span></span><span class="ln" style="--d:0.85s">  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —</span><span class="ln" style="--d:0.95s">                        sparsity cuts compute, not memory</span></span><span class="ln" style="--d:1.05s">&nbsp;</span><span class="ln" style="--d:1.10s"><span class="p">$</span> <span class="u">clickllm guard receipt.json --traffic mix.json</span></span><span class="ln" style="--d:1.20s">  <span class="r">RECEIPT VOID</span> · 17cfed178112</span><span class="ln" style="--d:1.30s">    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name</span><span class="ln" style="--d:1.40s">    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored</span><span class="ln" style="--d:1.50s">  <span class="w">→ re-prove now: the model you proved is not the</span><span class="ln" style="--d:1.60s">    model in production</span></span><span class="ln" style="--d:1.70s">&nbsp;</span></pre>
+<pre><span class="ln" style="--d:0.00s"><span class="p">$</span> <span class="u">clickllm fit --context 32k --concurrency 8</span></span><span class="ln" style="--d:0.10s">&nbsp;</span><span class="ln" style="--d:0.15s">  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span></span><span class="ln" style="--d:0.25s">&nbsp;</span><span class="ln" style="--d:0.30s">  model                 quant  total   ~tok/s  licence</span><span class="ln" style="--d:0.40s">  <span class="c">─────────────────────────────────────────────────</span></span><span class="ln" style="--d:0.50s">  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">119</span>     Apache-2.0</span><span class="ln" style="--d:0.60s">  Phi-4 14B             q8     66.3G   <span class="k">27</span>      MIT</span><span class="ln" style="--d:0.70s">&nbsp;</span><span class="ln" style="--d:0.75s">  <span class="r">NOT FEASIBLE</span></span><span class="ln" style="--d:0.85s">  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —</span><span class="ln" style="--d:0.95s">                        sparsity cuts compute, not memory</span></span><span class="ln" style="--d:1.05s">&nbsp;</span><span class="ln" style="--d:1.10s"><span class="p">$</span> <span class="u">clickllm guard receipt.json --traffic mix.json</span></span><span class="ln" style="--d:1.20s">  <span class="r">RECEIPT VOID</span> · 17cfed178112</span><span class="ln" style="--d:1.30s">    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name</span><span class="ln" style="--d:1.40s">    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored</span><span class="ln" style="--d:1.50s">  <span class="w">→ re-prove now: the model you proved is not the</span><span class="ln" style="--d:1.60s">    model in production</span></span><span class="ln" style="--d:1.70s">&nbsp;</span></pre>
     </div>
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">869</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">875</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>
@@ -713,11 +713,15 @@
     leaves your machine — captured traffic is the most sensitive data you have, and export is
     an explicit command, never a background sync.</p>
 
+  <div class="note"><p><b>clickllm is not on PyPI yet.</b> There is no published
+    package, so <code>pip install clickllm</code>, <code>pipx install clickllm</code> and
+    <code>brew install</code> all fail. Both commands below build it from the git ref,
+    which is how you run it today. The Homebrew and pip tabs used to be here; they were
+    advertising something that did not exist.</p></div>
+
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-t="uvx">uvx</button>
-    <button class="tab" role="tab" aria-selected="false" data-t="brew">Homebrew</button>
-    <button class="tab" role="tab" aria-selected="false" data-t="pip">pip</button>
-    <button class="tab" role="tab" aria-selected="false" data-t="git">git</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="git">git clone</button>
   </div>
   <div id="cmds"></div>
 
@@ -737,12 +741,14 @@
 
 <script>
 const CMDS = {
-  uvx:  [['uvx clickllm fit --context 32k --concurrency 8', 'size what runs on this machine']],
-  brew: [['brew install dshakes/tap/clickllm', ''], ['clickllm fit', '']],
-  pip:  [['pip install clickllm', 'the solver — zero runtime dependencies'],
-         ['pip install clickllm-core', 'optional: compiled datapath bindings']],
-  git:  [['git clone https://github.com/dshakes/clickllm', ''],
-         ['PYTHONPATH=src python3 -m clickllm.cli fit', '']],
+  // Every entry must be runnable. `pip`/`pipx`/`brew` tabs lived here for months
+  // naming a package that has never been published — see tests/test_docs_lab.py.
+  uvx:  [['uvx --from git+https://github.com/dshakes/clickllm clickllm fit --context 32k --concurrency 8',
+          'size what runs on this machine — nothing cloned, nothing installed'],
+         ['uv tool install --from git+https://github.com/dshakes/clickllm clickllm',
+          'or put clickllm on your PATH']],
+  git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
+         ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
 };
 function renderCmds(kind){
   document.getElementById('cmds').innerHTML = CMDS[kind].map(([c, note]) => `

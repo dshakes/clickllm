@@ -561,3 +561,121 @@ def test_every_command_the_docs_tell_you_to_run_exists(page):
         f"{page} tells the reader to run commands that do not exist: {unknown}. "
         f"registered: {sorted(real)}"
     )
+
+
+# --- ...and install commands that name something obtainable --------------------
+
+#: Names of OUR OWN distributions that have actually been published, anywhere a
+#: reader could install them from — PyPI, a Homebrew tap, a registry.
+#:
+#: Empty, and that is the true value. `https://pypi.org/pypi/clickllm/json` is a
+#: **404**; so is `clickllm-core`. `dshakes/homebrew-tap` carries `compass.rb`,
+#: `distil.rb` and `firstpass-proxy.rb` and no clickllm formula, and
+#: `.github/workflows/release.yml` publishes a GitHub Release — there is no path
+#: by which either name reaches a registry. Publishing one means adding it here,
+#: which is the point: the constant is the claim, and the test is what makes
+#: stating it falsely cost something.
+PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset()
+
+#: Surfaces that tell a reader how to install. install.sh is included because it
+#: is served live from the docs site and is executed verbatim by a `curl | sh`.
+INSTALL_SURFACES = (
+    Path("README.md"),
+    Path("site/index.html"),
+    Path("site/docs/index.html"),
+    Path("install.sh"),
+    # The one the curl URL actually serves. It was a stale copy of install.sh
+    # and kept every unpublished command after install.sh was fixed — so the
+    # served installer stayed broken while the repo's looked correct, and this
+    # list not covering it is why nothing said so.
+    Path("site/install.sh"),
+)
+
+#: `pip install X`, `pipx install X`, `uvx X`, `uv tool install X`, `brew install X`,
+#: `docker run … IMAGE`. The verb is what makes the line an instruction.
+_INSTALL_VERB = re.compile(
+    r"\b(?:pip3?\s+install|python3?\s+-m\s+pip\s+install|pipx\s+install"
+    r"|uv\s+tool\s+install|uvx|brew\s+install|docker\s+run)\b"
+)
+
+#: Anything that looks like one of our distribution or image names, including the
+#: tap-qualified (`dshakes/tap/clickllm`) and registry-qualified
+#: (`ghcr.io/dshakes/clickllm:latest`) forms.
+_OUR_NAME = re.compile(r"[\w./-]*clickllm[\w.-]*")
+
+
+def _instruction_text(path: Path) -> str:
+    """The parts of a page that are instructions rather than prose.
+
+    Markdown: fenced blocks only. HTML and shell: everything except inline
+    `<code>` spans. Both follow the rule the sibling test above settled on —
+    "`pip install clickllm` fails" is a *sentence about* a broken command, and a
+    check that cannot tell it from the command itself makes the failure
+    unfixable, because the fix is to write the sentence.
+    """
+    text = path.read_text()
+    if path.suffix == ".md":
+        return "\n".join(re.findall(r"^```[a-z]*\n(.*?)^```", text, re.S | re.M))
+    return re.sub(r"<code>.*?</code>", " ", text, flags=re.S)
+
+
+@pytest.mark.parametrize("page", INSTALL_SURFACES, ids=str)
+def test_every_install_command_the_docs_publish_names_something_obtainable(page):
+    """Every install instruction we ship was unrunnable, on every surface.
+
+    The README, the landing page's install-method tabs (uvx / Homebrew / pip /
+    git) and `install.sh` all told the reader to install a package name that has
+    never existed: `https://pypi.org/pypi/clickllm/json` returns **404**, and so
+    does `clickllm-core`. `brew install dshakes/tap/clickllm` resolves to no
+    formula. `ghcr.io/dshakes/clickllm` is not a published image. A reader's
+    first contact with this project was a command that failed, and nothing in a
+    green suite objected — the sibling test above checks that `clickllm fit` is a
+    real *subcommand*, never that `clickllm` is a real *package*.
+
+    A bare name is only allowed if we have actually published it
+    (`PUBLISHED_PACKAGE_NAMES`, empty today). A `git+…` source is always allowed,
+    because it resolves against this repository and cannot go stale while the
+    repository exists.
+
+    Deliberately offline: a test that reaches PyPI to decide would be green in CI
+    and red on a plane, and the fact it needs — what we have published — is
+    something we know without asking anyone.
+
+    Third-party names (`pip install vllm`, `pip install mlx-lm`) are out of
+    scope. Whether *those* are on PyPI is not ours to assert or to fix.
+    """
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for line in _instruction_text(root / page).splitlines():
+        if not _INSTALL_VERB.search(line):
+            continue
+        ours = {n for n in _OUR_NAME.findall(line) if n}
+        if not ours or "git+" in line:
+            continue
+        unpublished = sorted(n for n in ours if n not in PUBLISHED_PACKAGE_NAMES)
+        if unpublished:
+            offenders.append(f"{unpublished} in: {line.strip()[:100]}")
+    assert not offenders, (
+        f"{page} tells the reader to install something we have never published. "
+        f"Use the git form (`--from git+https://github.com/dshakes/clickllm`), or add "
+        f"the name to PUBLISHED_PACKAGE_NAMES once it is genuinely on PyPI:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_served_installer_is_the_repo_installer():
+    """`site/install.sh` is what `curl … | sh` fetches; `install.sh` is what gets
+    edited. They drifted, and the served copy kept `pipx install clickllm`,
+    `brew install dshakes/tap/clickllm` and `pip install --user clickllm` after
+    the real one was fixed — so the installer people actually run stayed broken
+    while the repo's looked correct.
+
+    Identical, or the copy is stale by definition.
+    """
+    root = Path(__file__).resolve().parents[1]
+    a = (root / "install.sh").read_text()
+    b = (root / "site" / "install.sh").read_text()
+    assert a == b, (
+        "site/install.sh has drifted from install.sh — the served installer is "
+        "not the one that gets reviewed. Copy install.sh over it."
+    )

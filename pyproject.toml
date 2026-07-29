@@ -14,8 +14,8 @@ clickllm-mcp = "clickllm.mcp:serve"
 # distribution (`clickllm-core`, built from clickllm-py/), and until that is on
 # PyPI an extra naming it makes THIS package unresolvable — uv solves every
 # extra before it will run anything, so a forward reference breaks `uv run` for
-# people who never wanted the extension. Install it directly instead:
-#     pip install clickllm-core
+# people who never wanted the extension. Neither name is on PyPI yet, so build the
+# bindings from the checkout instead: `maturin develop` in clickllm-py/.
 # The extra goes back the day the wheel is published. See ADR-0009.
 dev = ["pytest>=8", "ruff>=0.6"]
 

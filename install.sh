@@ -5,6 +5,11 @@
 # Picks the best channel already present rather than installing a package manager
 # in order to install a package. POSIX sh, because this runs before anything is
 # set up.
+#
+# Every channel installs from the GIT REF, not from a package name: clickllm has
+# never been published to PyPI (pypi.org/pypi/clickllm/json is a 404) and the
+# Homebrew tap carries no clickllm formula. This script used to install by bare
+# package name on every branch, so it failed on every path it had.
 set -eu
 
 say()  { printf '%s\n' "$*"; }
@@ -15,30 +20,28 @@ say "clickllm installer"
 
 if have uv; then
   say "-> uv detected; installing as a tool"
-  uv tool install clickllm
-elif have brew; then
-  say "-> Homebrew detected"
-  brew install dshakes/tap/clickllm
+  uv tool install --from git+https://github.com/dshakes/clickllm clickllm
 elif have pipx; then
   say "-> pipx detected"
-  pipx install clickllm
+  pipx install git+https://github.com/dshakes/clickllm
 elif have python3; then
   ver=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
   case "$ver" in
     3.1[1-9]|3.[2-9][0-9]) : ;;
     *) die "python3 is $ver; clickllm needs 3.11 or newer. Install uv instead: https://astral.sh/uv" ;;
   esac
+  have git || die "git is required to install from source. Install uv instead: https://astral.sh/uv"
   say "-> falling back to pip --user (python $ver)"
-  python3 -m pip install --user clickllm
+  python3 -m pip install --user git+https://github.com/dshakes/clickllm
 else
-  die "no supported installer found. Install uv (https://astral.sh/uv), Homebrew, pipx, or Python 3.11+."
+  die "no supported installer found. Install uv (https://astral.sh/uv), pipx, or Python 3.11+ with git."
 fi
 
 if ! have clickllm; then
   say ""
   say "Installed, but 'clickllm' is not on PATH yet."
   say "Add your user bin directory to PATH, or run it without installing:"
-  say "  uvx clickllm fit"
+  say "  uvx --from git+https://github.com/dshakes/clickllm clickllm fit"
   exit 0
 fi
 
