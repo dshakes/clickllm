@@ -91,6 +91,47 @@ def test_a_judge_that_errors_degrades_the_run_rather_than_failing_it():
     assert m.candidates[0].clusters[0].known
 
 
+def test_a_cluster_carried_by_the_judge_alone_still_cannot_advance():
+    """The invariant, checked over the real scores rather than a hand-built flag.
+
+    Forty items whose baseline no deterministic grader can touch, all of which
+    the judge calls a tie. The cluster reads 40/40 — a perfect score with a
+    trustworthy judge behind it — and the gate must still refuse to move it,
+    because nothing but a language model's opinion is holding it up.
+    """
+    from dataclasses import replace as dc_replace
+
+    from clickllm.prove import Action, Stage, decide, grade, judge_item, read_cluster
+    from clickllm.prove.graders import ExactMatch
+
+    # `ExactMatch` alone: a prose baseline leaves it N/A, so nothing deterministic
+    # applies and the judge is the only voice in the room. This is `run`'s own
+    # composition — grade, then append the judge's score — assembled here because
+    # the gate reads `ItemResult`s and `run` returns a rendered matrix.
+    only_exact = (ExactMatch(),)
+    scored = []
+    for i in range(40):
+        item = EvalItem(
+            f"s{i}", "summarise", f"p{i}", "The meeting is on Tuesday.", "It is Tuesday."
+        )
+        base = grade(item, only_exact)
+        assert not base.graded, "the fixture is pointless if a deterministic grader fires"
+        verdict = judge_item(item, lambda c: Reply("tie"), "claude-opus-5")
+        scored.append(dc_replace(base, scores=base.scores + (verdict.to_score(),)))
+
+    reading = read_cluster("summarise", "summarise", 1.0, scored)
+    assert reading.judge_only, "the judge is the only applicable score here"
+    assert reading.interval.passed == 40 and reading.interval.total == 40, reading.interval.render()
+
+    d = decide(
+        [reading],
+        Stage("shadow", 0),
+        agreement=Agreement(agreed=38, total=40, model="claude-opus-5"),
+    )
+    assert d.action is Action.HOLD, d.render()
+    assert "judge alone" in d.reason, d.reason
+
+
 # --- disclosure and refusals ---------------------------------------------------
 
 
@@ -340,3 +381,33 @@ def test_the_cli_reports_an_error_rather_than_a_traceback(tmp_path: Path):
     )
     assert r.returncode != 0
     assert "Traceback" not in r.stderr, r.stderr
+
+
+def test_a_trailing_full_stop_is_not_a_wrong_answer():
+    """Measured against a real Llama 3.1 8B over a live endpoint: asked "capital
+    of France? Reply with only the city name" it answers `Paris.`
+
+    That scored FAIL against a baseline of `Paris`, across all ten extraction
+    items, and the suite reported REGRET — keep the incumbent — for a model that
+    answered every question correctly. It fails in the safe direction, but a
+    user shown 0% for a perfect run stops trusting the tool.
+    """
+    from clickllm.prove import EvalItem, Outcome
+    from clickllm.prove.graders import ExactMatch
+
+    g = ExactMatch()
+    for got in ("Paris.", " Paris ", '"Paris"', "`Paris`", "Paris!", "paris"):
+        item = EvalItem("i", "extraction", "capital of France?", "Paris", got)
+        assert g.grade(item).outcome is Outcome.PASS, f"{got!r} is the right answer"
+
+
+def test_normalisation_does_not_erase_a_real_difference():
+    """The negative control. Stripping punctuation until everything matches
+    would turn the grader into a rubber stamp, which is worse than brittle."""
+    from clickllm.prove import EvalItem, Outcome
+    from clickllm.prove.graders import ExactMatch
+
+    g = ExactMatch()
+    for base, got in (("3.14", "314"), ("yes", "no"), ("Paris", "Lyon")):
+        item = EvalItem("i", "extraction", "q", base, got)
+        assert g.grade(item).outcome is Outcome.FAIL, f"{base!r} vs {got!r} must differ"

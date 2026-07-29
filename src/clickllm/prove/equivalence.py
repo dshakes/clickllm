@@ -210,8 +210,14 @@ class Matrix:
         if self.agreement is None:
             out.append("judge: not used — verdicts are from deterministic graders only")
         elif not self.judge_trustworthy:
+            # Says what actually happens. The scores are *in* the numbers above —
+            # what an untrusted judge cannot do is move traffic, which is enforced
+            # in `prove.gate`, not here. Claiming the cells were blanked when they
+            # were not is the kind of reassuring inaccuracy this report exists to
+            # avoid.
             out.append(
-                f"⚠ {self.agreement.render()} — below the trust bar; judge cells shown as unknown"
+                f"⚠ {self.agreement.render()} — below the trust bar; its verdicts are "
+                f"counted in the cells above but cannot advance any cluster"
             )
         else:
             out.append(self.agreement.render())

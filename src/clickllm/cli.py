@@ -14,6 +14,7 @@ from . import catalog, fit, hardware
 if TYPE_CHECKING:  # imported lazily at the call sites — `clickllm fit` must stay cheap
     from .prove.collect import Collection
     from .prove.graders import EvalItem
+    from .prove.judge import Agreement, JudgeFn
 
 GB = 1024**3
 
@@ -825,6 +826,50 @@ def _collect_replies(
     return items, collections
 
 
+def _judge_from(args: argparse.Namespace) -> tuple[JudgeFn | None, str, Agreement | None]:
+    """The judge, its name, and how far it is trusted — or nothing at all.
+
+    Returns `(judge, judge_model, agreement)`. The agreement is *always* built
+    when a judge is used, even with nothing sampled: `Agreement(0, 0, model)`
+    renders as UNMEASURED and reads as untrustworthy, whereas passing `None`
+    would make the receipt state "no judge was used" about a run that used one.
+
+    Raises:
+        ValueError: a judge endpoint with no model to disclose, a model with no
+            endpoint (which would silently run without a judge), or an agreement
+            that claims more agreements than samples.
+    """
+    from .prove.collect import endpoint_judge
+    from .prove.judge import Agreement
+
+    model = (args.judge_model or "").strip()
+    if not args.judge_endpoint:
+        if model:
+            raise ValueError(
+                "--judge-model was given without --judge-endpoint; the run would "
+                "have used no judge at all while reporting one"
+            )
+        return None, "", None
+    if not model:
+        raise ValueError(
+            "--judge-model is required with --judge-endpoint: an anonymous judge "
+            "makes every score it touched unauditable"
+        )
+    if args.judge_agreed < 0 or args.judge_samples < 0:
+        raise ValueError("judge agreement counts cannot be negative")
+    if args.judge_agreed > args.judge_samples:
+        raise ValueError(
+            f"--judge-agreed {args.judge_agreed} exceeds --judge-samples {args.judge_samples}"
+        )
+
+    judge = endpoint_judge(
+        base=args.judge_endpoint,
+        model=model,
+        timeout=args.collect_timeout,
+    )
+    return judge, model, Agreement(agreed=args.judge_agreed, total=args.judge_samples, model=model)
+
+
 def cmd_prove(args: argparse.Namespace) -> int:
     """Run the eval suite over an eval set and print the verdict.
 
@@ -861,6 +906,10 @@ def cmd_prove(args: argparse.Namespace) -> int:
         for i, r in enumerate(rows)
     ]
 
+    # Built before anything is collected: a misspelled judge endpoint should cost
+    # nothing, not several hundred round trips followed by a usage error.
+    judge, judge_model, agreement = _judge_from(args)
+
     asked = len(items)
     items, collections = _collect_replies(items, args)
     if collections and not items:
@@ -890,6 +939,9 @@ def cmd_prove(args: argparse.Namespace) -> int:
         candidate=args.candidate,
         incumbent=args.incumbent,
         bar=args.bar,
+        judge=judge,
+        judge_model=judge_model,
+        agreement=agreement,
         # What the eval set was drawn from, not what survived collection. The
         # receipt then states 400 alongside claims totalling 388, rather than
         # quietly presenting the smaller number as the whole thing.
@@ -1229,6 +1281,37 @@ def main(argv: list[str] | None = None) -> int:
         "--incumbent-model",
         dest="incumbent_model",
         help="model id to ask that endpoint for; defaults to --incumbent",
+    )
+    # The judge. Optional, and a run without one is the stronger result — it says
+    # every verdict came from a deterministic grader.
+    pv.add_argument(
+        "--judge-endpoint",
+        dest="judge_endpoint",
+        help="OpenAI-compatible base URL for the tier-3 judge. Only consulted "
+        "where the deterministic graders could not decide, and never enough on "
+        "its own to move traffic",
+    )
+    pv.add_argument(
+        "--judge-model",
+        dest="judge_model",
+        help="the judge's id. Required with --judge-endpoint and stamped on the "
+        "receipt — an undisclosed judge makes every score it touched unauditable",
+    )
+    pv.add_argument(
+        "--judge-agreed",
+        dest="judge_agreed",
+        type=int,
+        default=0,
+        help="how many of the sampled comparisons a human agreed with",
+    )
+    pv.add_argument(
+        "--judge-samples",
+        dest="judge_samples",
+        type=int,
+        default=0,
+        help="how many comparisons a human checked. Zero means the judge is "
+        "UNMEASURED, which the report says out loud and the gate refuses to "
+        "advance on",
     )
     pv.add_argument(
         "--collect-workers",

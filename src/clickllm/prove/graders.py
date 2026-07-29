@@ -248,7 +248,7 @@ class ExactMatch:
             return Score(
                 self.name, self.tier, Outcome.NOT_APPLICABLE, "baseline is not a short label"
             )
-        if b.casefold() == item.candidate.strip().casefold():
+        if _label_key(b) == _label_key(item.candidate):
             return Score(self.name, self.tier, Outcome.PASS)
         return Score(
             self.name,
@@ -256,6 +256,26 @@ class ExactMatch:
             Outcome.FAIL,
             f"expected {b!r}, got {item.candidate.strip()[:60]!r}",
         )
+
+
+def _label_key(text: str) -> str:
+    """A label reduced to what actually distinguishes it from another label.
+
+    Measured against a real model: asked "capital of France? Reply with only the
+    city name", Llama 3.1 answers `Paris.` — correct, and scored FAIL against a
+    baseline of `Paris` for the full stop. That ran across all ten extraction
+    items and the suite reported REGRET, keep the incumbent, for a model that
+    got every question right.
+
+    Only wrapping punctuation is removed: surrounding quotes and backticks, and
+    trailing sentence marks. Internal punctuation is untouched, because it
+    carries meaning — `3.14` and `314` are different answers, and so are
+    `no, refund` and `no refund`. If stripping would empty the string the raw
+    text is kept, so a label that IS punctuation still compares as itself.
+    """
+    t = text.strip()
+    stripped = t.strip("\"'`\u201c\u201d\u2018\u2019").rstrip(".!?").strip()
+    return (stripped or t).casefold()
 
 
 def _looks_like_a_label(text: str, response_format: str | None) -> bool:
