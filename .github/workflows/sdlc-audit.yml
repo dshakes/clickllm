@@ -6,7 +6,13 @@ name: "sdlc · audit (Codex)"
 
 on:
   pull_request:
-    types: [opened, reopened, labeled]
+    # `synchronize` is the load-bearing one. Without it the audit runs once,
+    # against the commit the PR opened with, and never sees anything pushed
+    # afterwards — while the board keeps showing its stale green tick. On
+    # PR #26 that tick covered the first commit; 2,072 lines landed after it
+    # and merged with no cross-model audit at all. `sdlc-review` has always
+    # had it; these two did not.
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read

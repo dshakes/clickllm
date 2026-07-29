@@ -7,7 +7,13 @@ name: "sdlc · audit (Gemini)"
 
 on:
   pull_request:
-    types: [opened, reopened, labeled]
+    # `synchronize` is the load-bearing one. Without it the audit runs once,
+    # against the commit the PR opened with, and never sees anything pushed
+    # afterwards — while the board keeps showing its stale green tick. On
+    # PR #26 that tick covered the first commit; 2,072 lines landed after it
+    # and merged with no cross-model audit at all. `sdlc-review` has always
+    # had it; these two did not.
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -103,6 +109,9 @@ jobs:
             printf '### ⚠️ Gemini cross-audit did NOT run\n\n'
             printf 'This PR has **one fewer independent reviewer** than the repo is designed for.\n\n'
             printf 'Reason: `GEMINI_API_KEY` is not set on this repository.\n\n'
+            printf 'If the key IS set, check the trigger: an audit only covers what it\n'
+            printf 'was fired against, and a tick from an earlier commit is not a tick\n'
+            printf 'for this one.\n\n'
             printf 'This is not a finding, and it is not a clean audit — it is the absence of one.\n'
           } | gh pr comment "$PR" --body-file -
           # Create-then-add: `--add-label` fails on a label that does not exist,
