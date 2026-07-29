@@ -32,6 +32,11 @@ run the whole suite; it structurally cannot be the thing that cuts over.
 behalf. You hand it items that already carry both answers, and a ``judge`` if
 you want one. That is what keeps the package dependency-free and what keeps
 captured prompts on the machine that captured them.
+
+Getting those answers off a live endpoint is therefore a separate, explicit
+step: :mod:`clickllm.prove.collect`, or ``clickllm prove --candidate-endpoint``.
+It is not re-exported here, because ``run`` and ``suite`` making no network call
+is a property worth being able to read off this module.
 """
 
 from __future__ import annotations
