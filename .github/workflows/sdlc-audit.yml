@@ -1,7 +1,6 @@
 # Auditor (Codex) — independent cross-audit. Runs automatically when a PR opens (an
 # independent second opinion to the Claude reviewer) and on demand via the `agent:audit`
 # label. Read-only; posts Codex's verdict as a PR comment. Needs secret OPENAI_API_KEY.
-# Not on `synchronize`, so the fix loop's pushes don't re-spend Codex credits each round.
 name: "sdlc · audit (Codex)"
 
 on:
@@ -88,7 +87,11 @@ jobs:
             | gh pr comment "$PR" --body-file -
           # A prior push may have left the "did not run" label behind; this run
           # succeeded, so the warning is stale. Best-effort: absence isn't an error.
-          gh pr edit "$PR" --remove-label 'agent:audit-did-not-run' >/dev/null 2>&1 || true
+          # Own label, not shared with the Gemini workflow: the two jobs run in
+          # parallel, and one auditor's success must never erase the other's
+          # still-valid warning (that race is what made #26/#27 show no label
+          # at all when one audit failed and the other succeeded after it).
+          gh pr edit "$PR" --remove-label 'agent:audit-codex-did-not-run' >/dev/null 2>&1 || true
 
       # An audit that did not happen is a fact about this PR, and the most
       # dangerous one to leave implicit: "audited, nothing found" and "never
@@ -118,11 +121,14 @@ jobs:
           # Create-then-add: `--add-label` fails on a label that does not exist,
           # and swallowing that with `|| true` would make the visibility
           # mechanism itself silent — the exact bug being fixed here.
-          gh label create 'agent:audit-did-not-run' \
+          # Own label, not shared with the Gemini workflow: the two jobs run in
+          # parallel, and one auditor's success must never erase the other's
+          # still-valid warning.
+          gh label create 'agent:audit-codex-did-not-run' \
             --color 'B60205' \
-            --description 'A cross-model audit did not run on this PR' \
+            --description 'The Codex cross-model audit did not run on this PR' \
             --force >/dev/null 2>&1 || true
-          gh pr edit "$PR" --add-label 'agent:audit-did-not-run'
+          gh pr edit "$PR" --add-label 'agent:audit-codex-did-not-run'
           {
             printf '## Codex cross-audit did NOT run\n\n%s\n' "$why"
           } >>"$GITHUB_STEP_SUMMARY"
