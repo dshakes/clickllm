@@ -17,13 +17,18 @@ on:
 
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
   audit-gemini:
     # Auto on open/reopen, or on the agent:audit label. (label.name is null on open events.)
-    # dependabot-actor runs get Dependabot's (empty) secret store — agent can't auth, so skip
-    if: github.actor != 'dependabot[bot]' && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
+    # dependabot-actor runs get Dependabot's (empty) secret store — agent can't auth, so skip.
+    # Fork PRs get a read-only GITHUB_TOKEN, which can't comment or label — skip those too.
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'agent:audit') &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       # Secrets aren't readable in a job-level `if`, so gate every later step on this
@@ -91,18 +96,26 @@ jobs:
         if: steps.key.outputs.present == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
           BODY: ${{ steps.gemini.outputs.summary }}
         run: |
           printf '### 🔷 Gemini cross-audit (agent:audit-gemini)\n\n%s\n' "$BODY" \
-            | gh pr comment "${{ github.event.pull_request.number }}" --body-file -
+            | gh pr comment "$PR" --body-file -
+          # A prior push may have left the "did not run" label behind; this run
+          # succeeded, so the warning is stale. Best-effort: absence isn't an error.
+          gh pr edit "$PR" --remove-label 'agent:audit-did-not-run' >/dev/null 2>&1 || true
 
       # "Audited, nothing found" and "never audited" are opposite claims, and a
       # green check renders them identically. PR #26 merged with both
       # cross-audits skipped and twelve green checks on the board.
       - name: Say so when the audit did not run
-        if: always() && steps.key.outputs.present != 'true'
+        if: >-
+          !cancelled() && steps.key.outputs.present != 'true' &&
+          github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           {
