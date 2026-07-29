@@ -584,6 +584,11 @@ INSTALL_SURFACES = (
     Path("site/index.html"),
     Path("site/docs/index.html"),
     Path("install.sh"),
+    # The one the curl URL actually serves. It was a stale copy of install.sh
+    # and kept every unpublished command after install.sh was fixed — so the
+    # served installer stayed broken while the repo's looked correct, and this
+    # list not covering it is why nothing said so.
+    Path("site/install.sh"),
 )
 
 #: `pip install X`, `pipx install X`, `uvx X`, `uv tool install X`, `brew install X`,
@@ -655,4 +660,22 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
         f"Use the git form (`--from git+https://github.com/dshakes/clickllm`), or add "
         f"the name to PUBLISHED_PACKAGE_NAMES once it is genuinely on PyPI:\n  "
         + "\n  ".join(offenders)
+    )
+
+
+def test_the_served_installer_is_the_repo_installer():
+    """`site/install.sh` is what `curl … | sh` fetches; `install.sh` is what gets
+    edited. They drifted, and the served copy kept `pipx install clickllm`,
+    `brew install dshakes/tap/clickllm` and `pip install --user clickllm` after
+    the real one was fixed — so the installer people actually run stayed broken
+    while the repo's looked correct.
+
+    Identical, or the copy is stale by definition.
+    """
+    root = Path(__file__).resolve().parents[1]
+    a = (root / "install.sh").read_text()
+    b = (root / "site" / "install.sh").read_text()
+    assert a == b, (
+        "site/install.sh has drifted from install.sh — the served installer is "
+        "not the one that gets reviewed. Copy install.sh over it."
     )
