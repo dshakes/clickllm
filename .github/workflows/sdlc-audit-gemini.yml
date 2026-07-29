@@ -21,7 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Secrets aren't readable in a job-level `if`, so gate every later step on this
-      # first step's output — absent key means the job completes green as a no-op.
+      # first step's output. An absent key used to make the job a silent green
+      # no-op, which is indistinguishable from an audit that ran and found
+      # nothing — see the reporting step at the end of this job.
       - name: Check for GEMINI_API_KEY
         id: key
         env:
@@ -87,3 +89,28 @@ jobs:
         run: |
           printf '### 🔷 Gemini cross-audit (agent:audit-gemini)\n\n%s\n' "$BODY" \
             | gh pr comment "${{ github.event.pull_request.number }}" --body-file -
+
+      # "Audited, nothing found" and "never audited" are opposite claims, and a
+      # green check renders them identically. PR #26 merged with both
+      # cross-audits skipped and twelve green checks on the board.
+      - name: Say so when the audit did not run
+        if: always() && steps.key.outputs.present != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            printf '### ⚠️ Gemini cross-audit did NOT run\n\n'
+            printf 'This PR has **one fewer independent reviewer** than the repo is designed for.\n\n'
+            printf 'Reason: `GEMINI_API_KEY` is not set on this repository.\n\n'
+            printf 'This is not a finding, and it is not a clean audit — it is the absence of one.\n'
+          } | gh pr comment "$PR" --body-file -
+          # Create-then-add: `--add-label` fails on a label that does not exist,
+          # and swallowing that with `|| true` would make the visibility
+          # mechanism itself silent — the exact bug being fixed here.
+          gh label create 'agent:audit-did-not-run' \
+            --color 'B60205' \
+            --description 'A cross-model audit did not run on this PR' \
+            --force >/dev/null 2>&1 || true
+          gh pr edit "$PR" --add-label 'agent:audit-did-not-run'
+          printf '## Gemini cross-audit did NOT run\n\nGEMINI_API_KEY is not set.\n' >>"$GITHUB_STEP_SUMMARY"
