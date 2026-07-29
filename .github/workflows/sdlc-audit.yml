@@ -12,7 +12,13 @@ on:
     # PR #26 that tick covered the first commit; 2,072 lines landed after it
     # and merged with no cross-model audit at all. `sdlc-review` has always
     # had it; these two did not.
-    types: [opened, synchronize, reopened, labeled]
+    # `labeled` is deliberately absent. It fires on EVERY label, and the job
+    # rejects all but `agent:audit` — so the review bot adding
+    # `agent:reviewed-clean` spawned a second run that skipped, and being the
+    # newer run it overwrote the successful audit on the checks board. That is
+    # why #26 and #27 both displayed `skipping` for audits that had run and
+    # posted findings minutes earlier. Push to re-audit; `synchronize` covers it.
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -26,7 +32,6 @@ jobs:
     # Fork PRs get a read-only GITHUB_TOKEN, which can't comment or label — skip those too.
     if: >-
       github.actor != 'dependabot[bot]' &&
-      (github.event.action != 'labeled' || github.event.label.name == 'agent:audit') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
