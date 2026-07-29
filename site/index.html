@@ -92,17 +92,22 @@
      as broken to anyone who arrived scrolled past it or tabbed away and back:
      a static block with a blinking caret, no way to tell it had ever moved.
 
-     Looping without the hold would be worse — output you cannot finish reading.
-     So: ~2.5s to type, ~14s to read, then again. Every line shares one period,
-     so the stagger between them stays fixed and the block never desyncs. */
+     The first attempt held for 14s of an 18s cycle. It was looping correctly and
+     still read as broken, because anyone glancing at it saw a static block: the
+     hold was longer than the look. A loop nobody catches in the act is, to the
+     person looking, not a loop.
+
+     So: ~2.5s to type, ~5s to read, ~1s to clear, then again — motion is visible
+     within a few seconds of arriving. Every line shares one period, so the
+     stagger between them stays fixed and the block never desyncs. */
   .term pre .ln{display:block;min-height:1.55em;opacity:0;
-                animation:lnIn var(--cycle,18s) ease-out infinite;
+                animation:lnIn var(--cycle,9s) ease-out infinite;
                 animation-delay:var(--d)}
   @keyframes lnIn{
     0%{opacity:0;transform:translateY(2px)}
-    1.4%{opacity:1;transform:none}
-    92%{opacity:1;transform:none}
-    97%{opacity:0;transform:translateY(-2px)}
+    3%{opacity:1;transform:none}
+    82%{opacity:1;transform:none}
+    92%{opacity:0;transform:translateY(-2px)}
     100%{opacity:0;transform:translateY(2px)}
   }
   .term pre::after{content:"";display:inline-block;width:8px;height:15px;
