@@ -12,9 +12,11 @@ both against `clickllm.catalog` and `clickllm.fit`.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -506,3 +508,56 @@ def _rust_test_count(root: Path, cargo: str) -> int | None:
     # Each binary prints "N tests, M benchmarks"; sum the N across binaries.
     totals = [int(n) for n in re.findall(r"^(\d+) tests?, \d+ benchmark", proc.stdout, re.M)]
     return sum(totals) if totals else None
+
+
+# --- the docs must teach commands that exist -----------------------------------
+
+
+def _cli_commands() -> set[str]:
+    """Every subcommand the CLI actually registers."""
+    from clickllm import cli
+
+    parser = cli.build_parser() if hasattr(cli, "build_parser") else None
+    if parser is None:  # fall back to asking the CLI itself
+        out = subprocess.run(
+            [sys.executable, "-m", "clickllm.cli", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "PYTHONPATH": "src"},
+            timeout=120,
+        ).stdout
+        m = re.search(r"\{([a-z,-]+)\}", out)
+        assert m, f"could not read the command list:\n{out[:300]}"
+        return set(m.group(1).split(","))
+    for action in parser._subparsers._group_actions:  # noqa: SLF001
+        if hasattr(action, "choices"):
+            return set(action.choices)
+    raise AssertionError("no subparsers found")
+
+
+@pytest.mark.parametrize(
+    "page", [Path("site/docs/index.html"), Path("site/index.html"), Path("README.md")]
+)
+def test_every_command_the_docs_tell_you_to_run_exists(page):
+    """A `$ clickllm X` in a code block is an instruction, not prose.
+
+    The docs shipped eight that were never implemented — `switch`, `cutover`,
+    `deploy`, `tune`, `pack`, `pull`, `push`, and `explain` (which is a flag on
+    `fit`, not a subcommand). The kiosk walkthrough *opened* with `clickllm
+    switch`, so the first thing a reader was told to type did not exist.
+
+    Only shell-prompt occurrences count. Prose like "clickllm picks the highest
+    precision" is English, and matching it would make this unfixable noise.
+    """
+    root = Path(__file__).resolve().parents[1]
+    text = (root / page).read_text()
+    real = _cli_commands()
+
+    # `$ clickllm <cmd>` — the shell-prompt form, in HTML or fenced markdown.
+    told = {m.group(1) for m in re.finditer(r"\$\s*(?:uvx\s+)?clickllm\s+([a-z][a-z0-9-]*)", text)}
+    unknown = sorted(told - real)
+    assert not unknown, (
+        f"{page} tells the reader to run commands that do not exist: {unknown}. "
+        f"registered: {sorted(real)}"
+    )

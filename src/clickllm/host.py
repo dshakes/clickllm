@@ -48,14 +48,15 @@ from __future__ import annotations
 
 import json
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
 from . import fit
 from .catalog import QUANT_BITS, ModelSpec
+from .engines import Setting
 from .fit import Fit, Placement
-from .hardware_catalog import Profile
+from .hardware_catalog import TP_SCALING_EFFICIENCY, Profile
 from .hardware_catalog import get as profile_by_id
 
 # Container images and the argv-slicing rule, borrowed from the Kubernetes
@@ -653,6 +654,7 @@ def survey(
             f = _sized(model, quant, hw, context, concurrency)
             if f is None:
                 continue
+            f = _rescored_for_parallelism(f, offer, model, quant, context, concurrency)
             fitting.append(
                 HostOption(
                     provider,
@@ -757,8 +759,47 @@ def _field(label: str, text: str, width: int = 68) -> list[str]:
     return [f"{label:<11}{out[0]}"] + [f"{pad}{rest}" for rest in out[1:]]
 
 
-def _header(option: HostOption, repo: str, engine: str, why: str, today: str) -> list[str]:
-    """Provenance. What was chosen, why, when, and that it stands alone."""
+def _gap_lines(gaps: tuple[str, ...]) -> list[str]:
+    """Header lines for what the engine could not express. Flat, not nested.
+
+    `_field` returns a *list* of lines, so these must be flattened into the
+    header. Spreading a generator of lists instead put a list where
+    `"\n".join` expected a string, and broke every artifact this module makes.
+    """
+    if not gaps:
+        return []
+    out: list[str] = []
+    for i, g in enumerate(gaps):
+        out += _field("NOT SET" if i == 0 else "", g)
+    out += _field(
+        "",
+        "A gap above means the planner asked for something this engine has no "
+        "verified flag for. Where that is quantisation, serve a checkpoint "
+        "already in that format — the size stated above assumes it.",
+    )
+    return out
+
+
+def _header(
+    option: HostOption,
+    repo: str,
+    engine: str,
+    why: str,
+    today: str,
+    gaps: tuple[str, ...] = (),
+) -> list[str]:
+    """Provenance. What was chosen, why, when, and what could not be expressed.
+
+    `gaps` is not decoration. This module used to destructure it as `_gaps`
+    and drop it, which turned a refusal into silence: the quantisation intent
+    came back Unsupported ("q8 is a precision, not a quantisation method"),
+    the argv went out with no `--quantization`, and the header above still
+    said the model fit. vLLM then loaded the bf16 base repo — 61 GB against
+    43 GB usable — and OOMed on boot under a document promising it would not.
+
+    `launch` and `box` both surface their gaps. This was the one caller that
+    threw the answer away.
+    """
     f = option.fit
     price = "free" if option.free else _usd(option.usd_per_hour, "/hr")
     speed = (
@@ -790,6 +831,11 @@ def _header(option: HostOption, repo: str, engine: str, why: str, today: str) ->
         ),
         *_field("ENGINE", f"{engine} — {why}"),
         *_field("SPEED", speed),
+        # Printed even though it undercuts the WHY line above, because the
+        # alternative is a document that claims a precision the command does not
+        # set. When quantisation is in here, the argv serves the base checkpoint
+        # at full precision and the GB figure above is wrong.
+        *_gap_lines(gaps),
         *_field(
             "STANDALONE",
             "this file has no clickllm dependency and deploys with it "
@@ -805,6 +851,56 @@ def _header(option: HostOption, repo: str, engine: str, why: str, today: str) ->
 
 def _commented(lines: list[str], marker: str = "#") -> str:
     return "\n".join(f"{marker} {line}".rstrip() for line in lines)
+
+
+def _rescored_for_parallelism(
+    f: Fit, offer: Offer, model: ModelSpec, quant: str, context: int, concurrency: int
+) -> Fit:
+    """Re-cost a multi-device shape at the bandwidth it will really run at.
+
+    `fit` sizes an N-device shape on *aggregate* memory and bandwidth, which is
+    right for "can this hardware hold the model". But the planner then decides
+    the parallelism, and when the model fits on one device it correctly sets
+    `--tensor-parallel-size 1` — sharding anyway costs an all-reduce per layer
+    for nothing.
+
+    Those two correct decisions disagree, and this module prints the result as
+    one number. Measured: Qwen3-32B at q8 on 4x H100 was quoted 261 tok/s off
+    11,892 GB/s aggregate, while the emitted command pins it to a single device
+    at 3,350 GB/s — 3.5x over, straight into the $/Mtok column, which is the one
+    figure here somebody budgets against.
+
+    So the money follows the command, not the catalogue: re-solve against the
+    devices the plan will actually use.
+    """
+    profile = _profile(offer.profile_id)
+    if profile.devices <= 1 or not f.tokens_per_sec:
+        return f
+    hw = profile.to_hardware()
+    deployment = configure(
+        hw,
+        Requirements(Workload.INTERACTIVE, concurrency=concurrency, context=context),
+        model,
+        f.quant,
+    )
+    knob = deployment.get(Setting.TENSOR_PARALLEL)
+    used = int(knob.value) if knob and isinstance(knob.value, int) else profile.devices
+    if used >= profile.devices:
+        return f
+    # Scale the same way the catalogue does. `profile.bandwidth_gbps * used`
+    # skips the sub-linear TP factor `to_hardware` applies, so it agrees only at
+    # used == 1 — which is the only value the planner produces today, and
+    # exactly the sort of accidental agreement that breaks the day it returns 2.
+    narrowed = replace(
+        hw,
+        devices=used,
+        bandwidth_gbps=profile.bandwidth_gbps * (1 + (used - 1) * TP_SCALING_EFFICIENCY),
+        usable_bytes=int(hw.usable_bytes * used / profile.devices),
+    )
+    rescored = _sized(model, f.quant, narrowed, context, concurrency)
+    # If it no longer fits in the narrowed footprint the planner was wrong to
+    # narrow it; keep the original rather than silently dropping the option.
+    return rescored or f
 
 
 def _engine_command(
@@ -1018,6 +1114,12 @@ def _hf_space(option: HostOption, repo: str, head: list[str]) -> Artifact:
             f'MODEL = "{repo}"',
             "",
             "tokenizer = AutoTokenizer.from_pretrained(MODEL)",
+            "# NOTE: this loads the checkpoint at its published precision.",
+            f"# clickllm sized this Space at {option.fit.quant}, which transformers cannot",
+            "# reach without a quantisation backend (bitsandbytes), and that is not",
+            "# verified on ZeroGPU — so the figure in the header is the sized one,",
+            "# not what this file loads. Serve an already-quantised checkpoint to",
+            "# match it.",
             "model = AutoModelForCausalLM.from_pretrained(",
             "    MODEL,",
             '    dtype="auto",',
@@ -1215,8 +1317,8 @@ def artifact(
         )
         return _hf_space(option, weights, _header(option, weights, "transformers", why, stamp))
 
-    engine, why, argv, _gaps = _engine_command(option, weights, ctx, conc)
-    head = _header(option, weights, engine, why, stamp)
+    engine, why, argv, gaps = _engine_command(option, weights, ctx, conc)
+    head = _header(option, weights, engine, why, stamp, gaps)
     if kind == "docker":
         return _docker(option, head, argv, engine)
     if kind == "modal":

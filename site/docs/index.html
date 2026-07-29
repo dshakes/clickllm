@@ -264,57 +264,68 @@ language models on hardware you control.</p>
 </div>
 
 <!-- ══════════ KIOSK ══════════ -->
-<h2 id="kiosk">The kiosk walkthrough <span class="pill soon">PLANNED</span></h2>
-<p>One command drives everything. It asks only when it genuinely cannot decide, and it explains
-  every choice it made on your behalf.</p>
+<h2 id="kiosk">The kiosk walkthrough <span class="pill live">LIVE</span></h2>
+<p>One command drives everything. You say what you are building in your own words; it reads the
+  machine, picks a model, and explains every choice it made on your behalf. It asks only when it
+  genuinely cannot decide — and while it waits, it answers with its assumption stated out loud
+  rather than with a blank prompt.</p>
 
-<pre><span class="u">$ clickllm switch</span>
+<pre><span class="u">$ clickllm build "coding assistant for 20 engineers"</span>
 
-<span class="k">clickllm</span> · no prior state found, starting from scratch
+Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB, 7 candidates fit. Engine: mlx.
 
-  <span class="c">Scanning hardware…</span>
-  <span class="g">✓</span> Apple M4 Max · 16 cores · 128 GB unified · 546 GB/s
-    usable for inference: 96 GB  <span class="c">(raise to ~118 GB — I'll show you how later)</span>
+  <span class="c">understood:</span>
+    · workload = interactive   <span class="c">(from "assistant")</span>
+    · concurrency = 4   <span class="c">(from "20 engineers — about a fifth in flight at once, since
+                        people read and think between requests")</span>
 
-  <span class="c">What are you trying to do?</span>
-    <span class="u">1)</span> Replace an API I'm already paying for
-    <span class="u">2)</span> Run a model locally for the first time
-    <span class="u">3)</span> I know what I want, just deploy it
-  <span class="u">&gt; 2</span>
+  <span class="c">assuming:</span>
+    · concurrency = 4
+    · context = 32768
 
-  <span class="c">What kind of work?</span>  <span class="u">&gt; coding assistant, mostly, plus some summarising</span>
+  <span class="u">? How many requests will be in flight at once?</span>
 
-  <span class="c">Checking leaderboards…</span>  <span class="c">(cached 4h ago, --refresh to update)</span>
-  <span class="g">✓</span> 41 models considered · 7 fit your machine · 4 have clean commercial licences
+<span class="k">MODEL</span>     Qwen3 30B-A3B (MoE) @ q8   (44.2 GB)
+<span class="k">MACHINE</span>   M4 Max   (detected locally)
+<span class="k">ENGINE</span>    mlx   <span class="c">Apple silicon: the CUDA engines cannot run here at all. MLX has the
+                better batching story of the two Metal options.</span>
 
-  <span class="u">Recommended: Qwen3 30B-A3B (MoE) at q8</span>
-    ~119 tok/s   <span class="c">roofline estimate, not measured — we'll benchmark it in a moment</span>
-    56 GB of 96  <span class="c">40 GB spare, so you can raise context later</span>
-    Apache-2.0   <span class="c">no usage caps, no review needed</span>
+<span class="k">RUN</span>
+  mlx_lm.server --model Qwen/Qwen3-30B-A3B --decode-concurrency 32 --prompt-concurrency 32 --prefill-step-size 2048
 
-    <span class="c">Why not the bigger Qwen3 32B?  It's dense — every token reads all 32.8B</span>
-    <span class="c">parameters, so it decodes ~5x slower for similar quality on your tasks.</span>
-    <span class="c">Run `clickllm explain qwen3-30b-a3b` for the full arithmetic.</span>
+<span class="k">NOT EXPRESSED</span>
+  · context_length: mlx_lm.server takes no context-length flag; context is bounded by the
+    model config and by unified memory
+  · speculative: --draft-model needs a draft model repo (org/name), not 'eagle3'; mlx has
+    no method-name speculative flag
+  · memory_fraction: unified memory: there is no separate VRAM pool to reserve a fraction of
+  · quantization: mlx bakes precision into the weights: serve an -q8 repo rather than
+    converting at start-up
 
-  <span class="c">Proceed?</span> <span class="u">[Y/n/other]</span> <span class="u">&gt; Y</span>
+<span class="k">WORTH CHANGING</span>
+  <span class="r">[high]</span> Measure prefix sharing before accepting this plan.
+  <span class="w">[medium]</span> Try a higher-precision quantisation, or more context.
+  <span class="c">[low]</span> State a TTFT or ITL budget.
 
-  <span class="g">✓</span> Licence check   Apache-2.0 — clean, nothing to accept
-  <span class="g">✓</span> Downloaded      28.4 GB · resumable · sha256 verified
-  <span class="g">✓</span> Runtime         vllm-mlx  <span class="c">(continuous batching; llama.cpp is faster</span>
-                                   <span class="c">single-stream but you asked for an agent fleet)</span>
-  <span class="c">Benchmarking on your machine…</span>
-  <span class="g">✓</span> Measured        <span class="u">104 tok/s</span>, TTFT 180ms  <span class="c">(estimate said 119 — now corrected)</span>
-  <span class="w">↺</span> Reverted        speculative decoding — it cost 8% here. Kept off.
+<span class="k">THEN PROVE IT</span>
+  clickllm prove evalset.json --candidate qwen3-30b-a3b --incumbent &lt;your-current-model&gt;
 
-  <span class="g">✓</span> <span class="u">Serving at http://localhost:8080/v1</span>
-    OPENAI_BASE_URL=http://localhost:8080/v1
-    Console: http://localhost:8080
+Nothing above has been run. Deployment is yours to trigger, and no
+eval result moves production traffic without a human.</pre>
 
-  <span class="c">Next:  clickllm guard watch    — tell me when something better ships</span></pre>
+<p><strong>NOT EXPRESSED</strong> is the block worth reading twice. It is every knob the plan wanted
+  that this engine has no flag for — stated, rather than silently emitted as a flag that would fail
+  at start-up. Then <code>clickllm run</code> starts it, or <code>clickllm box</code> packages it for
+  somewhere else.</p>
+
+<pre><span class="u">$ clickllm build "coding assistant for 20 engineers" --save session.json</span>
+<span class="u">$ clickllm build --resume session.json --concurrency 8</span>   <span class="c"># answers the open question</span></pre>
 
 <div class="note">
-  <p><b>Nothing above is a wizard.</b> Each stage is an agent with tools that can skip ahead when the
-  answer is already known — re-running after a hardware change re-solves only what changed.</p>
+  <p><b>Nothing above is a wizard.</b> The session is state on disk, not a sequence of screens:
+  <code>--save</code> writes it, <code>--resume</code> continues it, and an answer you have already
+  given is not asked again. Answer with a flag, or re-run with a better description — both land in
+  the same place.</p>
 </div>
 
 <!-- ══════════ EDUCATION ══════════ -->
@@ -799,9 +810,12 @@ language models on hardware you control.</p>
       <td>routes — <b>not loaded by default</b></td></tr>
 </table></div>
 <pre><span class="u">$ clickllm kernel fused-rmsnorm --speedup 1.18 --drift "fp16 reduction order"</span>
-  <span class="g">✓</span> pyproject.toml          <span class="c">entry point in the right group</span>
-  <span class="g">✓</span> fused_rmsnorm/__init__  <span class="c">a re-entrant register()</span>
-  <span class="g">✓</span> PROVING.md              <span class="c">the half that decides whether it ships</span></pre>
+
+  wrote fused-rmsnorm/pyproject.toml          <span class="c">entry point in the right group</span>
+  wrote fused-rmsnorm/fused_rmsnorm/__init__.py   <span class="c">a re-entrant register()</span>
+  wrote fused-rmsnorm/PROVING.md              <span class="c">the half that decides whether it ships</span>
+
+  Loading is the easy half. fused-rmsnorm/PROVING.md is the other one.</pre>
 
 <div class="note warn">
   <p><b>The constraint that catches everyone: <code>register()</code> must be re-entrant.</b>
@@ -852,36 +866,57 @@ language models on hardware you control.</p>
 
   <span class="k">M4 Max</span> · 16 cores · 128 GB · 546 GB/s
   usable for inference: 96 GB
+  <span class="c">raise to ~118 GB with: sudo sysctl iogpu.wired_limit_mb=120586</span>
 
   FEASIBLE at 32,768 context, concurrency 8
 
   model                     quant   weights      kv   total    free  ~tok/s  license
-  ----------------------------------------------------------------------------------
-  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      21  <span class="g">Apache-2.0</span>
-  <span class="g">Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0</span>
-  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      27  <span class="g">MIT</span>
+  ----------------------------------------------------------------------------------------
+  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      21  <span class="g">Apache-2.0 OK</span>
+  <span class="g">Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0 OK</span>
+  Mistral Small 24B         q8        22.0G   40.0G   65.2G   30.8G      17  <span class="g">Apache-2.0 OK</span>
+  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      27  <span class="g">MIT OK</span>
+  Llama 3.1 8B              q8         7.5G   32.0G   41.6G   54.4G      49  <span class="w">Llama 3.1 !</span>
 
   <span class="r">NOT FEASIBLE</span>
-  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity
-                            (50B of 2800B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
 
-  runtime -> <span class="k">vllm-mlx</span></pre>
+  Gemma 3 27B               weights fit (14 GB) but KV at 32,768 ctx x8 needs 124 GB more than available
+  Llama 3.3 70B             weights fit (37 GB) but KV at 32,768 ctx x8 needs 80 GB more than available
+  Qwen3 235B-A22B (MoE)     weights alone need 123 GB at q4 — MoE sparsity (22B of 235B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  DeepSeek V3 (MoE, MLA)    weights alone need 352 GB at q4 — MoE sparsity (37B of 671B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  GLM-5.2                   weights alone need 186 GB at q4 — MoE sparsity (32B of 355B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  Kimi K2.7 Code            weights alone need 524 GB at q4 — MoE sparsity (32B of 1000B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity (50B of 2800B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  DeepSeek V4 Pro           weights alone need 838 GB at q4 — MoE sparsity (45B of 1600B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+  MiniMax M3                weights alone need 239 GB at q4 — MoE sparsity (46B of 456B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
+
+  runtime -> <span class="k">vllm-mlx</span>
+             continuous batching on Metal; at concurrency 8 aggregate throughput
+             dominates, despite ~15% lower single-stream than llama.cpp
+
+  clickllm fit --explain &lt;model-id&gt;   <span class="c"># show the arithmetic</span></pre>
 <p>The <strong>NOT FEASIBLE</strong> block is the useful half — it tells you <em>why</em>, which is
-  usually the thing you actually needed to know.</p>
+  usually the thing you actually needed to know. It separates the two failures that look identical
+  from the outside: weights that do not fit at all, and weights that fit while the KV cache for your
+  context and concurrency does not.</p>
 
 <h3>Seeing the arithmetic</h3>
 <pre><span class="u">$ clickllm fit --explain qwen3-30b-a3b --concurrency 8</span>
 
-  weights   30.5B params × 8 bits / 8      =   28.4 GB   <span class="c">(MoE: ALL experts resident)</span>
-  kv cache  98,304 B/tok × 32,768 × 8      =   24.0 GB   <span class="c">(GQA)</span>
-  overhead  8% of weights + 1.5 GB floor   =    3.8 GB
+Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
+
+  weights   30.5B params x 8 bits / 8           =   28.4 GB   <span class="c">(MoE: ALL experts resident)</span>
+  kv cache  98,304 B/tok x 32,768 tok x 8   =   24.0 GB   <span class="c">(GQA)</span>
+  overhead  8% of weights + 1.5 GB floor      =    3.8 GB
   --------------------------------------------------------------
-  required                                     56.2 GB
-  usable                                       96.0 GB
-  headroom                                     39.8 GB
+  required                                            56.2 GB
+  usable                                              96.0 GB
+  headroom                                            39.8 GB
 
   decode is bandwidth-bound: 3.1 GB read/token (3.3B active) at 72% of peak
-  ~119 tok/s single-stream <span class="c">(roofline estimate, not measured)</span></pre>
+  ~119 tok/s single-stream  <span class="c">(roofline estimate, not measured)</span>
+
+  <span class="g">verdict: FITS</span></pre>
 
 <h3>Leaderboard awareness <span class="pill soon">PLANNED</span></h3>
 <p>Capability rankings move weekly. clickllm tracks published leaderboards and release feeds, then
@@ -892,37 +927,158 @@ language models on hardware you control.</p>
   They narrow 41 models to 7; <a href="#">stage ④</a> decides between those 7 using your own prompts.</p>
 </div>
 
-<h2 id="models">Managing models <span class="pill soon">PLANNED</span></h2>
+<h2 id="models">Managing models <span class="pill live">LIVE</span></h2>
+<p><strong>There is no <code>clickllm pull</code>, and that is deliberate.</strong> The serving engine
+  fetches its own weights — vLLM and MLX both do, and both do it better than a second downloader
+  would. So clickllm resolves <em>which</em> repo, and the engine moves the bytes.</p>
 <pre><span class="u">$ clickllm models</span>          <span class="c"># the catalogue, with licences</span>
-<span class="u">$ clickllm pull glm-5.2 --quant q4</span>   <span class="c"># resumable, checksummed, licence-gated</span>
-<span class="u">$ clickllm local</span>           <span class="c"># what you have on disk</span>
 
-  <span class="u">NAME                  QUANT   SIZE     RUNTIME     LAST USED   STATUS</span>
-  qwen3-30b-a3b         q8      28.4 GB  vllm-mlx    2m ago      <span class="g">● serving :8080</span>
-  glm-5.2               q4      58.1 GB  —           3d ago      idle
-  phi-4-14b             q8      13.7 GB  llama.cpp   —           idle
+  id                       params   active       ctx  license
+  ------------------------------------------------------------------
+  llama-3.1-8b              8.03B        -   131,072  <span class="w">Llama 3.1 !</span>
+  phi-4-14b                 14.7B        -    16,384  <span class="g">MIT OK</span>
+  mistral-small-24b         23.6B        -    32,768  <span class="g">Apache-2.0 OK</span>
+  gemma-3-27b               27.4B        -   131,072  <span class="w">Gemma !</span>
+  qwen3-30b-a3b             30.5B     3.3B   131,072  <span class="g">Apache-2.0 OK</span>
+  qwen3-32b                 32.8B        -   131,072  <span class="g">Apache-2.0 OK</span>
+  llama-3.3-70b             70.6B        -   131,072  <span class="w">Llama 3.3 !</span>
+  qwen3-235b-a22b            235B      22B   131,072  <span class="g">Apache-2.0 OK</span>
+  glm-5.2                    355B      32B 1,000,000  <span class="g">MIT OK</span>
+  minimax-m3                 456B      46B 1,000,000  <span class="g">MIT OK</span>
+  deepseek-v3                671B      37B   131,072  <span class="g">MIT OK</span>
+  kimi-k2.7-code            1000B      32B   262,144  <span class="w">Modified MIT !</span>
+  deepseek-v4-pro           1600B      45B 1,040,000  <span class="g">MIT OK</span>
+  kimi-k3                   2800B      50B 1,000,000  <span class="w">Modified MIT !</span></pre>
+<p><code>OK</code> is a licence with nothing to accept. <code>!</code> is a
+  conditional one — Llama's 700M monthly-active-user cap measured at the parent corporate entity,
+  Gemma's use policy, Kimi's attribution clause. It is flagged before you plan around the model
+  rather than after. Unknown licences <strong>fail closed</strong>: a missing licence field is not
+  permission.</p>
 
-  disk: 100.2 GB of 400 GB budget · <span class="c">LRU eviction at 90%</span></pre>
-<h4>Licence gating happens before bytes move</h4>
-<pre><span class="u">$ clickllm pull llama-3.3-70b</span>
+<h3 id="run">Serving one, here <span class="pill live">LIVE</span></h3>
+<p>Resolve the weights repo, choose the engine this machine can actually run, start it, and wait for
+  healthy. <code>--dry-run</code> stops before starting anything and prints the exact command, which
+  is the form worth reading first.</p>
+<pre><span class="u">$ clickllm run qwen3-30b-a3b --dry-run</span>
 
-<span class="r">error</span>: licence "llama3.3" requires acknowledgement:
-       Meta Llama licence: a 700M monthly-active-user cap measured at the
-       parent corporate entity, plus naming and acceptable-use terms
+  <span class="k">MODEL</span>     Qwen3 30B-A3B (MoE) @ q8   (44.2 GB of 96.0 GB usable)
+  <span class="k">WEIGHTS</span>   mlx-community/Qwen3-30B-A3B-8bit   <span class="c">(confirmed; 1 candidate(s) checked)</span>
+  <span class="k">ENGINE</span>    mlx   <span class="c">Apple silicon: the CUDA engines cannot run here at all. MLX has
+                  the better batching story of the two Metal options.</span>
+  <span class="k">ENDPOINT</span>  http://127.0.0.1:8000/v1
+  <span class="k">SPEED</span>     ~119 tok/s single-stream   <span class="c">(roofline estimate, not measured)</span>
 
-       re-run with --accept-licence llama3.3 if that is acceptable</pre>
-<p>Unknown licences <strong>fail closed</strong>. A missing licence field is not permission.</p>
+  <span class="k">RUN</span>
+    mlx_lm.server --model mlx-community/Qwen3-30B-A3B-8bit --decode-concurrency 32 --prompt-concurrency 32 --prefill-step-size 2048 --host 127.0.0.1 --port 8000
 
-<h2 id="deploy">Deploying <span class="pill soon">PLANNED</span></h2>
-<p>You name a model and a target. Every knob is derived — see <a href="#tuning">optimization
-  controls</a> for the full list and how to override any of them.</p>
-<pre><span class="u">$ clickllm deploy --model glm-5.2 --target k8s --out ./deploy/</span>
+  <span class="k">NOT EXPRESSED</span>
+    · context_length: mlx_lm.server takes no context-length flag; context is bounded by the
+      model config and by unified memory
+    · speculative: --draft-model needs a draft model repo (org/name), not 'eagle3'; mlx has
+      no method-name speculative flag
+    · memory_fraction: unified memory: there is no separate VRAM pool to reserve a fraction of
+    · quantization: mlx bakes precision into the weights: serve an -q8 repo rather than
+      converting at start-up
 
-  <span class="g">✓</span> wrote deploy/inferencepool.yaml   <span class="c">llm-d + Gateway API Inference Extension</span>
-  <span class="g">✓</span> wrote deploy/deployment.yaml      <span class="c">4× H100, tensor-parallel 4</span>
-  <span class="g">✓</span> wrote deploy/README.md            <span class="c">what was chosen and why</span>
+  <span class="k">NOTES</span>
+    · mlx is not installed here, so its flags could not be checked against the binary —
+      install it with `pip install mlx-lm`
+    · weights repo came from the local cache; nothing was fetched to plan this
+    · the engine downloads the weights itself on first start; this does not
 
-  <span class="c">These run with clickllm uninstalled. kubectl apply -f ./deploy/</span></pre>
+  --dry-run: nothing was started.</pre>
+<p>Drop <code>--dry-run</code> and it starts. <code>--quant</code>, <code>--context</code>,
+  <code>--concurrency</code>, <code>--host</code> and <code>--port</code> override the derived
+  choices; nothing binds off loopback unless you ask it to.</p>
+<div class="note">
+  <p><b>A refusal names the shortfall and the next step.</b> <code>clickllm run glm-5.2</code> on a
+  128 GB laptop answers <em>“even at q4 it needs 248.4 GB against 96.0 GB usable — short by
+  152.4 GB”</em>, and points at <code>clickllm where</code> and <code>clickllm host</code>. It does
+  not start something that will die at load.</p>
+</div>
+
+<h3 id="cache">What the engines left on your disk <span class="pill live">LIVE</span></h3>
+<p>Proving six candidates is a sweep, not a download: each launch costs 30–45 GB in Hugging Face's
+  cache and nothing tracks it. <code>clickllm cache</code> reads that cache — it is not a second
+  store — and can reclaim space without destroying the incumbent you are measuring against.</p>
+<pre><span class="u">$ clickllm cache</span>
+
+  ~/.cache/huggingface/hub
+
+        37.0 GB    3.1d  mlx-community/Llama-3.3-70B-Instruct-4bit
+        30.5 GB   11.4d  Qwen/Qwen3-32B
+        28.4 GB    0.2d  mlx-community/Qwen3-30B-A3B-8bit
+        13.7 GB   38.6d  microsoft/phi-4
+
+  109.6 GB in 4 repos · 646.0 GB free on disk
+
+  clickllm cache pin &lt;repo&gt;              <span class="c"># never evict this one</span>
+  clickllm cache evict --budget 200G     <span class="c"># show what would go</span>
+
+<span class="u">$ clickllm cache pin mlx-community/Qwen3-30B-A3B-8bit</span>
+
+  pinned: mlx-community/Qwen3-30B-A3B-8bit
+
+<span class="u">$ clickllm cache evict --budget 60G</span>
+
+  would delete 3 repos, freeing 81.2 GB:
+
+        13.7 GB   38.6d  microsoft/phi-4
+        30.5 GB   11.4d  Qwen/Qwen3-32B
+        37.0 GB    3.1d  mlx-community/Llama-3.3-70B-Instruct-4bit
+
+  109.6 GB -&gt; 28.4 GB (budget 60.0 GB)
+  kept, pinned: mlx-community/Qwen3-30B-A3B-8bit
+
+  <span class="w">nothing deleted — re-run with --yes</span></pre>
+<p><strong>Nothing is deleted without <code>--yes</code>.</strong> A pinned repo never enters a plan,
+  and if the budget cannot be met without touching one the plan comes up short and says so rather
+  than quietly widening. "Least recently used" here is the newest of each file's atime and mtime —
+  the Hub keeps no access log, so that is a calibration knob, not a truth, and it is why a human
+  reads the list first.</p>
+
+<h3 id="host">Somewhere it does not fit <span class="pill live">LIVE</span></h3>
+<p>A 355B model does not run on a laptop. <code>clickllm host</code> ranks rented shapes that can
+  serve it, free tiers first, and shows the ones that cannot alongside the reason.</p>
+<pre><span class="u">$ clickllm host glm-5.2</span>
+
+  GLM-5.2 · 355B (32B active, MoE) · MIT
+  at 32,768 context, concurrency 4
+
+  provider              shape                   quant     total  ~tok/s     $/hr   $/Mtok
+  ---------------------------------------------------------------------------------------
+  Hugging Face Inferen  4x H100 320 GB          q4       248.4G     476   $18.00   $10.51
+  Hugging Face Inferen  8x H200 1128 GB         fp8      404.6G     751   $40.00   $14.80
+
+  <span class="r">NOT AVAILABLE</span>
+  Hugging Face Spaces   FREE TIER — largest shape is ZeroGPU xlarge (full RTX PRO 6000, 96 GB)
+                        — 86 GB usable, and GLM-5.2 needs 248 GB at q4. Short by 162 GB
+  RunPod (Pods)         largest shape is B200 180 GB — 173 GB usable. Short by 76 GB
+  Modal                 largest shape is B200 180 GB — 173 GB usable. Short by 76 GB
+  Vast.ai               largest shape is H200 141 GB — 127 GB usable. Short by 121 GB
+  Together AI (Dedicat  largest shape is HGX B200 180 GB — 173 GB usable. Short by 76 GB
+  Fireworks AI (On-dem  largest shape is B200 180 GB — 173 GB usable. Short by 76 GB
+  Google Colab (free t  FREE TIER — excluded by Colab's own terms, not by its memory: the free
+                        tier disallows "file hosting, media serving, or other web service
+                        offerings not related to interactive compute with Colab". A tunnelled
+                        inference endpoint is exactly the disallowed shape
+
+  <span class="c">Prices read 2026-07-28 from each provider's own page; every source URL is in the detail
+  below. They move. Re-read the source before committing spend — nothing here checks it for you.</span>
+
+  clickllm host glm-5.2 --write ./deploy   <span class="c"># emit the deploy artifact</span>
+  clickllm host glm-5.2 --free-only        <span class="c"># only what costs nothing</span>
+  Nothing was written, nothing was started, no provider was contacted.</pre>
+<p>The <code>$/Mtok</code> column assumes the machine is saturated single-stream, so
+  real cost is higher. Throughput is a roofline estimate. Both are labelled that way in the output
+  for the same reason the <strong>NOT FEASIBLE</strong> block exists: a number without its
+  confidence is worse than no number.</p>
+
+<h2 id="deploy">Deploying <span class="pill live">LIVE</span></h2>
+<p>You name a model. Every knob is derived — see <a href="#tuning">optimization controls</a> for the
+  full list and how to override any of them. There is no <code>--target</code> flag, because you do
+  not pick one: <code>clickllm box</code> solves <em>every</em> host class at once and writes the
+  ones that fit.</p>
 <h4>Inference in a box</h4>
 <p>A <em>box</em> is a portable, tuned artifact: manifest, weights lock, per-target bindings, and the
   benchmark evidence behind the tuning. It ships as a standard OCI artifact through any registry.</p>
@@ -935,17 +1091,71 @@ language models on hardware you control.</p>
 <figure>
   <img src="../assets/degradation.svg" loading="lazy"
        alt="The degradation ladder: quantisation reduced first, then context halved repeatedly, then refusal below a 2k floor">
-  <figcaption>Give something up rather than nothing — and name what was given up. A deployment
-    serving 8k when it was built for 32k is fine if you know, and an incident if you do not.</figcaption>
+  <figcaption>The specified ladder for arrival-time re-solving: give something up rather than
+    nothing — and name what was given up. A deployment serving 8k when it was built for 32k is fine
+    if you know, and an incident if you do not. Today <code>box</code> applies this at build time,
+    per host class; on arrival it is the operator's step.</figcaption>
 </figure>
-<pre><span class="u">$ clickllm pack --model glm-5.2 --out triage.box</span>
-<span class="u">$ clickllm push ghcr.io/acme/triage:v3</span>
-<span class="u">$ clickllm run  ghcr.io/acme/triage:v3</span>
+<pre><span class="u">$ clickllm box qwen3-30b-a3b --write ./deploy --ref ghcr.io/acme/triage:v3</span>
 
-  <span class="c">On arrival it re-profiles the host and re-solves if the hardware differs.</span>
-  <span class="w">↺</span> packed for 4× H100, landed on 1× L40S (24 GB)
-  <span class="w">↺</span> re-quantized fp8 → q4, context 32k → 16k
-  <span class="g">✓</span> serving at http://localhost:8080/v1</pre>
+  <span class="k">BOX</span>       qwen3-30b-a3b · Qwen3 30B-A3B (MoE)
+  <span class="k">PROOF</span>     none — no receipt was supplied, so this box carries no quality claim
+
+  <span class="k">TARGETS</span>
+    linux-cuda    vllm @ q8 on NVIDIA H100 80 GB SXM
+                  ~731 tok/s single-stream — roofline estimate, not measured
+    linux-rocm    vllm @ q8 on AMD MI300X 192 GB
+                  ~1156 tok/s single-stream — roofline estimate, not measured
+    darwin-metal  mlx @ q8 on Apple M4 Max 128 GB
+                  ~119 tok/s single-stream — roofline estimate, not measured
+
+  <span class="k">WEIGHTS</span>
+    Qwen/Qwen3-30B-A3B  @ ad44e777bcd1
+    mlx-community/Qwen3-30B-A3B-8bit  @ 7d5b2e500d96
+
+  <span class="k">WROTE</span>  (12 file(s) to ./deploy)
+    manifest.yaml                         <span class="c">model, quant, tuned knobs, provenance</span>
+    weights.lock                          <span class="c">repos and revision SHAs — nothing vendored</span>
+    bench.json                            <span class="c">roofline estimates, explicitly not measurements</span>
+    README.md                             <span class="c">what was chosen and why</span>
+    targets/linux-cuda/Dockerfile
+    targets/linux-cuda/docker-compose.yml
+    targets/linux-cuda/kubernetes.yaml
+    targets/linux-rocm/Dockerfile
+    targets/linux-rocm/docker-compose.yml
+    targets/linux-rocm/kubernetes.yaml
+    targets/darwin-metal/launch.json
+    targets/darwin-metal/serve.sh
+
+  <span class="k">PUSH</span>
+    cd ./deploy
+    oras push ghcr.io/acme/triage:v3 --artifact-type application/vnd.clickllm.box.v1+json \
+      manifest.yaml:application/yaml weights.lock:application/yaml \
+      bench.json:application/json README.md:text/markdown targets
+    cosign sign ghcr.io/acme/triage:v3      <span class="c"># optional, and the reason OCI was chosen</span>
+    docker build -t ghcr.io/acme/triage:v3-linux-cuda targets/linux-cuda \
+      &amp;&amp; docker push ghcr.io/acme/triage:v3-linux-cuda
+
+  Run these yourself. clickllm holds no registry credential, reads no
+  token, and has contacted no registry.</pre>
+<div class="note">
+  <p><b>clickllm never pushes.</b> It prints the exact <code>oras</code> and <code>docker</code>
+  commands and stops. It holds no registry credential and reads no token, so publishing stays an act
+  you perform with your own credentials — the same reason no eval result moves production traffic on
+  its own.</p>
+</div>
+<p>A host class the model cannot fit is <strong>not built, and named</strong> —
+  <code>clickllm box llama-3.3-70b</code> writes the ROCm target and reports <em>“linux-cuda: not
+  built — does not fit NVIDIA H100 80 GB SXM: even at q4 it needs 121.4 GB against 72.0 GB usable”</em>.
+  If no target fits at all, it errors rather than emitting an artifact that cannot run anywhere.</p>
+<div class="note">
+  <p><b>Re-solve on arrival is the operator's step today.</b> Each target is tuned for the host class
+  it names, and every file says which. The manifest's <code>RETUNE</code> header and the box README
+  tell you to re-detect, re-solve and re-benchmark on a machine that differs —
+  <a href="https://github.com/dshakes/clickllm/blob/main/docs/adr/0005-inference-in-a-box.md">ADR-0005</a>'s
+  automatic version is specified, not built. A config tuned for 80 GB
+  is wrong on 24 GB and catastrophic on a Mac, so the box says so rather than assuming.</p>
+</div>
 <div class="note">
   <p><b>Why a box isn't just a container.</b> A Linux container on macOS cannot reach the Apple GPU —
   the GPU is on-die behind unified memory, Metal has no Linux driver, and no compute-passthrough API
@@ -953,28 +1163,66 @@ language models on hardware you control.</p>
   Linux/Windows/k8s, a supervised native runtime on macOS. One artifact, one command, one endpoint.</p>
 </div>
 
-<h2 id="tuning">Optimization controls <span class="pill soon">PLANNED</span></h2>
-<p><strong>No tuning flag is ever required.</strong> Everything below is derived from your hardware
-  and observed traffic, benchmarked, and reverted if it didn't help on your machine.</p>
+<h2 id="tuning">Optimization controls <span class="pill live">LIVE</span></h2>
+<p><strong>No tuning flag is ever required.</strong> Every knob below is derived from your hardware
+  and your stated traffic. There is no <code>--set</code>: you describe the workload, and the plan
+  follows from it — which is why the inputs, not the knobs, are what you type.</p>
 <div class="tablewrap"><table>
-  <thead><tr><th>Knob</th><th>Derived from</th><th>Override</th></tr></thead>
+  <thead><tr><th>Knob</th><th>Derived from</th><th>Input that moves it</th></tr></thead>
   <tbody>
-    <tr><td>quantization</td><td>memory solve, re-validated against evals</td><td><code>--set quant=q4</code></td></tr>
-    <tr><td>speculative decoding</td><td>observed concurrency; off past the acceptance cliff</td><td><code>--set spec=off</code></td></tr>
-    <tr><td>prefix / radix caching</td><td>measured prefix-sharing rate in your traffic</td><td><code>--set prefix_cache=on</code></td></tr>
-    <tr><td>tensor / pipeline parallel</td><td>device count and topology</td><td><code>--set tp=4</code></td></tr>
-    <tr><td><code>max_model_len</code></td><td>your observed p95, not the model's maximum</td><td><code>--set max_len=32768</code></td></tr>
-    <tr><td><code>max_num_seqs</code></td><td>concurrency and KV headroom</td><td><code>--set max_seqs=64</code></td></tr>
-    <tr><td>KV dtype, memory utilization</td><td>headroom after the solve</td><td><code>--set kv_dtype=fp8</code></td></tr>
+    <tr><td>quantization</td><td>the memory solve: highest precision that fits</td><td><code>--quant q4</code></td></tr>
+    <tr><td>engine (vLLM / SGLang / MLX)</td><td>platform, then prefix sharing — RadixAttention past the threshold</td><td><code>--prefix-sharing 0.8</code></td></tr>
+    <tr><td>speculative decoding</td><td>concurrency; off past the acceptance cliff, where spare compute has run out</td><td><code>--concurrency 8</code></td></tr>
+    <tr><td>prefix caching</td><td>the prefix-sharing rate you state, against a floor below which the bookkeeping costs more</td><td><code>--prefix-sharing 0.6</code></td></tr>
+    <tr><td>tensor parallel</td><td>device count and what the solve needs</td><td>detected</td></tr>
+    <tr><td><code>max_model_len</code></td><td>the context you plan for, not the model's maximum</td><td><code>--context 32k</code></td></tr>
+    <tr><td><code>max_num_seqs</code></td><td>concurrency and KV headroom</td><td><code>--concurrency 8</code></td></tr>
+    <tr><td>KV dtype, memory utilization</td><td>headroom after the solve</td><td>derived</td></tr>
   </tbody>
 </table></div>
-<pre><span class="u">$ clickllm tune --explain</span>
+<p><code>--context</code> and <code>--concurrency</code> are accepted everywhere the planner runs —
+  <code>build</code>, <code>run</code>, <code>box</code>, <code>host</code> and <code>advise</code>;
+  <code>--quant</code> on <code>run</code>, <code>box</code> and <code>host</code>;
+  <code>--prefix-sharing</code> and the latency budgets on <code>build</code> and
+  <code>advise</code>. One planner sits behind all of them. What an engine has <em>no</em> flag for
+  is reported under <strong>NOT EXPRESSED</strong> rather than emitted as a flag that fails at
+  start-up — <code>--speculative-config eagle3</code> without a draft checkpoint is not a
+  configuration, it is a crash with a delay.</p>
+<h3>What to change, and where production diverged</h3>
+<p><code>clickllm advise</code> ranks the changes worth making. Feed it what you have actually
+  observed with the <code>--seen-*</code> flags and it compares the plan against reality.</p>
+<pre><span class="u">$ clickllm advise --context 32k --concurrency 8 --ttft-ms 400 \</span>
+<span class="u">    --seen-concurrency 31 --seen-kv-utilisation 0.97</span>
 
-  <span class="g">✓</span> quant q8              highest precision that fits at 32k × 8
-  <span class="w">↺</span> spec decode OFF       measured -8% here; estimate said +1.4x. Reverted.
-  <span class="g">✓</span> prefix cache ON       61% of your requests share a system prompt
-  <span class="g">✓</span> max_model_len 18432   your p95 is 18k; the model allows 131k
-  <span class="c">Estimates pick the candidates. Measurement decides.</span></pre>
+  M4 Max · mlx
+
+  <span class="k">PRODUCTION DIVERGED FROM THE PLAN</span>
+
+  <span class="r">[high]</span> Re-plan for concurrency 31.
+    <span class="c">because:</span> the plan assumes 8 in-flight requests; production is running 31. KV
+             cache, batch limits and the speculative decision were all derived from
+             the smaller number.
+    <span class="c">expect:</span>  settings that match the traffic. At this concurrency the current plan
+             is describing a different deployment.
+
+  <span class="r">[high]</span> Reduce context or concurrency before the cache starts evicting.
+    <span class="c">because:</span> KV cache is at 97% at peak. Past full, the scheduler preempts requests,
+             and the symptom is latency variance rather than an error anyone can grep
+             for.
+    <span class="c">expect:</span>  stable tail latency instead of intermittent preemption.
+
+  <span class="k">WORTH CHANGING</span>
+
+  <span class="r">[high]</span> Measure prefix sharing before accepting this plan.
+    <span class="c">because:</span> prefix_sharing is 0.00, so prefix reuse is off. An agent or chat
+             deployment with a fixed system prompt is commonly 0.8+, and that prefix
+             is being recomputed on every request.
+    <span class="c">expect:</span>  if sharing is real, a large cut in prefill cost — the saving scales with
+             the shared fraction. Estimate, not measured: measure it.</pre>
+<p>Every item carries its <em>because</em> and its <em>expect</em>. Estimates pick the candidates;
+  measurement decides — which is what <code>--seen-*</code> is for, and why nothing here claims a
+  speed-up it has not been shown. <strong>It exits nonzero when production has diverged</strong> and
+  zero otherwise, so it works unchanged as a CI or cron probe. It applies nothing.</p>
 
 <h2 id="gateway">Gateway &amp; routing <span class="pill live">LIVE</span></h2>
 <p>An OpenAI-compatible proxy that streams through without buffering, meters tokens in flight, and
@@ -1001,18 +1249,62 @@ language models on hardware you control.</p>
 <!-- ══════════ REFERENCE ══════════ -->
 <hr>
 <h2 id="cli">CLI reference</h2>
-<pre><span class="u">clickllm fit</span>          what runs here            <span class="pill live">LIVE</span>
+<p>Everything below is registered today — <code>clickllm --help</code> is the authority, and this
+  list is checked against it by a test.</p>
+<pre><span class="c">## decide</span>
+<span class="u">clickllm build "coding assistant for 20 engineers"</span>   drive the whole loop
+  --context 32k        plan for this context length
+  --concurrency 8      plan for this many simultaneous requests
+  --ttft-ms / --itl-ms latency budgets to check the plan against
+  --prefix-sharing 0.8 fraction of prompt tokens shared across requests
+  --on PROFILE         plan for another machine; omit to detect this one
+  --save / --resume    the session is a file, not a screen
+<span class="u">clickllm fit</span>          what runs on this machine
   --context 32k        plan for this context length
   --concurrency 8      plan for this many simultaneous requests
   --explain MODEL      show the arithmetic
+  --quiet              hide the NOT FEASIBLE section
   --json               machine-readable
-<span class="u">clickllm models</span>       the catalogue with licences   <span class="pill live">LIVE</span>
-<span class="u">clickllm switch</span>       drive the whole loop          <span class="pill soon">PLANNED</span>
-<span class="u">clickllm pull</span>         acquire weights               <span class="pill soon">PLANNED</span>
-<span class="u">clickllm deploy</span>       emit native config            <span class="pill soon">PLANNED</span>
-<span class="u">clickllm pack/run</span>     inference in a box            <span class="pill soon">PLANNED</span>
-<span class="u">clickllm cutover</span>      shadow → canary → cut         <span class="pill soon">PLANNED</span>
-<span class="u">clickllm guard</span>        watch for better models       <span class="pill soon">PLANNED</span></pre>
+<span class="u">clickllm where MODEL</span>  which hardware can run a given model
+<span class="u">clickllm models</span>       the catalogue with licences
+<span class="u">clickllm advise</span>       what to change, and where production diverged
+  --seen-concurrency, --seen-prefix-sharing, --seen-ttft-ms,
+  --seen-peak-context, --seen-kv-utilisation    what you actually observed
+
+<span class="c">## run</span>
+<span class="u">clickllm run MODEL</span>    resolve weights, launch the engine, wait for healthy
+  --dry-run            print the plan and the exact command; start nothing
+  --quant q4           force a quantisation; default is the best that fits
+  --host / --port      bind address and port; loopback by default
+<span class="u">clickllm host MODEL</span>   where to run a model this machine cannot; free tiers first
+  --free-only          only shapes that cost nothing
+  --provider NAME      pick this one instead of the cheapest that fits
+  --write DIR          emit the deploy artifact
+<span class="u">clickllm box MODEL</span>    build the OCI box: one artifact, every platform
+  --write DIR          emit the box here
+  --receipt FILE       attach the proof; without it the box claims nothing
+  --ref REF            the registry reference the printed push commands use
+<span class="u">clickllm cache</span>        what the engines downloaded, and what to evict
+  pin / unpin REPO     never evict this one
+  evict --budget 200G  show what would go; needs --yes to delete anything
+<span class="u">clickllm ui</span>           launch the local workbench
+<span class="u">clickllm desktop</span>      install a double-clickable launcher
+
+<span class="c">## trust</span>
+<span class="u">clickllm prove EVALSET</span>  run the eval suite and print the verdict
+<span class="u">clickllm receipt</span>       render or verify a migration receipt
+<span class="u">clickllm guard</span>         check whether a receipt still holds
+<span class="u">clickllm watch</span>         discover new models on a schedule; stages, never publishes
+<span class="u">clickllm discover</span>      trending models not yet in the catalogue
+
+<span class="c">## catalogue</span>
+<span class="u">clickllm catalog</span>         verify catalogue entries against published configs
+<span class="u">clickllm catalog-add</span>     add a model from its published config, no reinstall
+<span class="u">clickllm catalog-sources</span> where the catalogue's models come from
+<span class="u">clickllm kernel</span>          scaffold a vLLM plugin and its proof plan</pre>
+<p>The one command that is <em>not</em> here is a cutover. Shadow → canary → cut runs through the
+  <a href="#gateway">gateway</a>, and the step that moves production traffic is yours: nothing in
+  this list has a flag that does it.</p>
 
 <h2 id="sdk">Python SDK <span class="pill live">LIVE</span></h2>
 <pre><span class="k">from</span> clickllm <span class="k">import</span> sdk

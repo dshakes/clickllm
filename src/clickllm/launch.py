@@ -474,10 +474,10 @@ def _does_not_fit(model: ModelSpec, hw: Hardware, context: int, concurrency: int
             f"short by {short / GB:.1f} GB at {context:,} context, concurrency {concurrency}"
         ),
         next_step=(
-            f"`clickllm host {model.id}` is the documented next step for running it "
-            f"somewhere it fits — not implemented yet. Today: `clickllm where {model.id}` "
-            f"lists the hardware that can serve it, and `--context`/`--concurrency` "
-            f"lower the requirement here."
+            f"`clickllm host {model.id}` ranks the places that can run it, free "
+            f"tiers first, and writes a deploy artifact. `clickllm where "
+            f"{model.id}` lists the hardware; `--context`/`--concurrency` lower "
+            f"the requirement here."
         ),
     )
 

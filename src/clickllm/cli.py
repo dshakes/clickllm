@@ -7,8 +7,13 @@ import json
 import os
 import pathlib
 import sys
+from typing import TYPE_CHECKING
 
 from . import catalog, fit, hardware
+
+if TYPE_CHECKING:  # imported lazily at the call sites — `clickllm fit` must stay cheap
+    from .prove.collect import Collection
+    from .prove.graders import EvalItem
 
 GB = 1024**3
 
@@ -785,11 +790,48 @@ def cmd_advise(args: argparse.Namespace) -> int:
     return 1 if drift else 0
 
 
+def _collect_replies(
+    items: list[EvalItem], args: argparse.Namespace
+) -> tuple[list[EvalItem], list[Collection]]:
+    """Fill in whichever side has a live endpoint, and say what did not come back.
+
+    The two sides are collected in sequence rather than independently, so the
+    second one is only asked about items the first one answered — the funnel is
+    visible in the report and nothing is spent fetching a reply for an item that
+    is already unscoreable.
+    """
+    from .prove.collect import collect
+
+    sides = (
+        ("candidate", args.candidate_endpoint, args.candidate_model or args.candidate),
+        ("baseline", args.incumbent_endpoint, args.incumbent_model or args.incumbent),
+    )
+    collections = []
+    for side, endpoint, model_id in sides:
+        if not endpoint:
+            continue
+        if not items:
+            break
+        got = collect(
+            items,
+            base=endpoint,
+            model=model_id,
+            side=side,
+            workers=args.collect_workers,
+            timeout=args.collect_timeout,
+        )
+        collections.append(got)
+        items = list(got.items)
+    return items, collections
+
+
 def cmd_prove(args: argparse.Namespace) -> int:
     """Run the eval suite over an eval set and print the verdict.
 
     The kiosk over `clickllm.prove`. Deliberately has no flag that moves traffic:
-    it prints a proposal, and a human runs the thing that acts on it.
+    it prints a proposal, and a human runs the thing that acts on it. That holds
+    with `--candidate-endpoint` too — collecting from a live endpoint gathers
+    replies, it does not put anything in front of users.
     """
     from datetime import date
 
@@ -819,6 +861,20 @@ def cmd_prove(args: argparse.Namespace) -> int:
         for i, r in enumerate(rows)
     ]
 
+    asked = len(items)
+    items, collections = _collect_replies(items, args)
+    if collections and not items:
+        # Take the first failure ACROSS collections, not `collections[0]`'s.
+        # When the candidate endpoint answers everything and the incumbent
+        # answers nothing, collection zero has no failures at all, and indexing
+        # into it raised an IndexError over the top of the message explaining
+        # what actually went wrong.
+        reason = next(
+            (f.reason for c in collections for f in c.failures),
+            "no endpoint reported a reason",
+        )
+        raise ValueError(f"no item in {args.evalset} got a reply — nothing can be scored. {reason}")
+
     # No shares given means every cluster weighs the same. Said out loud, because
     # an unweighted verdict on unevenly-distributed traffic is a different claim.
     if not shares:
@@ -834,8 +890,29 @@ def cmd_prove(args: argparse.Namespace) -> int:
         candidate=args.candidate,
         incumbent=args.incumbent,
         bar=args.bar,
+        # What the eval set was drawn from, not what survived collection. The
+        # receipt then states 400 alongside claims totalling 388, rather than
+        # quietly presenting the smaller number as the whole thing.
+        traffic_captures=asked,
         tool_version=SERVER_INFO["version"],
     )
+
+    # Collection failures are reported apart from eval failures, and never in
+    # place of them: "12 items never answered" and "12 items answered badly" are
+    # different facts, and only the second one is about the model. In `--json`
+    # this goes to stderr so the receipt stays pipeable and the caveat still
+    # reaches a human.
+    if collections:
+        out = sys.stderr if args.json else sys.stdout
+        print("\n  COLLECTED", file=out)
+        for c in collections:
+            print(c.render(), file=out)
+        if len(items) < asked:
+            print(
+                f"    scoring {len(items)} of {asked} items — the intervals below are "
+                f"over what answered, and the eval-set digest is over those items too",
+                file=out,
+            )
 
     if args.json:
         print(result.receipt.to_json())
@@ -1130,6 +1207,43 @@ def main(argv: list[str] | None = None) -> int:
     )
     pv.add_argument("--out", help="write the receipt to this path")
     pv.add_argument("--json", action="store_true", help="print the receipt as JSON")
+    # Live collection. Without these the eval set must already carry both
+    # answers, which is the original behaviour and still the default.
+    pv.add_argument(
+        "--candidate-endpoint",
+        dest="candidate_endpoint",
+        help="OpenAI-compatible base URL to collect the candidate's replies from, "
+        "e.g. http://127.0.0.1:8000/v1 (from `clickllm run`)",
+    )
+    pv.add_argument(
+        "--candidate-model",
+        dest="candidate_model",
+        help="model id to ask that endpoint for; defaults to --candidate",
+    )
+    pv.add_argument(
+        "--incumbent-endpoint",
+        dest="incumbent_endpoint",
+        help="same, for the model being replaced",
+    )
+    pv.add_argument(
+        "--incumbent-model",
+        dest="incumbent_model",
+        help="model id to ask that endpoint for; defaults to --incumbent",
+    )
+    pv.add_argument(
+        "--collect-workers",
+        dest="collect_workers",
+        type=int,
+        default=8,
+        help="parallel requests while collecting",
+    )
+    pv.add_argument(
+        "--collect-timeout",
+        dest="collect_timeout",
+        type=float,
+        default=120.0,
+        help="seconds to wait for one reply",
+    )
     pv.set_defaults(fn=cmd_prove)
 
     rc = sub.add_parser("receipt", help="render or verify a migration receipt")

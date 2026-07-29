@@ -87,16 +87,27 @@
 
   .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
 
-  /* The terminal prints itself once on load: each line lands on its own beat,
-     so the hero shows the tool *running* rather than a screenshot of it having
-     run. One-shot rather than looping — a hero that keeps replaying is a hero
-     you cannot read. */
+  /* The terminal prints itself line by line, then holds the finished output for
+     most of the cycle before replaying. It used to run once on load, which read
+     as broken to anyone who arrived scrolled past it or tabbed away and back:
+     a static block with a blinking caret, no way to tell it had ever moved.
+
+     Looping without the hold would be worse — output you cannot finish reading.
+     So: ~2.5s to type, ~14s to read, then again. Every line shares one period,
+     so the stagger between them stays fixed and the block never desyncs. */
   .term pre .ln{display:block;min-height:1.55em;opacity:0;
-                animation:lnIn .18s ease-out forwards;animation-delay:var(--d)}
-  @keyframes lnIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+                animation:lnIn var(--cycle,18s) ease-out infinite;
+                animation-delay:var(--d)}
+  @keyframes lnIn{
+    0%{opacity:0;transform:translateY(2px)}
+    1.4%{opacity:1;transform:none}
+    92%{opacity:1;transform:none}
+    97%{opacity:0;transform:translateY(-2px)}
+    100%{opacity:0;transform:translateY(2px)}
+  }
   .term pre::after{content:"";display:inline-block;width:8px;height:15px;
                    background:var(--candidate);vertical-align:-3px;margin-left:2px;
-                   animation:caret 1.05s step-end infinite;animation-delay:2.6s;opacity:0}
+                   animation:caret 1.05s step-end infinite;animation-delay:2.6s}
   @keyframes caret{0%,100%{opacity:1}50%{opacity:0}}
   @media (prefers-reduced-motion:reduce){
     .term pre .ln{opacity:1;animation:none;transform:none}
@@ -422,7 +433,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">798</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">844</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>

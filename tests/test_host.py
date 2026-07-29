@@ -444,3 +444,92 @@ def test_planning_makes_no_network_call():
 
 def test_module_self_check_passes():
     host.demo()
+
+
+# --- the three defects a human review found --------------------------------
+#
+# All three were invisible to this file when it was green: the suite checked
+# that artifacts were *produced*, never that what they claimed matched what
+# they configured.
+
+
+def test_an_artifact_never_claims_a_precision_its_command_does_not_set():
+    """The header said "@ q8 ... fits A40 48 GB". The argv had no
+    `--quantization`, so vLLM loads the bf16 base repo — 61 GB against 43 GB
+    usable — and OOMs on boot.
+
+    `_engine_command` returns the gaps; this module used to destructure them as
+    `_gaps` and drop them, turning a refusal into silence. `launch` and `box`
+    both surface theirs. This was the one caller that did not.
+    """
+    surveyed = host.survey(catalog.get("qwen3-30b-a3b"), context=8192, concurrency=4)
+    picked = next(o for o in surveyed.options if o.provider.artifact_kind == "docker")
+    art = host.artifact(picked, today="2026-07-28")
+    body = "\n".join(content for _, content in art.files)
+
+    quant = picked.fit.quant
+    if "--quantization" not in body:
+        assert "NOT SET" in body, (
+            f"the artifact states @{quant} but sets no quantisation flag and does "
+            "not say so — this is the OOM-under-a-promise defect"
+        )
+        assert "precision" in body
+
+
+def test_multi_device_shapes_are_costed_at_the_parallelism_the_plan_uses():
+    """`fit` sizes an N-device shape on aggregate bandwidth; the planner then
+    correctly pins `--tensor-parallel-size 1` when the model fits on one card.
+
+    Both are right and they disagree, and the $/Mtok column is where that lands.
+    Measured: Qwen3-32B q8 on 4x H100 was quoted 261 tok/s off 11,892 GB/s while
+    the emitted command runs on one card at 3,350 — 3.5x, on the one number
+    somebody budgets against.
+    """
+    from clickllm import fit as fitmod
+    from clickllm.hardware_catalog import get as profile_by_id
+
+    m = catalog.get("qwen3-32b")
+    offer = host.Offer("h100-x4", "4x H100 80 GB", 11.60)
+    hw = profile_by_id("h100-x4").to_hardware()
+
+    aggregate = fitmod.solve(m, "q8", hw, 8192, 4)
+    real = host._rescored_for_parallelism(aggregate, offer, m, "q8", 8192, 4)
+    assert real.tokens_per_sec < aggregate.tokens_per_sec, (
+        "a model that fits on one device must not be costed on four cards' bandwidth"
+    )
+    single = profile_by_id("h100").to_hardware()
+    assert real.tokens_per_sec == pytest.approx(
+        fitmod.solve(m, "q8", single, 8192, 4).tokens_per_sec, rel=0.02
+    )
+
+
+def test_a_shape_that_genuinely_needs_every_device_is_not_re_costed():
+    """The negative control. Without it the check above passes by always
+    down-rating, which would understate throughput instead of overstating it."""
+    from clickllm import fit as fitmod
+    from clickllm.hardware_catalog import get as profile_by_id
+
+    big = catalog.get("qwen3-235b-a22b")
+    offer = host.Offer("h100-x4", "4x H100 80 GB", 11.60)
+    hw = profile_by_id("h100-x4").to_hardware()
+    f = fitmod.solve(big, "q4", hw, 8192, 4)
+    if f is None or not f.tokens_per_sec:
+        pytest.skip("no fit to compare")
+    assert host._rescored_for_parallelism(f, offer, big, "q4", 8192, 4).tokens_per_sec == (
+        f.tokens_per_sec
+    )
+
+
+def test_the_free_space_does_not_claim_a_precision_transformers_will_not_load():
+    """`dtype="auto"` loads the checkpoint's published precision. The header said
+    `@ q8`, so the free tier was sized for one thing and loads another."""
+    surveyed = host.survey(catalog.get("qwen3-30b-a3b"), context=8192, concurrency=4)
+    space = next((o for o in surveyed.options if o.provider.artifact_kind == "hf-space"), None)
+    if space is None:
+        pytest.skip("no ZeroGPU option in this survey")
+    art = host.artifact(space, today="2026-07-28")
+    app = next(c for name, c in art.files if name.endswith("app.py"))
+    if 'dtype="auto"' in app:
+        assert "published precision" in app, (
+            "the Space loads native precision under a quantised header and says nothing"
+        )
