@@ -8,6 +8,7 @@ under pressure, and that the one nobody else can detect is detected.
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -329,6 +330,120 @@ def test_a_missing_file_is_a_sentence_not_a_traceback(tmp_path, capsys):
 
     assert main(["guard", str(tmp_path / "nope.json")]) == 2
     assert "error:" in capsys.readouterr().err
+
+
+# --- what a real receipt has to survive ------------------------------------------
+# Everything above builds its receipt in-process. These two run `clickllm prove`
+# for real and then guard the file it wrote, because the seam that breaks is the
+# JSON round trip: a field the guard needs is only carried if it is serialised.
+
+
+def _proved(tmp_path) -> Path:
+    """A receipt written by `clickllm prove`, over two clusters of real traffic."""
+    import json
+
+    from clickllm.cli import main
+
+    rows = [
+        {
+            "item_id": f"c{i}",
+            "cluster": "codegen",
+            "prompt": f"p{i}",
+            "baseline": '{"a": 1}',
+            "candidate": '{"a": 1}',
+        }
+        for i in range(45)
+    ] + [
+        {
+            "item_id": f"r{i}",
+            "cluster": "rare-json",
+            "prompt": f"q{i}",
+            "baseline": '{"a": 1}',
+            "candidate": '{"b": 1}',
+        }
+        for i in range(15)
+    ]
+    evalset = _write(
+        tmp_path,
+        "e.json",
+        json.dumps({"items": rows, "shares": {"codegen": 0.75, "rare-json": 0.25}}),
+    )
+    out = tmp_path / "receipt.json"
+    main(
+        [
+            "prove",
+            evalset,
+            "--candidate",
+            "glm-5.2",
+            "--incumbent",
+            "gpt-5",
+            "--issued",
+            FRESH,
+            "--out",
+            str(out),
+        ]
+    )
+    return out
+
+
+def test_a_receipt_from_prove_carries_what_a_later_check_needs(tmp_path):
+    """The doubt-everything list: every number, its interval, its denominator,
+    the bar, the questions asked, and who judged. All of it survives the file."""
+    import json
+
+    body = json.loads(_proved(tmp_path).read_text())["receipt"]
+    assert set(body) >= {
+        "bar",
+        "candidate",
+        "eval_set",
+        "fingerprints",
+        "incumbent",
+        "issued",
+        "judge_agreement",
+        "judge_model",
+        "judge_trustworthy",
+        "proven",
+        "regret",
+        "traffic_captures",
+        "unproven",
+    }, sorted(body)
+    assert len(body["eval_set"]) == 64, "the questions are identified by digest"
+    assert body["bar"] == 0.90
+    assert body["traffic_captures"] == 60, "asked, not what survived"
+    assert body["judge_model"] is None, "no judge ran; the receipt must not imply one"
+
+    claim = body["proven"][0]
+    assert set(claim) >= {"cluster", "high", "low", "name", "passed", "share", "total", "ungraded"}
+    assert claim["total"] == 45 and claim["low"] < claim["high"]
+
+    # And the deliberate absence: no field can hold a bare verdict, because a
+    # receipt whose unknowns can be skipped is one whose unknowns get skipped.
+    assert not {"verdict", "status", "result", "passed_overall"} & set(body), sorted(body)
+
+
+def test_the_guard_can_void_a_receipt_prove_wrote(tmp_path):
+    from clickllm.prove.receipt import Receipt
+
+    r = Receipt.from_json(_proved(tmp_path).read_text())
+
+    # The mix it was issued against still holds.
+    assert check(
+        r, today=date.fromisoformat(FRESH), traffic={"codegen": 0.75, "rare-json": 0.25}
+    ).valid
+
+    # The workload moved between the two shapes it *did* score.
+    moved = check(r, today=date.fromisoformat(FRESH), traffic={"codegen": 0.1, "rare-json": 0.9})
+    assert not moved.valid and moved.urgent[0].kind is Drift.TRAFFIC_MOVED
+
+    # ...and a shape it never scored at all, which needs the per-cluster keys to
+    # have survived serialisation.
+    uncovered = check(
+        r,
+        today=date.fromisoformat(FRESH),
+        traffic={"codegen": 0.55, "rare-json": 0.2, "agent-loop": 0.25},
+    )
+    assert uncovered.urgent[0].kind is Drift.TRAFFIC_UNCOVERED
+    assert "agent-loop" in uncovered.render()
 
 
 def test_verifying_a_receipt_against_itself_succeeds(tmp_path, capsys):
