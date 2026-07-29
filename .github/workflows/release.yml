@@ -108,6 +108,33 @@ jobs:
             echo "present=false" >>"$GITHUB_OUTPUT"
           fi
 
+      # `build` reads the version out of pyproject.toml and ignores the tag, so a
+      # v0.2.0 release would upload 0.1.0 — and `--skip-existing` below turns
+      # every release after the first into a silent no-op that still prints
+      # "published". Refusing is the only safe answer: rewriting pyproject here
+      # would ship an artifact whose version is in no commit.
+      - name: The tag and the packaged version must agree
+        if: steps.pypi.outputs.present == 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          packaged="$(python3 - <<'EOF'
+          import re, pathlib
+          m = re.search(r'^version\s*=\s*"([^"]+)"', pathlib.Path("pyproject.toml").read_text(), re.M)
+          print(m.group(1) if m else "")
+          EOF
+          )"
+          tag="${VERSION#v}"
+          if [ -z "$packaged" ]; then
+            echo "::error::could not read version from pyproject.toml"; exit 1
+          fi
+          if [ "$packaged" != "$tag" ]; then
+            echo "::error::tag $VERSION would publish $packaged — pyproject.toml says $packaged, the tag says $tag. Bump pyproject.toml and re-tag; publishing the wrong version silently is worse than not publishing."
+            exit 1
+          fi
+          echo "tag $VERSION matches packaged $packaged"
+
       - name: Build the sdist + wheel
         if: steps.pypi.outputs.present == 'true'
         run: |
