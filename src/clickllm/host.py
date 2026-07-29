@@ -56,7 +56,7 @@ from . import fit
 from .catalog import QUANT_BITS, ModelSpec
 from .engines import Setting
 from .fit import Fit, Placement
-from .hardware_catalog import Profile
+from .hardware_catalog import TP_SCALING_EFFICIENCY, Profile
 from .hardware_catalog import get as profile_by_id
 
 # Container images and the argv-slicing rule, borrowed from the Kubernetes
@@ -887,11 +887,14 @@ def _rescored_for_parallelism(
     used = int(knob.value) if knob and isinstance(knob.value, int) else profile.devices
     if used >= profile.devices:
         return f
-    # One device's worth of bandwidth, times however many the plan will use.
+    # Scale the same way the catalogue does. `profile.bandwidth_gbps * used`
+    # skips the sub-linear TP factor `to_hardware` applies, so it agrees only at
+    # used == 1 — which is the only value the planner produces today, and
+    # exactly the sort of accidental agreement that breaks the day it returns 2.
     narrowed = replace(
         hw,
         devices=used,
-        bandwidth_gbps=profile.bandwidth_gbps * used,
+        bandwidth_gbps=profile.bandwidth_gbps * (1 + (used - 1) * TP_SCALING_EFFICIENCY),
         usable_bytes=int(hw.usable_bytes * used / profile.devices),
     )
     rescored = _sized(model, f.quant, narrowed, context, concurrency)

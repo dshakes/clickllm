@@ -864,10 +864,16 @@ def cmd_prove(args: argparse.Namespace) -> int:
     asked = len(items)
     items, collections = _collect_replies(items, args)
     if collections and not items:
-        raise ValueError(
-            f"no item in {args.evalset} got a reply — nothing can be scored. "
-            f"{collections[0].failures[0].reason}"
+        # Take the first failure ACROSS collections, not `collections[0]`'s.
+        # When the candidate endpoint answers everything and the incumbent
+        # answers nothing, collection zero has no failures at all, and indexing
+        # into it raised an IndexError over the top of the message explaining
+        # what actually went wrong.
+        reason = next(
+            (f.reason for c in collections for f in c.failures),
+            "no endpoint reported a reason",
         )
+        raise ValueError(f"no item in {args.evalset} got a reply — nothing can be scored. {reason}")
 
     # No shares given means every cluster weighs the same. Said out loud, because
     # an unweighted verdict on unevenly-distributed traffic is a different claim.

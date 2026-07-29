@@ -524,3 +524,44 @@ def test_demo_self_check():
     from clickllm.prove import collect as mod
 
     mod.demo()
+
+
+def test_a_collection_with_no_failures_does_not_crash_the_error_path():
+    """The candidate answers everything, the incumbent answers nothing.
+
+    Nothing is scoreable, so this path explains why — and it used to do so by
+    indexing `collections[0].failures[0]`. Collection zero is the candidate,
+    which has no failures, so the explanation raised an IndexError over the top
+    of itself and the user learned nothing about the incumbent that died.
+    """
+    from clickllm.prove import collect as C
+
+    clean = C.Collection(
+        base="http://a/v1",
+        model="cand",
+        side="candidate",
+        replies=(C.Collected(item_id="i1", text="ok"),),
+        items=(),
+        seconds=0.1,
+    )
+    broken = C.Collection(
+        base="http://b/v1",
+        model="inc",
+        side="incumbent",
+        replies=(C.Collected(item_id="i1", reason="HTTP 503 — engine unavailable"),),
+        items=(),
+        seconds=0.1,
+    )
+    assert clean.failures == (), "the candidate answered; it has no failures to index"
+    assert broken.failures, "the incumbent failed and must carry the reason"
+
+    # What the CLI now does: first failure ACROSS collections, never [0][0].
+    reason = next(
+        (f.reason for c in (clean, broken) for f in c.failures),
+        "no endpoint reported a reason",
+    )
+    assert reason == "HTTP 503 — engine unavailable"
+
+    # The old form is the bug, and it is still an IndexError.
+    with pytest.raises(IndexError):
+        _ = (clean, broken)[0].failures[0]
