@@ -50,8 +50,22 @@ jobs:
         # is the honest outcome. Removing the entry then is a one-line change —
         # made deliberately, with the reason in the log, rather than by never
         # having asked.
-        engine: [vllm, sglang]
+        include:
+          # Run each engine inside its OWN published image. `pip install vllm` on
+          # a bare runner resolved and then could not answer `vllm serve --help`
+          # — the job went red saying exactly that, which was correct and also
+          # unfixable by pinning wheels. The vendors already ship an image where
+          # the binary works; using it makes the check answerable rather than
+          # making the failure quieter.
+          - engine: vllm
+            image: vllm/vllm-openai:latest
+          - engine: sglang
+            image: lmsysorg/sglang:latest
     runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.image }}
+      # The image's entrypoint launches a server; this job only asks --help.
+      options: --entrypoint ""
     steps:
       - uses: actions/checkout@v5
 
@@ -70,7 +84,8 @@ jobs:
         # are opposite answers and must never share a tick.
         run: |
           uv venv
-          uv pip install "${{ matrix.engine }}" pytest
+          # The engine is already in the image. Only the test runner is missing.
+          python3 -m pip install --quiet pytest
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: what is about to be checked

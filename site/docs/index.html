@@ -328,6 +328,26 @@ eval result moves production traffic without a human.</pre>
   the same place.</p>
 </div>
 
+<!-- ══════════ INSTALL ══════════ -->
+<h2 id="install">Install</h2>
+<p>The sizing solver has zero runtime dependencies and runs offline, so the fastest path is to
+  run it without installing anything at all. Python 3.11 or newer.</p>
+
+<pre><span class="u">$ uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8</span>   <span class="c"># run it, install nothing</span>
+<span class="u">$ uv tool install clickllm-cli</span>                                    <span class="c"># or put clickllm on your PATH</span>
+<span class="u">$ pipx install clickllm-cli</span>
+<span class="u">$ pip install clickllm-cli</span>
+
+<span class="u">$ curl -fsSL https://dshakes.github.io/clickllm/install.sh | sh</span>    <span class="c"># picks whichever of those you already have</span></pre>
+
+<div class="note">
+  <p><b>The distribution is <code>clickllm-cli</code>; the command is <code>clickllm</code>.</b>
+  PyPI refused the bare name as too similar to the existing <code>click-llm</code> package, so
+  <code>pip install clickllm</code> and <code>uvx clickllm</code> both fail and always will. The
+  <code>--from</code> is what bridges the two names — it is not optional, and every <code>uvx</code>
+  line in these docs carries one. There is no Homebrew formula.</p>
+</div>
+
 <!-- ══════════ EDUCATION ══════════ -->
 <hr>
 <h2 id="edu-why"><i class="chip"></i>Learn: why a GPU at all</h2>

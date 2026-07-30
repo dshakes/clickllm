@@ -132,6 +132,60 @@ def test_a_cluster_carried_by_the_judge_alone_still_cannot_advance():
     assert "judge alone" in d.reason, d.reason
 
 
+def test_the_judge_is_measured_against_the_graders_on_every_run():
+    """Calibration falls out of the run; nobody has to sit down with 40 items.
+
+    `Agreement` needs a human and most teams will never sample one, so a judge
+    would otherwise ship unmeasured. Here the graders are the known standard.
+    """
+    m = run(
+        items("codegen", 20, passing=True),
+        shares={"codegen": 1.0},
+        judge=lambda c: Reply("tie"),
+        judge_model="claude-opus-5",
+    )
+    cal = m.calibration
+    assert cal is not None and cal.total == 20, cal
+    assert cal.agreed == 20 and cal.calibrated
+    assert "20 items scored both ways" in m.render()
+
+
+def test_a_judge_that_contradicts_the_graders_is_reported_as_uncalibrated():
+    """It condemns twenty items whose JSON demonstrably matches. That is a
+    measurable property of the instrument, and the report states it."""
+
+    def contrarian(c: Comparison) -> Reply:
+        # Whichever position the baseline is in, the baseline wins: a consistent
+        # preference, so it survives the position swap and is scored as a FAIL.
+        return Reply("a" if c.a != c.b else "tie", "the first is better")
+
+    m = run(
+        [EvalItem(f"i{i}", "codegen", f"p{i}", '{"a": 1}', '{"a": 1, "b": 2}') for i in range(20)],
+        shares={"codegen": 1.0},
+        judge=contrarian,
+        judge_model="rogue-judge",
+    )
+    # Shape breaks: the graders fail these, so the judge never sees them and
+    # there is nothing to calibrate against — which is itself disclosed.
+    assert m.calibration is not None and not m.calibration.calibrated
+    assert "UNCALIBRATED" in m.render() or "BELOW THE FLOOR" in m.render()
+
+
+def test_the_calibration_reaches_the_receipt():
+    """The receipt is the artifact someone who does not trust us reads. A judge's
+    calibration belongs in the file, not only on the terminal."""
+    r = suite(
+        items("codegen", 20, passing=True),
+        shares={"codegen": 1.0},
+        issued="2026-07-29",
+        judge=lambda c: Reply("tie"),
+        judge_model="claude-opus-5",
+    )
+    assert r.receipt.judge_calibration is not None
+    assert "matched the deterministic graders" in r.receipt.judge_calibration
+    assert r.receipt.judge_calibration in r.receipt.render()
+
+
 # --- disclosure and refusals ---------------------------------------------------
 
 
@@ -215,6 +269,59 @@ def test_regret_is_stated_and_never_rounded_away():
     r = suite(both, shares={"codegen": 0.75, "rare-json": 0.25}, issued="2026-07-27")
     assert [c.name for c in r.receipt.regret] == ["rare-json"]
     assert "REGRET" in r.render()
+
+
+def test_an_unproven_cluster_is_told_what_it_would_take():
+    """ "Not yet proven" is a dead end; "35 items, you have 25" is a task.
+
+    25 flawless items is the case that traps people — it reads conclusive and
+    sits three points under the bar. The number comes from the closed form
+    n > 9z², pinned in `tests/test_stats.py`.
+    """
+    r = suite(items("codegen", 25, passing=True), shares={"codegen": 1.0}, issued="2026-07-29")
+    claim = r.receipt.unproven[0]
+    assert claim.needed == 35, claim
+    assert "needs 35" in r.receipt.render()
+    assert "10 to go" in r.render(), r.render()
+
+    # A cluster that already cleared the bar is not sent to gather more.
+    proven = suite(items("c", 45, passing=True), shares={"c": 1.0}, issued="2026-07-29")
+    assert proven.receipt.proven[0].needed is None
+
+
+def test_a_cluster_that_is_simply_worse_is_not_sent_to_gather_more_evidence():
+    """The other half of the instruction: no sample size rescues a rate that is
+    already at or under the bar, and "gather more" there burns a week on a
+    question the evidence has already answered."""
+    r = suite(items("rare-json", 20, passing=False), shares={"rare-json": 1.0}, issued="2026-07-29")
+    assert r.receipt.regret[0].needed is None
+
+    # Exactly *at* the bar is the subtle one: 18/20 is 90%, the interval straddles,
+    # and no amount of more-of-the-same will push a 90% rate above a 90% bar.
+    at_the_bar = items("mixed", 18, passing=True) + items("mixed", 2, passing=False)
+    r2 = suite(at_the_bar, shares={"mixed": 1.0}, issued="2026-07-29")
+    assert r2.receipt.unproven[0].needed is None
+    assert "will not clear it" in r2.render(), r2.render()
+
+
+def test_the_weighted_verdict_carries_an_interval_and_names_its_method():
+    """The headline of the whole report was the one number printed bare."""
+    both = items("codegen", 45, passing=True) + items("rare-json", 15, passing=False)
+    text = suite(both, shares={"codegen": 0.75, "rare-json": 0.25}, issued="2026-07-29").render()
+    assert "weighted verdict" in text
+    assert "Jeffreys posterior" in text, "the estimator must be named, not implied"
+    assert "Wilson" in text, "and so must the per-cell one"
+
+
+def test_scoring_many_clusters_against_one_bar_is_disclosed():
+    """Twelve clusters at 95% each is a coin flip that one clears on noise. The
+    report either adjusts or says it did not; silence is the failure mode."""
+    many = []
+    for i in range(6):
+        many += items(f"c{i}", 45, passing=True)
+    text = suite(many, shares={f"c{i}": 1 / 6 for i in range(6)}, issued="2026-07-29").render()
+    assert "UNADJUSTED" in text and "Bonferroni" in text
+    assert "6 clusters scored against the same 90% bar" in text
 
 
 def test_the_same_eval_set_digests_identically():

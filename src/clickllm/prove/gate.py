@@ -30,7 +30,12 @@ So they get different rules:
 
 1. **An LLM judge alone never moves traffic.** A cluster whose entire case rests
    on `Tier.JUDGE` scores cannot support an advance — [`Reading.judge_only`].
-   It can still trigger a rollback, because the asymmetry above cuts that way.
+   It can still trigger a rollback, because the asymmetry above cuts that way —
+   *provided the judge has been calibrated*. An instrument nobody checked against
+   a known standard is not measuring anything, and a rollback fired on an
+   unmeasured instrument is a coin toss wearing a lab coat. Uncalibrated
+   judge-only evidence produces a HOLD that names the problem, never a silent
+   pass. See [`Calibration`][clickllm.prove.judge.Calibration].
 2. **Underpowered never advances.** Fewer than [`MIN_SAMPLES_FOR_CONFIDENCE`]
    samples is not evidence, and the decision says how many more are needed rather
    than reporting a number it does not have.
@@ -54,7 +59,7 @@ from enum import StrEnum
 
 from clickllm.prove.equivalence import DEFAULT_EQUIVALENCE_BAR, ClusterScore
 from clickllm.prove.graders import ItemResult, Tier
-from clickllm.prove.judge import Agreement
+from clickllm.prove.judge import Agreement, Calibration
 from clickllm.prove.stats import MIN_SAMPLES_FOR_CONFIDENCE, Interval
 
 __all__ = [
@@ -323,6 +328,7 @@ def decide(
     agreement: Agreement | None = None,
     pinned: frozenset[str] = frozenset(),
     bar: float = DEFAULT_EQUIVALENCE_BAR,
+    calibration: Calibration | None = None,
 ) -> Decision:
     """Decide what the evidence permits.
 
@@ -335,6 +341,9 @@ def decide(
         pinned: clusters already routed to the incumbent. They cannot regress
             what they do not serve, so they are excluded from rollback triggers.
         bar: equivalence threshold.
+        calibration: judge-vs-deterministic-grader agreement, from the run
+            itself. Required before judge-only evidence may veto; `None` reads
+            as uncalibrated, which is what it is.
 
     Returns:
         A [`Decision`]. `ROLL_BACK` may be applied automatically; `ADVANCE` is a
@@ -351,6 +360,8 @@ def decide(
     if stage.live:
         proven = [r for r in live if r.proven_regression(bar)]
         if proven:
+            if blocked := _uncalibrated_veto(proven, calibration):
+                return Decision(Action.HOLD, blocked, clusters=tuple(r.cluster for r in proven))
             worst = min(proven, key=lambda r: r.interval.point)
             return Decision(
                 Action.ROLL_BACK,
@@ -364,6 +375,8 @@ def decide(
         #    this exists and why it is labelled.
         suspect = [r for r in live if r.suspected_regression(bar)]
         if suspect:
+            if blocked := _uncalibrated_veto(suspect, calibration):
+                return Decision(Action.HOLD, blocked, clusters=tuple(r.cluster for r in suspect))
             worst = min(suspect, key=lambda r: r.interval.point)
             return Decision(
                 Action.ROLL_BACK,
@@ -396,6 +409,33 @@ def decide(
         f"{stage.render()} → {nxt.render()} is supported. A human applies this.",
         clusters=tuple(r.cluster for r in live if r.supports_advance(bar)),
         to=nxt,
+    )
+
+
+def _uncalibrated_veto(triggers: list[Reading], calibration: Calibration | None) -> str | None:
+    """Why a rollback carried only by an unmeasured judge must not fire.
+
+    Returns a reason when *every* cluster asking for the rollback rests on judge
+    scores alone and that judge has not been calibrated against the deterministic
+    graders. One deterministic trigger anywhere in the set is enough to act on —
+    the judge is then corroborating, not deciding.
+
+    This is the one place where the rollback asymmetry is deliberately not
+    followed to its end. A judge that fails work the graders demonstrably passed
+    would roll back a healthy migration on its own opinion, repeatedly, and the
+    operator would learn to ignore the alarm. The answer is to measure the
+    instrument, and the decision says exactly that.
+    """
+    if any(not r.judge_only for r in triggers):
+        return None
+    if calibration is not None and calibration.calibrated:
+        return None
+    state = calibration.render() if calibration is not None else "no calibration was measured"
+    names = ", ".join(r.name for r in triggers[:3])
+    return (
+        f"{names} looks regressed, but every score there is the judge's own — and "
+        f"{state}. An unmeasured instrument does not get to stop a migration: "
+        f"calibrate the judge, or add a deterministic grader for this cluster"
     )
 
 
@@ -484,9 +524,18 @@ def _advance_blocked(
     unproven = [r for r in live if not r.supports_advance(bar)]
     if unproven:
         worst = min(unproven, key=lambda r: r.interval.low)
+        # How much more evidence, not just "more evidence". An operator told the
+        # number can go and get it; an operator told "not yet" can only wait.
+        n = worst.score.needed(bar)
+        todo = (
+            f"{n - worst.interval.total} more graded items would clear it at the "
+            f"observed {worst.interval.point:.0%}"
+            if n is not None
+            else "and the observed rate is at or below the bar, so more items will not clear it"
+        )
         return (
             f"{worst.name} is at {worst.interval.render()}; its lower bound has "
-            f"not cleared the {bar:.0%} bar",
+            f"not cleared the {bar:.0%} bar — {todo}",
             tuple(r.cluster for r in unproven),
         )
     return None
@@ -549,6 +598,40 @@ def demo() -> None:
         health=Health(100, 0, baseline_p95_ms=200, candidate_p95_ms=900),
     )
     assert d.action is Action.ROLL_BACK and "4.5× slower" in d.reason, d.render()
+
+    # An unproven cluster is told how many more items would settle it, not just
+    # that it is unproven. 30/32 is 94% with a lower bound of 80%.
+    d = decide([reading("extract", 30, 32)], shadow)
+    assert d.action is Action.HOLD and "more graded items would clear it" in d.reason, d.render()
+
+    # A judge alone can veto — but only a judge somebody measured.
+    from clickllm.prove.judge import Calibration
+
+    bad_news = [reading("summarise", 2, 40, judge=True)]
+    d = decide(bad_news, canary, health=Health(100, 0))
+    assert d.action is Action.HOLD, d.render()
+    assert "unmeasured instrument" in d.reason, d.render()
+    d = decide(
+        bad_news,
+        canary,
+        health=Health(100, 0),
+        calibration=Calibration(agreed=19, total=20, model="claude-opus-5"),
+    )
+    assert d.action is Action.ROLL_BACK and d.automatic, d.render()
+
+    # ...and a deterministic trigger in the same set is enough on its own: the
+    # judge is corroborating there, not deciding.
+    mixed = [reading("summarise", 2, 40, judge=True), reading("classify", 2, 40)]
+    assert decide(mixed, canary, health=Health(100, 0)).action is Action.ROLL_BACK
+
+    # The invariant that survives all of it: a judge-only cluster never advances,
+    # however well calibrated the judge is.
+    d = decide(
+        [reading("summarise", 40, 40, judge=True)],
+        shadow,
+        calibration=Calibration(agreed=40, total=40, model="claude-opus-5"),
+    )
+    assert d.action is Action.HOLD and "judge alone" in d.reason, d.render()
 
     # A pinned cluster cannot regress what it does not serve.
     d = decide(

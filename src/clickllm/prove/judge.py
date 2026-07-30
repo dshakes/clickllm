@@ -24,12 +24,13 @@ cluster differs, and to rank candidates that the deterministic tiers tie.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .graders import EvalItem, Score, Tier
+from .graders import EvalItem, ItemResult, Score, Tier
 from .graders import Outcome as GraderOutcome
+from .stats import Interval, wilson
 
 
 class Verdict(StrEnum):
@@ -201,6 +202,89 @@ class Agreement:
         return r is not None and self.total >= 20 and r >= 0.75
 
 
+# --- calibration ---------------------------------------------------------------
+# `Agreement` needs a human, which most teams will never sample. Calibration
+# needs nothing: it falls out of the run itself, from the items where a
+# deterministic grader and the judge both had an opinion.
+
+#: Fraction of deterministic verdicts the judge must reproduce before its own
+#: verdicts count for anything. A calibration knob, not a truth — 0.70 says "wrong
+#: about three items in ten is the most we will tolerate from an instrument", and
+#: it is stated here so it can be argued with.
+CALIBRATION_FLOOR = 0.70
+
+#: Overlapping items below which the calibration rate is noise, not a measurement.
+MIN_CALIBRATION_ITEMS = 10
+
+
+@dataclass(frozen=True, slots=True)
+class Calibration:
+    """How often the judge reproduced a deterministic grader's verdict.
+
+    An LLM judge is an instrument, and an instrument nobody checked against a
+    known standard is not measuring anything. ``Agreement`` is the gold standard
+    for that check and needs a human to sit down with 40 items; this is the one
+    that comes free, because every run already scores some items both ways.
+
+    **What it can and cannot see.** The suite does not pay a judge to re-confirm
+    a structural failure, so the overlap is almost entirely items the
+    deterministic graders *passed*. That makes this a measure of the judge's
+    false-FAIL rate — how often it condemns work that is demonstrably fine — and
+    it says nothing about false PASSes. That is the useful direction for the one
+    thing judge-only evidence is allowed to do, which is veto.
+    """
+
+    agreed: int
+    total: int
+    model: str
+
+    @property
+    def rate(self) -> float | None:
+        """``None`` when nothing overlapped — never a default of 1.0."""
+        return self.agreed / self.total if self.total else None
+
+    @property
+    def interval(self) -> Interval:
+        """Wilson interval on the agreement rate. Reported, not gated on."""
+        return wilson(self.agreed, self.total)
+
+    @property
+    def calibrated(self) -> bool:
+        """Whether this judge has earned the right to block a migration."""
+        r = self.rate
+        return r is not None and self.total >= MIN_CALIBRATION_ITEMS and r >= CALIBRATION_FLOOR
+
+    def render(self) -> str:
+        if self.total == 0:
+            return f"judge calibration: {self.model} · UNCALIBRATED (no item scored both ways)"
+        state = "calibrated" if self.calibrated else "BELOW THE FLOOR"
+        return (
+            f"judge calibration: {self.model} matched the deterministic graders on "
+            f"{self.interval.render()} of {self.total} items scored both ways "
+            f"({state}, floor {CALIBRATION_FLOOR:.0%} over "
+            f"{MIN_CALIBRATION_ITEMS}+ items)"
+        )
+
+
+def calibrate(results: Sequence[ItemResult], model: str) -> Calibration:
+    """Measure the judge against the deterministic graders on the same items.
+
+    An item counts only when both sides were applicable. Agreement is on the
+    item's verdict, not on individual graders: the deterministic side is
+    conjunctive (see :class:`~.graders.ItemResult`), so the comparison is
+    "did the judge reach the same conclusion", which is the claim being made.
+    """
+    agreed = total = 0
+    for r in results:
+        judged = [s for s in r.applicable if s.tier is Tier.JUDGE]
+        determined = [s for s in r.applicable if s.tier is not Tier.JUDGE]
+        if not judged or not determined:
+            continue
+        total += 1
+        agreed += all(s.passed for s in judged) == all(s.passed for s in determined)
+    return Calibration(agreed=agreed, total=total, model=model)
+
+
 def demo() -> None:
     item = EvalItem(
         "i1", "c1", "Summarise this.", baseline="The cat sat.", candidate="A cat sat down."
@@ -261,7 +345,44 @@ def demo() -> None:
     assert Verdict.CANDIDATE_BETTER.mirrored() is Verdict.BASELINE_BETTER
     assert Verdict.EQUIVALENT.mirrored() is Verdict.EQUIVALENT
 
+    # Calibration: measured against the deterministic graders, free, every run.
+    def scored(det_pass: bool, judge_pass: bool) -> ItemResult:
+        outcome = GraderOutcome.PASS if det_pass else GraderOutcome.FAIL
+        j = GraderOutcome.PASS if judge_pass else GraderOutcome.FAIL
+        return ItemResult(
+            "i",
+            "c",
+            (
+                Score("json-shape", Tier.ASSERT, outcome),
+                Score("pairwise-judge", Tier.JUDGE, j),
+            ),
+        )
+
+    # An instrument nobody checked is not calibrated, and cannot become so by
+    # being asked politely.
+    assert calibrate([], "m").rate is None
+    assert not calibrate([], "m").calibrated
+    assert "UNCALIBRATED" in calibrate([], "m").render()
+
+    # Twelve items scored both ways, the judge matching on eleven.
+    agreeing = [scored(True, True)] * 11 + [scored(True, False)]
+    cal = calibrate(agreeing, "claude-opus-5")
+    assert (cal.agreed, cal.total) == (11, 12), cal
+    assert cal.calibrated and "calibrated" in cal.render()
+    # ...and the rate carries its interval, like every other number here.
+    assert cal.interval.render() in cal.render()
+
+    # A judge that condemns everything the graders passed is measured as such.
+    contrarian = calibrate([scored(True, False)] * 12, "m")
+    assert contrarian.rate == 0.0 and not contrarian.calibrated
+    assert "BELOW THE FLOOR" in contrarian.render()
+
+    # Items where only one side had an opinion are not counted either way.
+    only_judge = ItemResult("i", "c", (Score("pairwise-judge", Tier.JUDGE, GraderOutcome.PASS),))
+    assert calibrate([only_judge] * 20, "m").total == 0
+
     print(Agreement(36, 40, "claude-opus-5").render())
+    print(cal.render())
     print("ok")
 
 
