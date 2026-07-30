@@ -1,0 +1,97 @@
+# Do the flags we generate exist?
+#
+# `engines.py` cites a docs URL for every flag it emits. That was not enough
+# twice: `--speculative-config eagle3` and `--quantization q4` both passed the
+# whole suite and could not start a server. MLX never had that problem, because
+# MLX is the one engine that installs on the author's Mac and `installed_flags`
+# reads `--help` off the real binary.
+#
+# So this job is the Mac's missing half: a Linux runner where vLLM and SGLang
+# actually install, asked the same question. No GPU is needed — an argument
+# parser has opinions about flag names without one.
+#
+# It runs weekly as well as on the PRs that can break it. Engine flags drift
+# underneath us on the engines' release schedule, not ours, and a weekly red
+# tick is how we find out before a user runs the command we handed them.
+name: engine-flags
+
+on:
+  pull_request:
+    paths:
+      - src/clickllm/engines.py
+      - src/clickllm/plan.py
+      - src/clickllm/box.py
+      - src/clickllm/host.py
+      - src/clickllm/launch.py
+      - src/clickllm/models.json
+      - tests/test_engine_flags.py
+      - .github/workflows/engine-flags.yml
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flags:
+    strategy:
+      fail-fast: false
+      matrix:
+        # One engine per runner, not both on one. They pin different torch
+        # versions, so a shared environment resolves to something neither
+        # engine ships with — and each brings several GB of CUDA wheels, which
+        # a single runner's disk does not comfortably hold twice.
+        #
+        # SGLang is here on the expectation that its CPU import works; that has
+        # not been confirmed on a driver-less runner. If it turns out it cannot
+        # be interrogated, this job goes RED and says which step failed, which
+        # is the honest outcome. Removing the entry then is a one-line change —
+        # made deliberately, with the reason in the log, rather than by never
+        # having asked.
+        engine: [vllm, sglang]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: reclaim disk for the CUDA wheels
+        # torch plus the nvidia-* wheels is ~10 GB and the runner ships ~14 GB
+        # free. These three are the largest things on it that this job cannot use.
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: install ${{ matrix.engine }}
+        # No `|| true`, no `continue-on-error`. A failed install must fail the
+        # job: "the engine would not install" and "the engine accepts our flags"
+        # are opposite answers and must never share a tick.
+        run: |
+          uv venv
+          uv pip install "${{ matrix.engine }}" pytest
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: what is about to be checked
+        # Printed before the assertion so the log shows the subject, not just the
+        # verdict. A check whose subject silently narrowed still passes.
+        run: python3 tests/test_engine_flags.py
+        env:
+          PYTHONPATH: src
+
+      - name: every generated flag must exist in ${{ matrix.engine }}'s own --help
+        # CLICKLLM_REQUIRE_ENGINES turns `installed_flags() is None` — "could not
+        # ask" — from a skip into a failure. Without it an engine that imported
+        # broken would report green, which is the defect this repo already spent
+        # a day removing from its CI once.
+        #
+        # The node id is spelled out rather than filtered with -k: if the test is
+        # renamed, pytest exits non-zero on the missing id instead of quietly
+        # selecting nothing and passing.
+        run: |
+          python3 -m pytest -v \
+            "tests/test_engine_flags.py::test_every_generated_flag_is_one_the_installed_engine_accepts[${{ matrix.engine }}]"
+        env:
+          PYTHONPATH: src
+          CLICKLLM_REQUIRE_ENGINES: "1"
