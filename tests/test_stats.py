@@ -17,6 +17,8 @@ Sources, per test:
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from clickllm.prove.stats import (
@@ -248,3 +250,22 @@ def test_a_family_needs_at_least_one_member():
         family_wise_z(0)
     with pytest.raises(ValueError, match="probability"):
         family_wise_z(3, alpha=1.5)
+
+
+def test_mcnemar_survives_more_than_1024_discordant_pairs():
+    """`2.0**n` is a float and raises OverflowError at n >= 1024.
+
+    Discordant pairs pass 1024 on any large capture, so this crashed on exactly
+    the workloads a paired test is for — and it crashed after the run, when the
+    evidence had already been paid for. Found by the CI auditor, not by the
+    suite, because every existing case used small hand-checked counts.
+    """
+    for worse, better in ((512, 512), (1000, 1000), (5, 2000), (2000, 5)):
+        m = mcnemar(worse, better)
+        assert 0.0 <= m.p_value <= 1.0, (worse, better, m.p_value)
+        assert m.z is not None and math.isfinite(m.z)
+
+    # A lopsided split at scale is overwhelming evidence; p must not round to 1.
+    assert mcnemar(5, 2000).p_value < 1e-6
+    # An even split at scale is no evidence at all.
+    assert mcnemar(1000, 1000).p_value == pytest.approx(1.0, abs=0.05)

@@ -374,7 +374,12 @@ def mcnemar(worse: int, better: int) -> McNemar:
         return McNemar(worse, better, None, 1.0)
     z = (better - worse) / math.sqrt(n)
     tail = sum(math.comb(n, i) for i in range(min(worse, better) + 1))
-    return McNemar(worse, better, z, min(1.0, 2.0 * tail / 2.0**n))
+    # `2.0**n` is a FLOAT and raises OverflowError at n >= 1024. Discordant pairs
+    # pass 1024 on any large capture, so that was a hard crash on exactly the
+    # workloads this test exists for. `1 << n` is an arbitrary-precision int, and
+    # int/int division underflows to 0.0 rather than raising — a p-value that
+    # small IS zero to any precision that matters here.
+    return McNemar(worse, better, z, min(1.0, (2 * tail) / (1 << n)))
 
 
 # --------------------------------------------------------------------------- #

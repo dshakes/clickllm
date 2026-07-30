@@ -83,9 +83,19 @@ jobs:
         # job: "the engine would not install" and "the engine accepts our flags"
         # are opposite answers and must never share a tick.
         run: |
-          uv venv
-          # The engine is already in the image. Only the test runner is missing.
-          python3 -m pip install --quiet pytest
+          # NO venv. The engine is installed in the image's SYSTEM interpreter,
+          # and a fresh venv cannot see it — that is why the first attempt found
+          # pytest but not vllm, and reported "could not be interrogated" for a
+          # container that had the engine in it all along.
+          #
+          # pytest goes into that same interpreter, and `python3 -m pytest` runs
+          # it there, so the test and the engine are never in different places.
+          python3 -m pip install --quiet --root-user-action=ignore pytest \
+            || python3 -m pip install --quiet --break-system-packages pytest
+          python3 -c "import sys, importlib.util as u; \
+            print('python  ', sys.executable); \
+            print('engine  ', 'present' if u.find_spec('${{ matrix.engine }}') else 'MISSING'); \
+            print('pytest  ', 'present' if u.find_spec('pytest') else 'MISSING')"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: what is about to be checked
