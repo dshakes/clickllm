@@ -15,6 +15,21 @@ name: release
 # `brew install` at the new tag. Mirrors scripts/release.sh; idempotent (safe to re-run).
 
 on:
+  # Pushing a version tag releases. This was `workflow_dispatch` only, and the
+  # gap is not cosmetic: everyone's mental model — including the author's, an
+  # hour before writing this — is "tag it to release it". Pushing v0.1.0 did
+  # nothing, said nothing, and left a tag on origin with no release behind it.
+  #
+  # A release workflow that silently no-ops on a version tag is the same defect
+  # this repo spent a day removing from its own CI: a thing that looks like it
+  # worked because nothing said otherwise.
+  #
+  # Both paths still work. The tag job below already skips creating a tag that
+  # exists, so arriving by either route is safe.
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
       version:
@@ -45,9 +60,15 @@ jobs:
         id: ver
         env:
           IN: ${{ inputs.version }}
+          # On a tag push the TAG is authoritative, not pyproject. Without this the
+          # empty input falls through to pyproject, so tagging v0.2.0 against a
+          # pyproject of 0.1.0 would release v0.1.0 — and the version gate below
+          # would compare pyproject to itself and pass. A silently wrong release
+          # is the failure this whole file is arranged to prevent.
+          REF_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           set -euo pipefail
-          v="$IN"
+          v="${IN:-$REF_TAG}"
           if [ -z "$v" ]; then
             # pyproject is the source of truth for what gets built, so it is also the
             # default for what gets tagged. sed, not `cut -d'"'`, which mis-parses the
