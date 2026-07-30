@@ -1,10 +1,15 @@
 name: release
 
-# One-click release: tag → publish GitHub Release (notes from CHANGELOG) → publish to
-# PyPI when a token is configured → open the Homebrew formula-bump PR. Runs on GitHub's
-# runners, which have the ref-write access a
-# local/sandboxed clone may not — so "cut a release" becomes a single tap from the
+# One-click release: resolve the version → refuse if it disagrees with the packaged
+# one → build → tag → publish the GitHub Release → publish to PyPI over OIDC → open
+# the Homebrew formula-bump PR. Runs on GitHub's runners, which have the ref-write
+# access a local/sandboxed clone may not — so "cut a release" is a single tap from the
 # Actions tab or GitHub Mobile (Run workflow), no terminal required.
+#
+# Two jobs on purpose. `build` holds every write to this repo; `publish-pypi` holds
+# `id-token: write` and nothing else, so the OIDC credential that can publish under our
+# name is scoped to the one job that needs it and is unreachable from the steps that run
+# shell against the checkout.
 #
 # The formula bump lands as a PR (main is branch-protected) — merge it to point
 # `brew install` at the new tag. Mirrors scripts/release.sh; idempotent (safe to re-run).
@@ -13,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, e.g. v0.10.1. Leave blank to use the newest [X.Y.Z] heading in CHANGELOG.md."
+        description: "Version to release, e.g. v0.1.0. Leave blank to use the version in pyproject.toml."
         required: false
         default: ""
 
@@ -26,12 +31,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      num: ${{ steps.ver.outputs.num }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0     # full history so the tag + CHANGELOG parsing work
+          fetch-depth: 0     # full history so the tag work sees existing tags
 
       - name: Resolve version
         id: ver
@@ -41,25 +49,62 @@ jobs:
           set -euo pipefail
           v="$IN"
           if [ -z "$v" ]; then
-            v="v$(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | tr -dc '0-9.')"
+            # pyproject is the source of truth for what gets built, so it is also the
+            # default for what gets tagged. sed, not `cut -d'"'`, which mis-parses the
+            # quote and yields an empty version → a release literally named "v".
+            v="v$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' pyproject.toml | head -1)"
           fi
           case "$v" in v*) ;; *) v="v$v" ;; esac
-          [ "$v" != "v" ] || { echo "could not resolve a version (pass one, or add a [X.Y.Z] heading)"; exit 1; }
-          echo "version=$v"      >> "$GITHUB_OUTPUT"
-          echo "num=${v#v}"      >> "$GITHUB_OUTPUT"
+          [ "$v" != "v" ] || { echo "::error::could not resolve a version (pass one, or fix pyproject.toml)"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "num=${v#v}"  >> "$GITHUB_OUTPUT"
           echo "Releasing $v"
 
-      - name: Extract release notes from CHANGELOG
-        id: notes
+      # Runs before the tag, the build and the publish — the first thing that can fail.
+      # `uv build` reads the version out of pyproject.toml and ignores the tag, so a
+      # v0.2.0 release would upload 0.1.0 — and `skip-existing` below turns every release
+      # after the first into a silent no-op that still prints "published". Refusing is the
+      # only safe answer: rewriting pyproject here would ship an artifact whose version is
+      # in no commit.
+      - name: The tag and the packaged version must agree
         env:
-          NUM: ${{ steps.ver.outputs.num }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          {
-            echo 'body<<RELEASE_NOTES_EOF'
-            awk -v v="$NUM" '$0 ~ ("^## \\[" v "\\]"){f=1;next} f&&/^## \[/{exit} f{print}' CHANGELOG.md
-            echo 'RELEASE_NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
+          packaged="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' pyproject.toml | head -1)"
+          tag="${VERSION#v}"
+          [ -n "$packaged" ] || { echo "::error::could not read version from pyproject.toml"; exit 1; }
+          if [ "$packaged" != "$tag" ]; then
+            echo "::error::tag $VERSION would publish $packaged — pyproject.toml says $packaged, the tag says $tag. Bump pyproject.toml and re-run; publishing the wrong version silently is worse than not publishing."
+            exit 1
+          fi
+          echo "tag $VERSION matches packaged $packaged"
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist + wheel
+        run: |
+          set -euo pipefail
+          # A dedicated outdir, not `dist/`: that directory is gitignored and is where a
+          # locally-built `clickllm_core` wheel lands, and a publish of `dist/*` would
+          # happily push whatever else it found there.
+          rm -rf dist-pypi
+          uv build --out-dir dist-pypi
+          ls -l dist-pypi/
+
+      # The distribution is `clickllm-cli` (PyPI rejected `clickllm` as too close to the
+      # existing `click-llm`) but the command it installs is `clickllm`. That promise is
+      # made on every install surface, and a rename of either side breaks it invisibly —
+      # the wheel still builds, still publishes, and installs a command nobody documented.
+      # Check the artifact itself, not the source.
+      - name: The wheel must install the `clickllm` command
+        run: |
+          set -euo pipefail
+          unzip -p dist-pypi/*.whl '*/entry_points.txt' | tee /dev/stderr \
+            | grep -qE '^clickllm *= *clickllm\.cli:main$' \
+            || { echo "::error::the built wheel does not declare a \`clickllm\` console script — \`pip install clickllm-cli\` would not give you \`clickllm\`"; exit 1; }
 
       - name: Create and push the tag (idempotent)
         env:
@@ -72,7 +117,7 @@ jobs:
             # Runners have no git identity; annotated tags need one (empty-ident fatal).
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$VERSION" -m "compass $VERSION"
+            git tag -a "$VERSION" -m "clickllm $VERSION"
             git push origin "refs/tags/$VERSION"
           fi
 
@@ -80,102 +125,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
-          NOTES: ${{ steps.notes.outputs.body }}
         run: |
           set -euo pipefail
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            printf '%s' "$NOTES" | gh release edit "$VERSION" --notes-file -
-          else
-            printf '%s' "$NOTES" | gh release create "$VERSION" --latest --title "$VERSION — compass" --notes-file -
+          # --generate-notes, not a CHANGELOG extract: this repo has no CHANGELOG.md, and
+          # the awk that assumed one made every release fail on step two.
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" --latest --title "$VERSION — clickllm" --generate-notes
           fi
+          gh release upload "$VERSION" dist-pypi/*.whl dist-pypi/*.tar.gz --clobber
 
-      # Until this runs green, `pip install clickllm` is a 404 and every install
-      # instruction that names a bare package is fiction — which is exactly what
-      # shipped: the README, the landing page's install tabs and install.sh all
-      # advertised a package no workflow had ever published. Gated on the token
-      # so a fork or an unconfigured repo still cuts a Release; NOT silent when
-      # absent, because "released" and "installable" reading the same green tick
-      # is the defect. `tests/test_docs_lab.py` holds the docs to whatever this
-      # step actually achieves.
-      - name: Check for PYPI_API_TOKEN
-        id: pypi
-        env:
-          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          if [ -n "$PYPI_API_TOKEN" ]; then
-            echo "present=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "present=false" >>"$GITHUB_OUTPUT"
-          fi
-
-      # `build` reads the version out of pyproject.toml and ignores the tag, so a
-      # v0.2.0 release would upload 0.1.0 — and `--skip-existing` below turns
-      # every release after the first into a silent no-op that still prints
-      # "published". Refusing is the only safe answer: rewriting pyproject here
-      # would ship an artifact whose version is in no commit.
-      - name: The tag and the packaged version must agree
-        if: steps.pypi.outputs.present == 'true'
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          packaged="$(python3 - <<'EOF'
-          import re, pathlib
-          m = re.search(r'^version\s*=\s*"([^"]+)"', pathlib.Path("pyproject.toml").read_text(), re.M)
-          print(m.group(1) if m else "")
-          EOF
-          )"
-          tag="${VERSION#v}"
-          if [ -z "$packaged" ]; then
-            echo "::error::could not read version from pyproject.toml"; exit 1
-          fi
-          if [ "$packaged" != "$tag" ]; then
-            echo "::error::tag $VERSION would publish $packaged — pyproject.toml says $packaged, the tag says $tag. Bump pyproject.toml and re-tag; publishing the wrong version silently is worse than not publishing."
-            exit 1
-          fi
-          echo "tag $VERSION matches packaged $packaged"
-
-      - name: Build the sdist + wheel
-        if: steps.pypi.outputs.present == 'true'
-        run: |
-          set -euo pipefail
-          # A dedicated outdir, not `dist/`: that directory is gitignored and is
-          # where the locally-built `clickllm_core` wheel lands, and a
-          # `twine upload dist/*` would happily push whatever else it found there.
-          rm -rf dist-pypi
-          pipx run build --outdir dist-pypi
-          ls -l dist-pypi/
-
-      - name: Publish to PyPI
-        if: steps.pypi.outputs.present == 'true'
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          # --skip-existing keeps the workflow idempotent: re-running a release
-          # must not fail on the version it already uploaded.
-          pipx run twine upload --non-interactive --skip-existing dist-pypi/*
-          {
-            printf '## Published to PyPI\n\n'
-            printf '`pip install clickllm` now resolves at %s.\n\n' "$VERSION"
-            printf 'Add `clickllm` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py`, '
-            printf 'then the docs may use bare-name install commands again.\n'
-          } >>"$GITHUB_STEP_SUMMARY"
-
-      - name: Say so when the release was NOT published to PyPI
-        if: steps.pypi.outputs.present != 'true'
-        run: |
-          {
-            printf '## ⚠️ NOT published to PyPI\n\n'
-            printf 'A GitHub Release was cut, and that is all. **`pip install clickllm` still 404s.**\n\n'
-            printf 'Reason: `PYPI_API_TOKEN` is not set on this repository.\n\n'
-            printf 'Until it is, the only working install is the git ref:\n\n'
-            printf '```\nuvx --from git+https://github.com/%s clickllm fit\n```\n\n' "$GITHUB_REPOSITORY"
-            printf 'This is not a publish that found nothing to do — it is the absence of one.\n'
-          } >>"$GITHUB_STEP_SUMMARY"
-          echo "::warning::PYPI_API_TOKEN is not set — this release was NOT published to PyPI; pip install clickllm still fails"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pypi-dist
+          path: dist-pypi/
 
       - name: Open the Homebrew formula-bump PR
         env:
@@ -205,9 +167,8 @@ jobs:
             --body "Automated formula bump for **$VERSION** (url + tarball \`sha256 $sha\`). Auto-merges once checks pass, so \`brew install\` never lags a release." \
             || gh pr edit "$branch" --body "Automated formula bump for $VERSION (sha256 $sha)." || true
           # Close the loop: land the bump automatically once required checks pass, so a
-          # forgotten manual merge can't leave brew on a stale release (the reason we
-          # were pinned to v0.20.0). Tolerant — if the repo hasn't enabled auto-merge,
-          # the CI drift guard on main still flags the staleness loudly.
+          # forgotten manual merge can't leave brew on a stale release. Tolerant — if the
+          # repo hasn't enabled auto-merge, the CI drift guard on main still flags it.
           # NOTE: if branch protection requires the `ci` check, that check must be able
           # to run on this bot-authored PR — pushes made with the default GITHUB_TOKEN
           # don't trigger `on: pull_request`, so use a PAT (secrets.RELEASE_PAT) for the
@@ -221,7 +182,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          # Users install via `brew install dshakes/tap/compass`, which reads the shared
+          # Users install via `brew install dshakes/tap/clickllm`, which reads the shared
           # tap repo — so each release must push the bumped formula there too. Cross-repo
           # write needs a PAT (the default GITHUB_TOKEN is scoped to this repo only).
           formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
@@ -233,11 +194,96 @@ jobs:
           tmp="$(mktemp -d)"
           git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
           mkdir -p "$tmp/tap/Formula"
-          cp "$formula" "$tmp/tap/Formula/compass.rb"
+          # Copy under THIS project's formula name. The tap is shared with other projects,
+          # so a hardcoded name carried over from whichever repo this workflow was copied
+          # from would overwrite a different tool's formula on every clickllm release.
+          cp "$formula" "$tmp/tap/Formula/$(basename "$formula")"
           cd "$tmp/tap"
           if git diff --quiet; then echo "tap already current for $VERSION"; exit 0; fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -aqm "compass $VERSION"
+          git commit -aqm "clickllm $VERSION"
           git push
-          echo "synced compass $VERSION into dshakes/homebrew-tap"
+          echo "synced clickllm $VERSION into dshakes/homebrew-tap"
+
+  # Split out so `id-token: write` — the credential that can publish to PyPI as us — is
+  # held by a job that does nothing but download an artifact and upload it. `build` never
+  # sees it. Job-level `permissions` replaces the workflow default rather than merging,
+  # so this job also has no write access to the repo.
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/clickllm-cli
+    permissions:
+      id-token: write   # OIDC — trusted publishing, no API token/secret stored
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: pypi-dist
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # release/v1
+        with:
+          # Keeps a re-run idempotent; it must never fail on a version already up. The
+          # cost is that it also cannot tell you it published nothing — which is why the
+          # tag/version gate runs in `build`, and why the step below re-reads PyPI.
+          skip-existing: true
+          # PEP 740 Sigstore attestations. Recent action versions default this on, but
+          # 1.30.0 published with attestations=NO and provenance=none, so the default
+          # cannot be relied on — request it explicitly and verify it below.
+          attestations: true
+
+      # `skip-existing` means a green publish step is not evidence anything was published,
+      # and a first release is exactly when the trusted-publisher config is least proven.
+      # Ask PyPI what it actually holds for this version.
+      - name: Verify PyPI recorded the release and its attestations
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.num }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_VERSION}"
+          echo "checking clickllm-cli ${VERSION} on PyPI"
+          FILES="import json,sys; print(' '.join(u['filename'] for u in json.load(sys.stdin)['urls']))"
+          COUNT="import json,sys; print(len(json.load(sys.stdin).get('attestation_bundles') or []))"
+          for attempt in 1 2 3 4 5; do
+            sleep $((attempt * 10))   # PyPI indexes attestations a moment after upload
+            RESP="$(curl -fsSL "https://pypi.org/pypi/clickllm-cli/${VERSION}/json")" || continue
+            MISSING=""
+            # Ask the integrity API, not the JSON API: PyPI does NOT populate an
+            # "attestations" field on /pypi/<pkg>/<ver>/json, so checking it there reports
+            # a false negative even when the bundle exists.
+            for FN in $(printf '%s' "$RESP" | python3 -c "$FILES"); do
+              N="$(curl -fsSL "https://pypi.org/integrity/clickllm-cli/${VERSION}/${FN}/provenance" 2>/dev/null | python3 -c "$COUNT" 2>/dev/null || echo 0)"
+              [ "${N:-0}" -ge 1 ] || MISSING="$MISSING $FN"
+            done
+            if [ -z "$MISSING" ]; then
+              echo "all artifacts present and attested"
+              exit 0
+            fi
+            echo "attempt ${attempt}: still missing attestations on —${MISSING}"
+          done
+          echo "::error::PyPI does not report clickllm-cli ${VERSION} with PEP 740 attestations. Either the upload never landed (skip-existing hides that) or the publish failed to attest."
+          exit 1
+
+      - name: Say what was published
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          {
+            printf '## Published to PyPI\n\n'
+            printf '`pip install clickllm-cli` resolves at %s, and installs the `clickllm` command.\n\n' "$VERSION"
+            printf 'Add `clickllm-cli` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py` '
+            printf 'so the docs may use bare-name install commands again.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+# ── PyPI trusted publishing setup (one-time, on pypi.org) ──────────────────────
+# PyPI → Your projects → Publishing → Add a new pending publisher. All four must
+# match this file exactly or the OIDC claim is rejected:
+#   PyPI Project Name : clickllm-cli
+#   Owner             : dshakes
+#   Repository        : clickllm
+#   Workflow name     : release.yml
+#   Environment       : pypi
+# No API token is ever stored — auth is OIDC, scoped to the publish-pypi job.
