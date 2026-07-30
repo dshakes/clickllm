@@ -1,5 +1,5 @@
 [project]
-name = "clickllm"
+name = "clickllm-cli"
 version = "0.1.0"
 description = "Prove which open model can replace your closed one — on your traffic, your hardware, your budget."
 requires-python = ">=3.11"
