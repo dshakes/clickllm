@@ -139,13 +139,15 @@ def test_every_generated_flag_is_one_the_installed_engine_accepts(engine: str):
     day an engine renames a flag underneath us — which is how the last two got
     found, months after they shipped.
     """
-    from clickllm.engines import installed_flags, unknown_flags
+    from clickllm.engines import _installed_flags_detail, unknown_flags
 
     adapter = adapter_for(engine)
     assert adapter is not None, engine
 
-    if installed_flags(adapter) is None:
-        why = f"{engine} could not be interrogated: `{' '.join(adapter.help_argv)}` did not run"
+    flags, reason = _installed_flags_detail(adapter)
+    if flags is None:
+        asked = " ".join(adapter.help_argv)
+        why = f"{engine} could not be interrogated: `{asked}` did not run — {reason}"
         if os.environ.get(REQUIRE):
             pytest.fail(
                 f"{why}. {REQUIRE} is set, so this is a failure rather than a skip: "
