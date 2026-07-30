@@ -1,0 +1,105 @@
+# Deep review — point a reviewer at a FILE, not a diff.
+#
+# `sdlc-review`, `sdlc-audit` and `sdlc-audit-gemini` are all `pull_request`-only,
+# so they can only ever see a change. Code that is already on `main` is
+# unreachable by any of them, and the only way to get it read was to manufacture
+# a diff — editing a docstring so a reviewer would look at the file underneath.
+#
+# That gap is why five modules totalling ~4,000 lines merged with no human or
+# agent having read them end to end. The PR reviewer found a real defect in seven
+# consecutive PRs on this repo, so the reviewing works; what was missing was any
+# way to aim it.
+#
+# This is that way: dispatch it at a path and it reviews the file as it stands.
+name: "deep review (on demand)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "File to review, e.g. src/clickllm/host.py"
+        required: true
+      focus:
+        description: "Optional: what to weight (money, data loss, concurrency…)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write # the findings are filed as an issue, not a PR comment
+  id-token: write
+
+concurrency:
+  group: deep-review-${{ github.event.inputs.path }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: the file must exist before a reviewer is paid to look for it
+        env:
+          TARGET: ${{ github.event.inputs.path }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TARGET" ]; then
+            echo "::error::$TARGET does not exist. A review of nothing would still cost a run and still report clean."
+            exit 1
+          fi
+          printf 'reviewing %s — %s lines\n' "$TARGET" "$(wc -l <"$TARGET")"
+
+      - name: review
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are **Deep Reviewer**. Review the FILE at
+            `${{ github.event.inputs.path }}` as it currently stands — this is not
+            a diff review, and nothing about this file is presumed already read.
+            ${{ github.event.inputs.focus && format('Weight your attention toward: {0}.', github.event.inputs.focus) || '' }}
+
+            This is a defect hunt, not a style pass. A reviewer found a real,
+            confirmed defect in SEVEN consecutive PRs on this repo, every one
+            invisible to a green test suite. The shape is consistent:
+
+            - a returned error, gap or refusal DROPPED by its caller (`_gaps`
+              destructured and discarded → an artifact claimed a fit it had not
+              configured → OOM under a header saying it fit)
+            - output CLAIMING something the code does not configure
+            - arithmetic wrong in the direction that flatters — understated cost,
+              overstated throughput, a denominator that quietly shrank
+            - a failure path that only runs on the SECOND use, on a fork, or when
+              one of two endpoints fails (`collections[0].failures[0]` → IndexError
+              on exactly the path the error message existed for)
+            - a float where an int was needed (`2.0**n` → OverflowError at n≥1024,
+              on precisely the large inputs the function existed to handle)
+            - a test that CANNOT fail: asserting a literal, comparing a value to
+              itself, or a stub that behaves as assumed rather than as the real
+              thing does
+
+            Read the file's own tests too, and say plainly if any of them cannot
+            fail. That finding is worth more than a style note.
+
+            Report findings most-severe first. For each: line number, a
+            one-sentence statement of the defect, and a CONCRETE failure scenario
+            (inputs → wrong behaviour or lost data). Mark CONFIRMED (you traced
+            it) versus PLAUSIBLE (looks wrong, unproven). Then state explicitly
+            what you checked and found clean — that is as useful as the findings,
+            because it says what has actually been read.
+
+            The repo's invariants are in CLAUDE.md. Read it first.
+
+            Post your findings as a GitHub issue titled
+            "deep review: ${{ github.event.inputs.path }}", labelled `agent:review`.
+            If you find nothing, say so in the issue — an unreviewed file and a
+            reviewed-clean file must never look the same from the outside, which
+            is the whole reason this workflow exists.
+          claude_args: |
+            --model sonnet
+            --max-turns 60
+            --max-budget-usd 3.00
+            --allowedTools "Read,Grep,Glob,Bash(gh issue create:*),Bash(git log:*)"
