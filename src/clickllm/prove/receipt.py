@@ -47,7 +47,7 @@ from clickllm.prove.equivalence import (
     ClusterScore,
 )
 from clickllm.prove.graders import EvalItem
-from clickllm.prove.judge import Agreement
+from clickllm.prove.judge import Agreement, Calibration
 
 __all__ = [
     "FORMAT",
@@ -105,6 +105,11 @@ class Claim:
     #: Items that could not be graded at all. Disclosed rather than dropped from
     #: the denominator, which is the usual way a pass rate gets flattered.
     ungraded: int = 0
+    #: Graded items this cluster would need to clear the bar at its observed rate.
+    #: `None` on a cluster that already cleared it, or on one whose rate is at or
+    #: below the bar — where the answer is a better candidate, not a bigger eval
+    #: set. Carried in the file so "not proven" arrives with its price attached.
+    needed: int | None = None
 
     @property
     def point(self) -> float | None:
@@ -115,10 +120,13 @@ class Claim:
         """`94% [91–96] over 120 items`, or `?` when unknown."""
         if self.total == 0:
             return "?"
-        return f"{self.point:.0%} [{self.low:.0%}–{self.high:.0%}] over {self.total} items"
+        out = f"{self.point:.0%} [{self.low:.0%}–{self.high:.0%}] over {self.total} items"
+        if self.needed is not None:
+            out += f" — needs {self.needed} to clear the bar at this rate"
+        return out
 
     @classmethod
-    def of(cls, s: ClusterScore) -> Claim:
+    def of(cls, s: ClusterScore, bar: float = DEFAULT_EQUIVALENCE_BAR) -> Claim:
         """Build from a scored cluster."""
         return cls(
             cluster=s.cluster,
@@ -129,6 +137,7 @@ class Claim:
             low=s.interval.low,
             high=s.interval.high,
             ungraded=s.ungraded,
+            needed=None if s.band(bar) == "equivalent" else s.needed(bar),
         )
 
 
@@ -165,6 +174,10 @@ class Receipt:
     judge_model: str | None = None
     judge_agreement: str | None = None
     judge_trustworthy: bool | None = None
+    #: How often the judge reproduced the deterministic graders on items scored
+    #: both ways. Falls out of the run itself, unlike `judge_agreement`, which
+    #: needs a human — so this one is usually the only calibration a reader gets.
+    judge_calibration: str | None = None
     #: What redaction removed, by kind. Evidence the eval set is safe to share.
     redacted: dict[str, int] = field(default_factory=dict)
     #: Model fingerprints this was issued against, so a silent provider-side
@@ -254,10 +267,15 @@ class Receipt:
         if not self.complete:
             out.append(f"Coverage: incomplete — {len(self.unproven)} cluster(s) unresolved")
         if self.judge_model:
-            trust = "" if self.judge_trustworthy else "   NOT TRUSTWORTHY"
-            # `Agreement.render()` already names the model; repeating it here
-            # produced "Judge: X, agreement judge: X ...".
-            out.append(f"{self.judge_agreement}{trust}")
+            if self.judge_agreement:
+                trust = "" if self.judge_trustworthy else "   NOT TRUSTWORTHY"
+                # `Agreement.render()` already names the model; repeating it here
+                # produced "Judge: X, agreement judge: X ...".
+                out.append(f"{self.judge_agreement}{trust}")
+            else:
+                out.append(f"Judge: {self.judge_model} · human agreement UNMEASURED")
+            if self.judge_calibration:
+                out.append(self.judge_calibration)
         else:
             out.append("Judge: none used — every claim is from deterministic graders")
         if self.traffic_captures:
@@ -279,6 +297,7 @@ def issue(
     *,
     bar: float = DEFAULT_EQUIVALENCE_BAR,
     agreement: Agreement | None = None,
+    calibration: Calibration | None = None,
     traffic_captures: int = 0,
     traffic_window: str = "",
     redacted: dict[str, int] | None = None,
@@ -293,7 +312,7 @@ def issue(
     """
     proven, regret, unproven = [], [], []
     for s in report.clusters:
-        claim = Claim.of(s)
+        claim = Claim.of(s, bar)
         band = s.band(bar)
         if band == "equivalent":
             proven.append(claim)
@@ -313,9 +332,14 @@ def issue(
         unproven=tuple(unproven),
         traffic_captures=traffic_captures,
         traffic_window=traffic_window,
-        judge_model=agreement.model if agreement else None,
+        # A judge used without a human-agreement sample still has to be disclosed:
+        # taking the name from `agreement` alone made a run that used one report
+        # "Judge: none used — every claim is from deterministic graders".
+        judge_model=(agreement.model if agreement else None)
+        or (calibration.model if calibration else None),
         judge_agreement=agreement.render() if agreement else None,
         judge_trustworthy=agreement.trustworthy if agreement else None,
+        judge_calibration=calibration.render() if calibration else None,
         redacted=dict(redacted or {}),
         fingerprints=dict(fingerprints or {}),
         tool_version=tool_version,

@@ -1053,12 +1053,67 @@ def cmd_kernel(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_version(args: argparse.Namespace) -> int:
+    """`clickllm version`. Prints what is installed, and where it came from.
+
+    The distribution and the command differ — PyPI refused `clickllm` as too
+    similar to the existing `click-llm` — and someone reading a bug report needs
+    to know which package to ask about, so both names are printed.
+    """
+    from . import __version__
+
+    print(f"clickllm {__version__}")
+    print("  distribution  clickllm-cli")
+    print(f"  python        {sys.version.split()[0]}")
+    return 0
+
+
+def cmd_upgrade(args: argparse.Namespace) -> int:
+    """`clickllm upgrade`. Prints how to upgrade; does not do it.
+
+    Deliberately not self-updating. clickllm may be installed by uv, pipx or
+    pip, into a tool environment this process cannot see, and a command that
+    guesses wrong either fails confusingly or upgrades a different copy from the
+    one the user is running. Detecting the installer and naming the exact command
+    is honest and cannot corrupt anything.
+    """
+    from . import __version__
+
+    print(f"clickllm {__version__} (clickllm-cli)")
+    print()
+    print("  Upgrade with whichever installed it:")
+    print("    uv tool upgrade clickllm-cli")
+    print("    pipx upgrade clickllm-cli")
+    print("    python3 -m pip install --upgrade clickllm-cli")
+    print()
+    print("  Running it once, without installing:")
+    print("    uvx --from clickllm-cli clickllm fit")
+    print()
+    print("  This prints the commands rather than running one: clickllm cannot")
+    print("  see which tool owns its environment, and upgrading the wrong copy")
+    print("  is worse than telling you.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    from . import __version__
+
     p = argparse.ArgumentParser(
         prog="clickllm",
         description="Run open models properly on your own hardware — and prove they hold.",
     )
+    # Both spellings. `--version` is the convention; `clickllm version` is what
+    # people actually type, and answering it with an argparse error over a list
+    # of twenty subcommands is a bad first minute after installing.
+    p.add_argument(
+        "--version",
+        "-V",
+        action="version",
+        version=f"clickllm {__version__} (clickllm-cli)",
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("version", help="print the installed version").set_defaults(fn=cmd_version)
+    sub.add_parser("upgrade", help="how to upgrade this install").set_defaults(fn=cmd_upgrade)
 
     f = sub.add_parser("fit", help="what runs on this machine")
     f.add_argument("--context", default="32k", help="context length, e.g. 8k, 32k, 128000")

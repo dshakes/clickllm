@@ -22,7 +22,7 @@ from clickllm.prove.gate import (
     read_cluster,
 )
 from clickllm.prove.graders import EvalItem, ItemResult, Outcome, Score, Tier, grade
-from clickllm.prove.judge import Agreement
+from clickllm.prove.judge import Agreement, Calibration
 from clickllm.prove.stats import wilson
 
 BAR = DEFAULT_EQUIVALENCE_BAR
@@ -34,6 +34,8 @@ def reading(name="c", passed=40, total=40, *, judge=False, share=1.0) -> Reading
         judge_only=judge,
     )
 
+
+CALIBRATED = Calibration(agreed=19, total=20, model="claude-opus-5")
 
 SHADOW = Stage("shadow", 0)
 CANARY = Stage("canary", 25)
@@ -137,9 +139,57 @@ def test_judge_only_evidence_can_block_but_never_advance():
     blocked = decide([reading(judge=True)], SHADOW)
     assert blocked.action is Action.HOLD and "judge alone" in blocked.reason
 
-    # ...but the same judge may still stop a migration.
-    stopped = decide([reading(passed=2, total=40, judge=True)], CANARY, health=HEALTHY)
+    # ...but the same judge may still stop a migration, once it has been measured
+    # against the deterministic graders. See the calibration test below for what
+    # happens when it has not.
+    stopped = decide(
+        [reading(passed=2, total=40, judge=True)],
+        CANARY,
+        health=HEALTHY,
+        calibration=CALIBRATED,
+    )
     assert stopped.action is Action.ROLL_BACK
+
+
+def test_an_uncalibrated_judge_cannot_veto_on_its_own():
+    """The instrument has to be measured before it gets to stop anything.
+
+    A judge that fails work the graders demonstrably passed would roll back a
+    healthy migration on its own opinion, repeatedly, until the operator learned
+    to ignore the alarm. The evidence is not discarded — it produces a HOLD that
+    names what is missing, which is the difference between a gate and a shrug.
+    """
+    for calibration in (
+        None,  # never measured
+        Calibration(agreed=9, total=9, model="j"),  # perfect, but too few items
+        Calibration(agreed=6, total=12, model="j"),  # measured, and bad at it
+    ):
+        d = decide(
+            [reading(passed=2, total=40, judge=True)],
+            CANARY,
+            health=HEALTHY,
+            calibration=calibration,
+        )
+        assert d.action is Action.HOLD, f"{calibration}: {d.render()}"
+        assert "unmeasured instrument" in d.reason, d.reason
+        assert "calibrate the judge" in d.reason, d.reason
+
+
+def test_one_deterministic_trigger_is_enough_to_roll_back():
+    """A judge alongside a grader is corroborating, not deciding — so the
+    calibration floor must not hold up a rollback the graders asked for."""
+    d = decide(
+        [reading("summarise", passed=2, total=40, judge=True), reading("classify", 2, 40)],
+        CANARY,
+        health=HEALTHY,
+    )
+    assert d.action is Action.ROLL_BACK and d.automatic, d.render()
+
+
+def test_a_calibrated_judge_still_cannot_advance_anything():
+    """The invariant that survives the whole calibration story."""
+    d = decide([reading(passed=40, total=40, judge=True)], SHADOW, calibration=CALIBRATED)
+    assert d.action is Action.HOLD and "judge alone" in d.reason, d.render()
 
 
 def test_an_untrustworthy_judge_blocks_advancing():

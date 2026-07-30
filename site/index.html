@@ -438,7 +438,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">875</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">913</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>
@@ -713,14 +713,16 @@
     leaves your machine — captured traffic is the most sensitive data you have, and export is
     an explicit command, never a background sync.</p>
 
-  <div class="note"><p><b>clickllm is not on PyPI yet.</b> There is no published
-    package, so <code>pip install clickllm</code>, <code>pipx install clickllm</code> and
-    <code>brew install</code> all fail. Both commands below build it from the git ref,
-    which is how you run it today. The Homebrew and pip tabs used to be here; they were
-    advertising something that did not exist.</p></div>
+  <div class="note"><p><b>The package is <code>clickllm-cli</code>; the command is
+    <code>clickllm</code>.</b> PyPI refused the bare name as too similar to the existing
+    <code>click-llm</code>, so <code>pip install clickllm</code> and
+    <code>uvx clickllm</code> both fail — the <code>--from</code> is not optional. There is
+    no Homebrew tab because there is no clickllm formula in the tap; a tab advertising one
+    would be the same defect as before.</p></div>
 
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-t="uvx">uvx</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="pip">pip / pipx</button>
     <button class="tab" role="tab" aria-selected="false" data-t="git">git clone</button>
   </div>
   <div id="cmds"></div>
@@ -741,12 +743,15 @@
 
 <script>
 const CMDS = {
-  // Every entry must be runnable. `pip`/`pipx`/`brew` tabs lived here for months
-  // naming a package that has never been published — see tests/test_docs_lab.py.
-  uvx:  [['uvx --from git+https://github.com/dshakes/clickllm clickllm fit --context 32k --concurrency 8',
+  // Every entry must be runnable. A `brew` tab lived here for months naming a
+  // formula that does not exist — see tests/test_docs_lab.py. The distribution is
+  // clickllm-cli and the command is clickllm; dropping the --from breaks the line.
+  uvx:  [['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
           'size what runs on this machine — nothing cloned, nothing installed'],
-         ['uv tool install --from git+https://github.com/dshakes/clickllm clickllm',
-          'or put clickllm on your PATH']],
+         ['uv tool install clickllm-cli',
+          'or put the clickllm command on your PATH']],
+  pip:  [['pip install clickllm-cli', 'gives you the clickllm command; needs Python 3.11+'],
+         ['pipx install clickllm-cli', 'or isolated from your other packages']],
   git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
          ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
 };

@@ -713,3 +713,44 @@ def test_a_precision_label_is_never_emitted_as_a_quantisation_method():
         ok = adapter.translate(Setting.QUANTIZATION, "fp8")
         assert not isinstance(ok, Unsupported)
         assert ok.argv == ("--quantization", "fp8")
+
+
+def test_the_cli_can_say_what_version_it_is():
+    """A published CLI with no `--version` is not shippable — it is the first
+    thing anyone runs after installing, and `clickllm version` answered with an
+    argparse error over a list of twenty subcommands.
+
+    Three spellings because people reach for all three, and the cost of guessing
+    wrong is a bad first minute.
+    """
+    import clickllm
+
+    assert clickllm.__version__ and clickllm.__version__ != "unknown"
+
+    for argv in (["--version"], ["-V"]):
+        with pytest.raises(SystemExit) as e:
+            cli.main(argv)
+        assert e.value.code == 0, argv
+
+    assert cli.main(["version"]) == 0
+
+
+def test_the_reported_version_is_the_packaged_one():
+    """A version that drifts from pyproject is worse than none: it is what goes
+    into a bug report."""
+    import re
+    from pathlib import Path
+
+    import clickllm
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.M)
+    assert m and clickllm.__version__ == m.group(1)
+
+
+def test_upgrade_tells_you_how_rather_than_guessing():
+    """clickllm may be installed by uv, pipx or pip, into a tool environment this
+    process cannot see. A self-upgrade that guesses either fails confusingly or
+    upgrades a different copy than the one running. Naming the commands is the
+    honest answer and cannot corrupt anything."""
+    assert cli.main(["upgrade"]) == 0

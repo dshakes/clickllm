@@ -156,6 +156,11 @@ __all__ = [
 #: changelog because the flags drift and the next person needs to know what to
 #: re-check rather than what to trust.
 SOURCES = {
+    # Docs only. `vllm serve --help` initialises hardware before printing, so
+    # it cannot be interrogated on a GPU-less CI runner — the flags below are
+    # NOT verified against the binary the way MLX's are. Run
+    # `CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py -k vllm`
+    # on a GPU box to close that gap.
     "vllm": "https://docs.vllm.ai/en/stable/configuration/engine_args.html (checked 2026-07-27)",
     "sglang": "https://docs.sglang.io/advanced_features/server_arguments.html (checked 2026-07-27)",
     # Not a docs page. `mlx_lm.server --help` on the installed wheel, which is the
@@ -619,8 +624,21 @@ def installed_flags(adapter: Adapter, *, timeout: float = 120.0) -> frozenset[st
     not run. That is deliberately distinct from an empty set, which would mean
     "asked, and it accepts nothing", and would fail every command.
     """
+    return _installed_flags_detail(adapter, timeout=timeout)[0]
+
+
+def _installed_flags_detail(
+    adapter: Adapter, *, timeout: float = 120.0
+) -> tuple[frozenset[str] | None, str]:
+    """As [`installed_flags`], plus WHY when the answer is None.
+
+    The reason was being discarded, and three separate causes then looked
+    identical from the outside: a missing binary, a console script that is not
+    on PATH, and an engine that imports but whose CLI needs hardware. Diagnosing
+    the third by guessing cost two CI rounds. The caller can now print it.
+    """
     if not adapter.help_argv:
-        return None
+        return None, "no help_argv is declared for this adapter"
     try:
         r = subprocess.run(  # noqa: S603 - argv from this module, never user input
             adapter.help_argv,
@@ -628,11 +646,22 @@ def installed_flags(adapter: Adapter, *, timeout: float = 120.0) -> frozenset[st
             text=True,
             timeout=timeout,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except FileNotFoundError:
+        return None, f"{adapter.help_argv[0]!r} is not on PATH"
+    except subprocess.TimeoutExpired:
+        return None, f"`{' '.join(adapter.help_argv)}` timed out after {timeout:.0f}s"
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f"{type(e).__name__}: {e}"
     # argparse writes usage to stdout for --help; take stderr too so an engine
     # that routes it differently is not read as declaring nothing.
-    return frozenset(re.findall(r"--[a-z0-9][a-z0-9-]*", f"{r.stdout}\n{r.stderr}")) or None
+    flags = frozenset(re.findall(r"--[a-z0-9][a-z0-9-]*", f"{r.stdout}\n{r.stderr}"))
+    if flags:
+        return flags, ""
+    tail = (r.stderr or r.stdout or "").strip().splitlines()
+    return None, (
+        f"exit {r.returncode}, and no flags in its output"
+        + (f" — last line: {tail[-1][:200]!r}" if tail else " (it printed nothing)")
+    )
 
 
 def unknown_flags(adapter: Adapter, argv: Sequence[str]) -> list[str] | None:

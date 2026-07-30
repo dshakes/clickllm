@@ -1,0 +1,118 @@
+# Do the flags we generate exist?
+#
+# `engines.py` cites a docs URL for every flag it emits. That was not enough
+# twice: `--speculative-config eagle3` and `--quantization q4` both passed the
+# whole suite and could not start a server. MLX never had that problem, because
+# MLX is the one engine that installs on the author's Mac and `installed_flags`
+# reads `--help` off the real binary.
+#
+# So this job is the Mac's missing half: a Linux runner where vLLM and SGLang
+# actually install, asked the same question. No GPU is needed — an argument
+# parser has opinions about flag names without one.
+#
+# It runs weekly as well as on the PRs that can break it. Engine flags drift
+# underneath us on the engines' release schedule, not ours, and a weekly red
+# tick is how we find out before a user runs the command we handed them.
+name: engine-flags
+
+on:
+  pull_request:
+    paths:
+      - src/clickllm/engines.py
+      - src/clickllm/plan.py
+      - src/clickllm/box.py
+      - src/clickllm/host.py
+      - src/clickllm/launch.py
+      - src/clickllm/models.json
+      - tests/test_engine_flags.py
+      - .github/workflows/engine-flags.yml
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flags:
+    strategy:
+      fail-fast: false
+      matrix:
+        # One engine per runner, not both on one. They pin different torch
+        # versions, so a shared environment resolves to something neither
+        # engine ships with — and each brings several GB of CUDA wheels, which
+        # a single runner's disk does not comfortably hold twice.
+        #
+        # SGLang is here on the expectation that its CPU import works; that has
+        # not been confirmed on a driver-less runner. If it turns out it cannot
+        # be interrogated, this job goes RED and says which step failed, which
+        # is the honest outcome. Removing the entry then is a one-line change —
+        # made deliberately, with the reason in the log, rather than by never
+        # having asked.
+        include:
+          # Run each engine inside its OWN published image. `pip install vllm` on
+          # a bare runner resolved and then could not answer `vllm serve --help`
+          # — the job went red saying exactly that, which was correct and also
+          # unfixable by pinning wheels. The vendors already ship an image where
+          # the binary works; using it makes the check answerable rather than
+          # making the failure quieter.
+          # vLLM is NOT here, and that is a finding rather than an omission.
+          # `vllm serve --help` initialises hardware before printing anything and
+          # dies on a GPU-less runner:
+          #
+          #   RuntimeError: Failed to infer device type
+          #
+          # So its flags cannot be checked without a GPU, at any price of CI
+          # plumbing — three rounds went into proving that, and the reason is
+          # recorded here so a fourth does not. To check them, run on a machine
+          # with a GPU:
+          #
+          #   CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py -k vllm
+          #
+          # `tests/test_engine_flags.py` still parametrises vllm, so anyone with
+          # the hardware gets the check for free and everyone else gets a skip
+          # that names the reason. What is NOT claimed anywhere is that vLLM's
+          # flags have been verified against the binary. They have not.
+          - engine: sglang
+            image: lmsysorg/sglang:latest
+    runs-on: ubuntu-latest
+    # NOT `container:`. Running the job inside the engine's image put
+    # `actions/checkout` in there too, and a JS action needs a Node the vendor
+    # images do not ship — it exited 127 before the engine was ever reached.
+    #
+    # Checkout belongs on the runner; only the interrogation needs the image. So
+    # the repo is mounted into `docker run` for one command. The engine is still
+    # the real binary in the environment its vendor publishes; what changed is
+    # that GitHub's tooling is no longer expected to run in there too.
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: ask ${{ matrix.engine }} for its own flags, inside its own image
+        # No `|| true`, no `continue-on-error`. CLICKLLM_REQUIRE_ENGINES=1 makes
+        # "could not be interrogated" a failure: an engine that cannot be asked
+        # has not been checked, and a green tick over an unasked question is the
+        # single thing this job exists to prevent.
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            -e PYTHONPATH=src \
+            -e CLICKLLM_REQUIRE_ENGINES=1 \
+            --entrypoint bash \
+            "${{ matrix.image }}" -lc '
+              set -euo pipefail
+              python3 -m pip install --quiet --root-user-action=ignore pytest \
+                || python3 -m pip install --quiet --break-system-packages pytest
+              python3 - <<PY
+          import sys, importlib.util as u
+          print("python  ", sys.executable)
+          print("engine  ", "present" if u.find_spec("${{ matrix.engine }}") else "MISSING")
+          print("pytest  ", "present" if u.find_spec("pytest") else "MISSING")
+          PY
+              # The node id is spelled out rather than filtered with -k: a renamed
+              # test then exits non-zero on a missing id instead of quietly
+              # selecting nothing and reporting success.
+              python3 -m pytest -v \
+                "tests/test_engine_flags.py::test_every_generated_flag_is_one_the_installed_engine_accepts[${{ matrix.engine }}]"
+            '

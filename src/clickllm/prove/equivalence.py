@@ -24,8 +24,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .graders import ItemResult
-from .judge import Agreement
-from .stats import Interval, wilson
+from .judge import Agreement, Calibration
+from .stats import (
+    Difference,
+    Interval,
+    McNemar,
+    difference,
+    family_wise_z,
+    mcnemar,
+    samples_needed,
+    weighted_posterior,
+    wilson,
+)
 
 #: A cluster whose whole interval sits below this is *regret*: keep the incumbent.
 DEFAULT_EQUIVALENCE_BAR = 0.90
@@ -40,6 +50,11 @@ class ClusterScore:
     share: float
     interval: Interval
     ungraded: int
+    #: Per-item verdicts, `(item_id, passed)`. Carried so two candidates over the
+    #: same eval set can be compared *paired* — which items each one won, rather
+    #: than two independent rates that throw the pairing away. Empty for a score
+    #: built by hand rather than from results.
+    outcomes: tuple[tuple[str, bool], ...] = ()
 
     @property
     def known(self) -> bool:
@@ -59,6 +74,32 @@ class ClusterScore:
     def render_cell(self) -> str:
         return "?" if not self.known else self.interval.render()
 
+    def needed(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> int | None:
+        """Graded items this cluster would need to clear ``bar``, at its own rate.
+
+        ``None`` means no sample size fixes it: either nothing has been measured,
+        or the observed rate is at or below the bar, and the answer is a better
+        candidate rather than a bigger eval set. See
+        [`samples_needed`][clickllm.prove.stats.samples_needed].
+        """
+        return samples_needed(self.interval.passed, self.interval.total, bar)
+
+    def render_need(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> str:
+        """One line telling the operator what would settle this cluster."""
+        if not self.known:
+            return f"{self.name}: nothing graded yet — no rate to project from"
+        n = self.needed(bar)
+        if n is None:
+            return (
+                f"{self.name}: {self.interval.render()} — the observed rate is at or "
+                f"below the {bar:.0%} bar; more items will not clear it"
+            )
+        return (
+            f"{self.name}: needs {n} graded items to clear the {bar:.0%} bar at its "
+            f"observed {self.interval.point:.0%} (has {self.interval.total}, "
+            f"{n - self.interval.total} to go)"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class CandidateReport:
@@ -77,6 +118,59 @@ class CandidateReport:
         if total_w <= 0:
             return None
         return sum(c.interval.point * c.share for c in usable) / total_w
+
+    def weighted_interval(self) -> Interval:
+        """The weighted score *with* its uncertainty, by simulation.
+
+        [`weighted_score`][clickllm.prove.equivalence.CandidateReport.weighted_score]
+        is a point estimate and the headline of the whole report, which is exactly
+        the kind of number this repo refuses to print bare. Wilson does not apply
+        to a weighted sum of proportions, so this simulates the sum instead — and
+        the method travels with the interval. See
+        [`weighted_posterior`][clickllm.prove.stats.weighted_posterior].
+        """
+        return weighted_posterior([(c.interval, c.share) for c in self.clusters])
+
+    def difference_against(self, other: CandidateReport) -> dict[str, Difference]:
+        """Per-cluster candidate-minus-other, with an interval on the difference.
+
+        Unpaired (Newcombe method 10). Use alongside
+        [`paired_against`][clickllm.prove.equivalence.CandidateReport.paired_against],
+        which is the sharper test when both were scored on the same items.
+        """
+        mine = {c.cluster: c for c in self.clusters}
+        return {
+            c.cluster: difference(
+                mine[c.cluster].interval.passed,
+                mine[c.cluster].interval.total,
+                c.interval.passed,
+                c.interval.total,
+            )
+            for c in other.clusters
+            if c.cluster in mine
+        }
+
+    def paired_against(self, other: CandidateReport) -> dict[str, McNemar]:
+        """Per-cluster McNemar over the items both candidates were graded on.
+
+        Only clusters where per-item outcomes survived on both sides appear;
+        a cluster scored from counts alone cannot be paired, and inventing a
+        pairing would be worse than declining to report one.
+        """
+        theirs = {c.cluster: dict(c.outcomes) for c in other.clusters if c.outcomes}
+        out: dict[str, McNemar] = {}
+        for c in self.clusters:
+            if not c.outcomes or c.cluster not in theirs:
+                continue
+            ref = theirs[c.cluster]
+            shared = [(ok, ref[i]) for i, ok in c.outcomes if i in ref]
+            if not shared:
+                continue
+            out[c.cluster] = mcnemar(
+                worse=sum(1 for mine, ref_ok in shared if not mine and ref_ok),
+                better=sum(1 for mine, ref_ok in shared if mine and not ref_ok),
+            )
+        return out
 
     def regret(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> tuple[ClusterScore, ...]:
         """Clusters where the candidate is *confidently* worse.
@@ -105,6 +199,10 @@ class HybridPolicy:
     unproven_clusters: tuple[str, ...]
     incumbent_cost: float | None
     candidate_cost: float | None
+    #: What each unproven cluster would need to settle, already worded — see
+    #: [`ClusterScore.render_need`][clickllm.prove.equivalence.ClusterScore.render_need].
+    #: "Gather more evidence" without a number is an instruction nobody can follow.
+    needs: tuple[str, ...] = ()
 
     @property
     def blended_cost(self) -> float | None:
@@ -127,9 +225,8 @@ class HybridPolicy:
         if self.regret_clusters:
             lines.append(f"  Keep the incumbent for: {', '.join(self.regret_clusters)}")
         if self.unproven_clusters:
-            lines.append(
-                f"  Not yet proven (gather more evidence): {', '.join(self.unproven_clusters)}"
-            )
+            lines.append(f"  Not yet proven: {', '.join(self.unproven_clusters)}")
+            lines += [f"    → {n}" for n in self.needs]
         s = self.monthly_saving
         if s is None:
             lines.append("  Saving: unknown — no cost rate configured")
@@ -148,6 +245,10 @@ class Matrix:
     incumbent: str = "incumbent"
     incumbent_cost: float | None = None
     bar: float = DEFAULT_EQUIVALENCE_BAR
+    #: Judge-vs-deterministic-grader agreement measured during this run. Present
+    #: whenever a judge was used, because a judge that was never checked against
+    #: anything is a claim, not a measurement.
+    calibration: Calibration | None = None
 
     @property
     def judge_trustworthy(self) -> bool:
@@ -169,6 +270,7 @@ class Matrix:
             unproven_clusters=tuple(c.name for c in candidate.unproven(self.bar)),
             incumbent_cost=self.incumbent_cost,
             candidate_cost=candidate.monthly_cost,
+            needs=tuple(c.render_need(self.bar) for c in candidate.unproven(self.bar)),
         )
 
     def render(self) -> str:
@@ -205,6 +307,8 @@ class Matrix:
             f"{self.incumbent + ' (incumbent)':<22}" + "".join(f"{'100%':>18}" for _ in clusters)
         )
 
+        out += self._render_statistics(best)
+
         # Provenance last, always present.
         out.append("")
         if self.agreement is None:
@@ -221,6 +325,8 @@ class Matrix:
             )
         else:
             out.append(self.agreement.render())
+        if self.calibration is not None:
+            out.append(self.calibration.render())
 
         thin = [c for c in clusters if c.interval.underpowered]
         if thin:
@@ -232,6 +338,75 @@ class Matrix:
                 f"⚠ {ung} items had no applicable grader and are excluded, not counted as passes"
             )
         return "\n".join(out)
+
+    def _render_statistics(self, best: CandidateReport | None) -> list[str]:
+        """The methods block: what estimator produced which number, and what is
+        still missing to settle the clusters that did not resolve.
+
+        Every line here names its method. A reader who cannot tell a Wilson
+        interval from a bootstrap one cannot audit the verdict, and a report they
+        cannot audit is a dashboard with extra steps.
+        """
+        if best is None:
+            return []
+        out = [""]
+
+        agg = best.weighted_interval()
+        if agg.total:
+            out.append(f"weighted verdict {agg.render()} — {agg.method}")
+            out.append(
+                "  per-cluster cells above are Wilson score intervals, 95%; the weighted "
+                "figure is a sum of proportions, which Wilson does not cover"
+            )
+
+        # Multiplicity, stated rather than left implicit.
+        scored = [c for c in best.clusters if c.known]
+        if scored:
+            z = family_wise_z(len(scored))
+            still = sum(
+                1
+                for c in scored
+                if wilson(c.interval.passed, c.interval.total, z).clearly_above(self.bar)
+            )
+            now = sum(1 for c in scored if c.band(self.bar) == "equivalent")
+            survives = (
+                "none of them clears it even unadjusted"
+                if now == 0
+                else f"{still} of the {now} that clear it would still clear it"
+            )
+            out.append(
+                f"multiplicity: {len(scored)} clusters scored against the same "
+                f"{self.bar:.0%} bar; the intervals above are UNADJUSTED. Under "
+                f"Bonferroni (α=0.05/{len(scored)}, z={z:.2f}), {survives}."
+            )
+
+        # Power, as an instruction rather than a shrug.
+        open_clusters = [c for c in best.clusters if c.band(self.bar) in ("unproven", "unknown")]
+        if open_clusters:
+            out.append("to settle the open clusters:")
+            out += [f"  · {c.render_need(self.bar)}" for c in open_clusters]
+
+        # Effect size only where a second arm actually exists. The incumbent
+        # column is not one: every grader measures agreement *with* it, so its
+        # 100% is a definition, not a measurement, and differencing against it
+        # would dress the candidate's own interval up as a comparison.
+        others = [c for c in self.candidates if c is not best]
+        for other in others:
+            diffs = best.difference_against(other)
+            paired = best.paired_against(other)
+            if not diffs:
+                continue
+            out.append(f"effect size, {best.model} − {other.model}:")
+            for key, d in diffs.items():
+                line = f"  · {key}: {d.render()}"
+                if key in paired:
+                    line += f" · paired: {paired[key].render()}"
+                out.append(line)
+            out.append(
+                f"  differences are {next(iter(diffs.values())).method}; paired counts "
+                f"are exact McNemar over the items both models were graded on"
+            )
+        return out
 
 
 def score_cluster(
@@ -254,6 +429,7 @@ def score_cluster(
         share=share,
         interval=wilson(passed, len(graded)),
         ungraded=len(results) - len(graded),
+        outcomes=tuple((r.item_id, r.passed) for r in graded),
     )
 
 
@@ -312,6 +488,44 @@ def demo() -> None:
     assert text.index("REGRET") < text.index("codegen"), "regret must come first"
     assert "gpt-5 (incumbent)" in text and "100%" in text
     assert "underpowered" in text or "no applicable grader" in text
+
+    # The headline number carries an interval, and names what produced it.
+    assert "weighted verdict" in text and "Jeffreys" in text, text
+    # Multiplicity is stated, never left for the reader to infer.
+    assert "UNADJUSTED" in text and "Bonferroni" in text, text
+
+    # An open cluster is told how much more evidence it needs. 3/3 is perfect and
+    # useless; 35 flawless items is what a 90% bar costs.
+    assert thin.needed() == 35, thin.needed()
+    assert "needs 35 graded items" in text, text
+    # ...and a cluster that is simply worse is not sent to gather more of it.
+    assert longctx.needed() is None
+    assert "will not clear it" in longctx.render_need()
+
+    # Effect size, where a second arm actually exists.
+    rival = CandidateReport(
+        "qwen3-32b",
+        (
+            score_cluster("c1", "codegen", 0.60, results("c1", 90, 10)),
+            score_cluster("c2", "long-ctx refactor", 0.15, results("c2", 30, 70)),
+            score_cluster("c3", "rare-json", 0.25, results("c3", 3, 0, n_ungraded=2)),
+        ),
+    )
+    d = cand.difference_against(rival)["c1"]
+    assert abs(d.point - 0.06) < 1e-9, d.render()
+    # 96% against 90% over 100 items each *looks* decisive and is not: the
+    # interval on the difference still contains zero. This is the entire reason
+    # the difference is reported instead of two pass rates side by side.
+    assert not d.significant, d.render()
+    assert cand.difference_against(rival)["c2"].point == 0.0, "a tie is a tie"
+    two = Matrix([cand, rival], incumbent="gpt-5").render()
+    assert "effect size, glm-5.2 − qwen3-32b" in two, two
+    assert "Newcombe" in two and "McNemar" in two, two
+
+    # The paired view sees what two independent rates cannot: these two agreed on
+    # every item they were both graded on, so there is nothing to separate them.
+    same = cand.paired_against(cand)
+    assert same["c1"].discordant == 0 and same["c1"].p_value == 1.0
 
     print(text)
     print()

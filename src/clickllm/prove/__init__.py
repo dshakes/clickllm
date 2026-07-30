@@ -54,19 +54,43 @@ from .equivalence import (
 )
 from .gate import Action, Decision, Health, Reading, Stage, decide, read_cluster
 from .graders import DEFAULT_GRADERS, EvalItem, Grader, ItemResult, Outcome, Score, Tier, grade
-from .judge import Agreement, Comparison, JudgeFn, JudgeResult, Reply, Verdict, judge_item
+from .judge import (
+    Agreement,
+    Calibration,
+    Comparison,
+    JudgeFn,
+    JudgeResult,
+    Reply,
+    Verdict,
+    calibrate,
+    judge_item,
+)
 from .receipt import Claim, Discrepancy, Receipt, eval_set_digest, issue, verify
-from .stats import Interval, pooled, weighted_point, wilson
+from .stats import (
+    Difference,
+    Interval,
+    McNemar,
+    difference,
+    family_wise_z,
+    mcnemar,
+    pooled,
+    samples_needed,
+    weighted_point,
+    weighted_posterior,
+    wilson,
+)
 
 __all__ = [
     "DEFAULT_EQUIVALENCE_BAR",
     "Action",
     "Agreement",
+    "Calibration",
     "CandidateReport",
     "Claim",
     "ClusterScore",
     "Comparison",
     "Decision",
+    "Difference",
     "Discrepancy",
     "EvalItem",
     "Grader",
@@ -77,6 +101,7 @@ __all__ = [
     "JudgeFn",
     "JudgeResult",
     "Matrix",
+    "McNemar",
     "Outcome",
     "Reading",
     "Receipt",
@@ -86,19 +111,25 @@ __all__ = [
     "SuiteResult",
     "Tier",
     "Verdict",
+    "calibrate",
     "decide",
+    "difference",
     "eval_set_digest",
+    "family_wise_z",
     "grade",
     "issue",
     "judge_item",
+    "mcnemar",
     "pooled",
     "read_cluster",
     "run",
+    "samples_needed",
     "score_cluster",
     "shares_from_clusters",
     "suite",
     "verify",
     "weighted_point",
+    "weighted_posterior",
     "wilson",
 ]
 
@@ -206,6 +237,14 @@ def run(
         incumbent=incumbent,
         incumbent_cost=incumbent_cost,
         bar=bar,
+        # Free, and the only calibration most runs will ever have: the items the
+        # judge and the deterministic graders both scored. Measured here rather
+        # than asked for, because a number the user typed is a claim.
+        calibration=(
+            calibrate([r for rs in by_cluster.values() for r in rs], judge_model)
+            if judge is not None
+            else None
+        ),
     )
 
 
@@ -283,6 +322,7 @@ def suite(
             eval_set=eval_set_digest(items),
             bar=bar,
             agreement=agreement,
+            calibration=matrix.calibration,
             traffic_captures=traffic_captures or len(items),
             traffic_window=traffic_window,
             redacted=redacted,

@@ -568,14 +568,17 @@ def test_every_command_the_docs_tell_you_to_run_exists(page):
 #: Names of OUR OWN distributions that have actually been published, anywhere a
 #: reader could install them from — PyPI, a Homebrew tap, a registry.
 #:
-#: Empty, and that is the true value. `https://pypi.org/pypi/clickllm/json` is a
-#: **404**; so is `clickllm-core`. `dshakes/homebrew-tap` carries `compass.rb`,
-#: `distil.rb` and `firstpass-proxy.rb` and no clickllm formula, and
-#: `.github/workflows/release.yml` publishes a GitHub Release — there is no path
-#: by which either name reaches a registry. Publishing one means adding it here,
-#: which is the point: the constant is the claim, and the test is what makes
-#: stating it falsely cost something.
-PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset()
+#: One entry, and it is the whole list. `clickllm-cli` is on PyPI;
+#: `https://pypi.org/pypi/clickllm/json` is still a **404** and so is
+#: `clickllm-core`, and `dshakes/homebrew-tap` still carries only `compass.rb`,
+#: `distil.rb` and `firstpass-proxy.rb` — no clickllm formula. Publishing
+#: something means adding it here, which is the point: the constant is the claim,
+#: and the test is what makes stating it falsely cost something.
+PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"clickllm-cli"})
+#: Published 2026-07-30 and verified by installing it: `uvx --from clickllm-cli
+#: clickllm fit` ran. `clickllm` itself is NOT in here and cannot be — PyPI
+#: refused it as too similar to the existing `click-llm`. The distribution is
+#: `clickllm-cli`; the console script is `clickllm`.
 
 #: Surfaces that tell a reader how to install. install.sh is included because it
 #: is served live from the docs site and is executed verbatim by a `curl | sh`.
@@ -604,18 +607,50 @@ _INSTALL_VERB = re.compile(
 _OUR_NAME = re.compile(r"[\w./-]*clickllm[\w.-]*")
 
 
+def _install_targets(line: str) -> set[str]:
+    """The names an install line actually asks a package manager to fetch.
+
+    Only the token in *package position* counts. Everything else on the line is
+    annotation, and this distinction became load-bearing the moment the two names
+    diverged: the distribution is `clickllm-cli`, the command it installs is
+    `clickllm`, so `uvx --from clickllm-cli clickllm fit` and
+    `uv tool install clickllm-cli  # puts clickllm on your PATH` are both correct
+    while containing the bare name. Scanning the whole line called them broken and
+    made the correct instruction unwritable.
+
+    Package position is the `--from` argument where there is one, otherwise the
+    first non-flag token after the verb. `docker run` is the exception — its image
+    can sit behind any number of flags — so every token is considered there.
+    """
+    frm = re.search(r"--from[=\s]+(\S+)", line)
+    if frm:
+        return set(_OUR_NAME.findall(frm.group(1)))
+    verb = _INSTALL_VERB.search(line)
+    if not verb:
+        return set()
+    tokens = [t for t in line[verb.end() :].split("#")[0].split() if not t.startswith("-")]
+    if verb.group(0).startswith("docker"):
+        return {n for t in tokens for n in _OUR_NAME.findall(t)}
+    return set(_OUR_NAME.findall(tokens[0])) if tokens else set()
+
+
 def _instruction_text(path: Path) -> str:
     """The parts of a page that are instructions rather than prose.
 
-    Markdown: fenced blocks only. HTML and shell: everything except inline
-    `<code>` spans. Both follow the rule the sibling test above settled on —
-    "`pip install clickllm` fails" is a *sentence about* a broken command, and a
-    check that cannot tell it from the command itself makes the failure
-    unfixable, because the fix is to write the sentence.
+    Markdown: fenced blocks only. HTML: everything except inline `<code>` spans.
+    Shell: everything except `#` comments. All three follow the rule the sibling
+    test above settled on — "`pip install clickllm` fails" is a *sentence about* a
+    broken command, and a check that cannot tell it from the command itself makes
+    the failure unfixable, because the fix is to write the sentence. The shell
+    carve-out is the one that was missing: install.sh's header comment explains
+    why the distribution is `clickllm-cli`, and that explanation has to name the
+    bare form it is warning you off.
     """
     text = path.read_text()
     if path.suffix == ".md":
         return "\n".join(re.findall(r"^```[a-z]*\n(.*?)^```", text, re.S | re.M))
+    if path.suffix == ".sh":
+        return re.sub(r"#.*$", " ", text, flags=re.M)
     return re.sub(r"<code>.*?</code>", " ", text, flags=re.S)
 
 
@@ -632,10 +667,11 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
     green suite objected — the sibling test above checks that `clickllm fit` is a
     real *subcommand*, never that `clickllm` is a real *package*.
 
-    A bare name is only allowed if we have actually published it
-    (`PUBLISHED_PACKAGE_NAMES`, empty today). A `git+…` source is always allowed,
-    because it resolves against this repository and cannot go stale while the
-    repository exists.
+    A name is only allowed if we have actually published it
+    (`PUBLISHED_PACKAGE_NAMES` — `clickllm-cli`, and nothing else; the bare
+    `clickllm` is not on PyPI and cannot be, because PyPI refused it as too close
+    to `click-llm`). A `git+…` source is always allowed, because it resolves
+    against this repository and cannot go stale while the repository exists.
 
     Deliberately offline: a test that reaches PyPI to decide would be green in CI
     and red on a plane, and the fact it needs — what we have published — is
@@ -649,7 +685,7 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
     for line in _instruction_text(root / page).splitlines():
         if not _INSTALL_VERB.search(line):
             continue
-        ours = {n for n in _OUR_NAME.findall(line) if n}
+        ours = _install_targets(line)
         if not ours or "git+" in line:
             continue
         unpublished = sorted(n for n in ours if n not in PUBLISHED_PACKAGE_NAMES)
