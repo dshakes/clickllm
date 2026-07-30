@@ -57,8 +57,23 @@ jobs:
           # unfixable by pinning wheels. The vendors already ship an image where
           # the binary works; using it makes the check answerable rather than
           # making the failure quieter.
-          - engine: vllm
-            image: vllm/vllm-openai:latest
+          # vLLM is NOT here, and that is a finding rather than an omission.
+          # `vllm serve --help` initialises hardware before printing anything and
+          # dies on a GPU-less runner:
+          #
+          #   RuntimeError: Failed to infer device type
+          #
+          # So its flags cannot be checked without a GPU, at any price of CI
+          # plumbing — three rounds went into proving that, and the reason is
+          # recorded here so a fourth does not. To check them, run on a machine
+          # with a GPU:
+          #
+          #   CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py -k vllm
+          #
+          # `tests/test_engine_flags.py` still parametrises vllm, so anyone with
+          # the hardware gets the check for free and everyone else gets a skip
+          # that names the reason. What is NOT claimed anywhere is that vLLM's
+          # flags have been verified against the binary. They have not.
           - engine: sglang
             image: lmsysorg/sglang:latest
     runs-on: ubuntu-latest
