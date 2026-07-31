@@ -288,6 +288,52 @@ jobs:
           echo "::error::PyPI does not report clickllm-cli ${VERSION} with PEP 740 attestations. Either the upload never landed (skip-existing hides that) or the publish failed to attest."
           exit 1
 
+      # npm is a SHIM over the PyPI distribution — `npx clickllm` execs
+      # `uvx --from clickllm-cli==<version> clickllm`. It publishes after PyPI on
+      # purpose: the npm package names an exact PyPI version, so publishing it
+      # first would ship a package pointing at something that does not exist yet.
+      #
+      # Gated on NPM_TOKEN, and NOT silent when absent — "released" and
+      # "installable via npx" reading the same green tick is the defect.
+      - name: Check for NPM_TOKEN
+        id: npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then echo "present=true" >>"$GITHUB_OUTPUT"
+          else echo "present=false" >>"$GITHUB_OUTPUT"; fi
+
+      - name: Publish the npm shim
+        if: steps.npm.outputs.present == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd npm
+          # The same agreement gate PyPI gets. `tests/test_docs_lab.py` already
+          # pins npm's version to pyproject's, so a mismatch here means the tag
+          # disagrees with both — publish nothing rather than a shim that execs
+          # a version of the tool nobody asked for.
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "${VERSION#v}" ]; then
+            echo "::error::npm package is $pkg but the tag is ${VERSION#v}. `npx clickllm@${VERSION#v}` would run the wrong Python."
+            exit 1
+          fi
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
+          # --provenance ties the tarball to this workflow run, the same property
+          # PEP 740 attestations give the wheel.
+          npm publish --access public --provenance
+
+      - name: Say so when npm was NOT published
+        if: steps.npm.outputs.present != 'true'
+        run: |
+          {
+            printf '## npm shim NOT published\n\n'
+            printf '`NPM_TOKEN` is not set, so `npx clickllm` still resolves nothing.\n'
+            printf 'PyPI is unaffected: `pip install clickllm-cli` works.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
       - name: Say what was published
         env:
           VERSION: ${{ needs.build.outputs.version }}

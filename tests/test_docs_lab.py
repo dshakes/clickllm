@@ -715,3 +715,43 @@ def test_the_served_installer_is_the_repo_installer():
         "site/install.sh has drifted from install.sh — the served installer is "
         "not the one that gets reviewed. Copy install.sh over it."
     )
+
+
+def test_the_npm_wrapper_pins_the_python_version_it_runs():
+    """`npx clickllm@X` must run exactly clickllm-cli X.
+
+    The npm package is a shim over the PyPI distribution. Two published surfaces
+    that can drift is the defect that already produced `install.sh` vs
+    `site/install.sh`, where the served installer kept broken commands after the
+    reviewed one was fixed. Here the cost would be worse: `npx clickllm@0.1.1`
+    silently executing a different version of the tool.
+
+    So the npm version tracks pyproject, and the shim pins `==` rather than a
+    range — a floating spec would let an npm install change which Python runs.
+    """
+    root = Path(__file__).resolve().parents[1]
+    pkg = json.loads((root / "npm" / "package.json").read_text())
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (root / "pyproject.toml").read_text(), re.M)
+    assert m, "no version in pyproject.toml"
+    assert pkg["version"] == m.group(1), (
+        f"npm says {pkg['version']}, pyproject says {m.group(1)} — "
+        "`npx clickllm@X` would not run clickllm-cli X"
+    )
+
+    shim = (root / "npm" / "bin" / "clickllm.js").read_text()
+    assert "clickllm-cli==${version}" in shim, "the spec must be pinned with ==, not a range"
+    assert pkg["bin"] == {"clickllm": "bin/clickllm.js"}, "the command must stay `clickllm`"
+
+
+def test_the_npm_shim_does_not_reimplement_the_tool():
+    """A shim that grows logic becomes a second implementation to keep in step.
+
+    It may resolve a runner and exec; it must not know what a model, a quant or
+    a context length is.
+    """
+    root = Path(__file__).resolve().parents[1]
+    shim = (root / "npm" / "bin" / "clickllm.js").read_text().lower()
+    for leaked in ("quant", "context", "concurrency", "gguf", "kv cache", "tokens_per_sec"):
+        assert leaked not in shim, (
+            f"the npm shim mentions {leaked!r} — it is starting to reimplement the CLI"
+        )
