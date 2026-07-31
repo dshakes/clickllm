@@ -369,11 +369,26 @@ def apply_eviction(plan: Plan, *, confirm: bool = False, root: Path | None = Non
     if not confirm:
         return Removal()
     root = root or hub_dir()
+    # Guard EVERY entry before deleting ANY. `_guard` used to run inside the
+    # delete loop, outside the try/except, so a refusal on entry N unwound the
+    # whole function — and the repos already removed in entries 1..N-1 were never
+    # reported. The user saw "refusing to delete outside the hub cache" and no
+    # indication that real weights were already gone.
+    #
+    # Not reachable through the CLI today, because `plan_eviction` only ever
+    # builds entries from `entries(root)`. It is reachable the moment the layout
+    # changes between planning and deleting — which this module's own docstring
+    # says happens, since engines write into this cache while eviction runs.
+    #
+    # Validating first is stronger than reporting accurately afterwards: a plan
+    # that cannot be executed safely now aborts with nothing deleted at all.
+    for e in plan.evict:
+        _guard(e.path, root)
+
     removed: list[str] = []
     failed: list[tuple[str, str]] = []
     freed = 0
     for e in plan.evict:
-        _guard(e.path, root)
         try:
             shutil.rmtree(e.path)
         except OSError as err:

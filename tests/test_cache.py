@@ -474,3 +474,34 @@ def test_pins_written_before_roots_existed_are_not_silently_dropped(tmp_path, mo
     loaded = cache.load_state(state)
     assert loaded.pinned == ("acme/incumbent-70b",), "an existing pin was dropped"
     assert loaded.budget_bytes == 200
+
+
+def test_a_refusal_late_in_a_plan_deletes_nothing_at_all(tmp_path):
+    """`_guard` ran inside the delete loop and outside the try/except, so a
+    refusal on entry N unwound the function — and the repos already deleted in
+    entries 1..N-1 were never reported. The caller saw only "refusing to delete
+    outside the hub cache", with real weights already gone.
+
+    Validating the whole plan first turns a partial, unreported deletion into no
+    deletion. That matters here specifically because the layout can change
+    between planning and deleting: engines write into this cache concurrently.
+    """
+    hub, outside = tmp_path / "hub", tmp_path / "OUTSIDE"
+    hub.mkdir()
+    outside.mkdir()
+    (outside / "precious.txt").write_text("irreplaceable\n")
+
+    good = hub / "models--acme--first"
+    good.mkdir()
+    (good / "blob").write_bytes(b"x" * 4096)
+
+    ok = cache.Entry(repo="acme/first", kind="model", path=good, bytes=4096, last_used=0.0)
+    stray = cache.Entry(repo="evil/outside", kind="model", path=outside, bytes=1, last_used=1.0)
+    plan = cache.Plan(evict=(ok, stray), kept_pins=(), budget_bytes=0, before_bytes=4097)
+
+    with pytest.raises(ValueError, match="outside the hub cache"):
+        cache.apply_eviction(plan, confirm=True, root=hub)
+
+    assert good.exists(), "a valid entry earlier in the plan was deleted anyway"
+    assert (good / "blob").read_bytes() == b"x" * 4096
+    assert (outside / "precious.txt").exists()
