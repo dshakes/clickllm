@@ -131,6 +131,11 @@ class Refusal:
     Carries `tried` so a resolution failure reads as "these six names do not
     exist" rather than "could not find it", which is unactionable and is what
     every tool in this space says.
+
+    The field is the candidate list this resolution CONSIDERED, not a claim that
+    each was reached — offline, none of them were, and the list is still the
+    useful thing to hand someone. `reason` says how many answered; the render
+    calls them candidates for the same reason.
     """
 
     reason: str
@@ -140,7 +145,7 @@ class Refusal:
     def render(self) -> str:
         out = [f"  REFUSED   {self.reason}"]
         if self.tried:
-            out += ["", "  TRIED"] + [f"    · {t}" for t in self.tried]
+            out += ["", "  CANDIDATES"] + [f"    · {t}" for t in self.tried]
         if self.next_step:
             out += ["", f"  NEXT      {self.next_step}"]
         return "\n".join(out)
@@ -418,21 +423,29 @@ def resolve_weights(
     # moment the network fails mid-loop. Reporting the full candidate list there
     # says "these six do not exist" when five of them were never reached — and
     # the whole point of listing candidates is to send someone to the right place.
+    # `checked` is what actually ANSWERED, which diverges from `tried` on both
+    # exits. On the failure path, reporting the full candidate list says "these
+    # six do not exist" when five were never reached. On the success path the
+    # same overclaim reached the user's screen: `Resolved` renders "confirmed;
+    # N candidate(s) checked", and returning `tried` there printed 6 for a match
+    # found on the first try. Appended AFTER `check` returns, so the repo whose
+    # lookup raised is not counted as one that answered.
     checked: list[str] = []
     try:
         for repo in tried:
+            found = check(repo)
             checked.append(repo)
-            if check(repo):
+            if found:
                 _cache_write(path, key, repo)
-                return Resolved(repo, tried)
+                return Resolved(repo, tuple(checked))
     except OSError as e:
         return Refusal(
             reason=(
                 f"could not reach the model index to confirm any repo — {e}. "
-                f"{len(checked)} of {len(tried)} candidates were reached before "
-                f"the connection failed; the rest are unknown, not absent"
+                f"{len(checked)} of {len(tried)} candidates answered before the "
+                f"connection failed; the rest are unknown, not absent"
             ),
-            tried=tuple(checked),
+            tried=tried,
             next_step="connect, or re-run once a previous run has cached the answer",
         )
 

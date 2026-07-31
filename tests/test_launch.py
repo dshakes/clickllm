@@ -526,8 +526,11 @@ def test_a_refusal_lists_only_the_repos_it_actually_reached():
         cache=Path("/nonexistent/never-written.json"),
     )
     assert isinstance(out, launch.Refusal)
-    assert len(out.tried) == len(calls), "reported more candidates than it asked about"
-    assert len(out.tried) < len(launch.candidates(catalog.get("llama-3.1-8b"), "q8", "mlx"))
+    # The candidate list is still handed over — offline, "go look for these" is
+    # the actionable thing. What must not happen is claiming they were reached.
+    assert out.tried, "dropped the candidate list the user needs offline"
+    assert f"{len(calls) - 1} of {len(out.tried)} candidates answered" in out.reason
+    assert "TRIED" not in out.render(), "labelled unreached candidates as tried"
     assert "not absent" in out.reason, "must distinguish unreached from confirmed-missing"
 
 
@@ -587,3 +590,34 @@ def test_the_readiness_probe_cannot_outlast_the_deadline_it_serves(monkeypatch, 
     with pytest.raises(TimeoutError):
         launch.serve(lp, timeout=0.15, poll=0.01)
     assert all(0 < h <= 0.15 for h in handed), f"overran a 0.15s budget: {handed}"
+
+
+def test_a_confirmed_repo_does_not_claim_candidates_it_never_looked_at(tmp_path):
+    """The same overclaim as the refusal path, on the success path — and this one
+    reaches the screen. `LaunchPlan.render()` prints "confirmed; N candidate(s)
+    checked" straight off `Resolved.tried`, so matching on the first candidate
+    printed the whole list's length as though every name had been looked up.
+    """
+    asked: list[str] = []
+
+    def first_one_wins(repo: str) -> bool:
+        asked.append(repo)
+        return True
+
+    model = catalog.get("llama-3.1-8b")
+    assert len(launch.candidates(model, "q8", "mlx")) > 1, "fixture: >1 candidate"
+
+    out = launch.resolve_weights(
+        model, "q8", "mlx", exists=first_one_wins, cache=tmp_path / "a.json"
+    )
+    assert isinstance(out, launch.Resolved)
+    assert len(asked) == 1, "stopped at the first match, as expected"
+    assert len(out.tried) == 1, f"claimed {len(out.tried)} checked, asked about {len(asked)}"
+
+    # And the number that reaches the screen is the one that was true.
+    asked.clear()
+    lp = launch.plan(
+        "llama-3.1-8b", hw=M4, context=8192, exists=first_one_wins, cache=tmp_path / "b.json"
+    )
+    assert isinstance(lp, launch.LaunchPlan), lp
+    assert f"confirmed; {len(asked)} candidate(s) checked" in lp.render()
