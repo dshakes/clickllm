@@ -533,3 +533,52 @@ def test_the_free_space_does_not_claim_a_precision_transformers_will_not_load():
         assert "published precision" in app, (
             "the Space loads native precision under a quantised header and says nothing"
         )
+
+
+def test_a_shape_that_does_not_fit_its_own_parallelism_is_dropped_not_quoted():
+    """The branch the earlier tests missed, found by the deep review (#45).
+
+    `_rescored_for_parallelism` used to `return rescored or f` — falling back to
+    the aggregate Fit, which is the exact number it exists to correct.
+
+    `plan._tensor_parallel` decides TP=1 by comparing weights alone against the
+    per-device share; it never looks at KV or overhead. So at high context x
+    concurrency it narrows to one device that the full footprint cannot fit, and
+    the row then carried four-device throughput and price beside a
+    `--tensor-parallel-size 1` command that would not start.
+
+    Real case, not contrived: Llama 3.1 8B on 4x H100 at 32k context, 64
+    concurrent — 266 GB of 288 GB aggregate, quoted at 1,066 tok/s.
+    """
+    from clickllm import fit as fitmod
+    from clickllm.engines import Setting
+    from clickllm.hardware_catalog import get as profile_by_id
+    from clickllm.plan import Requirements, Workload
+    from clickllm.plan import plan as configure
+
+    m = catalog.get("llama-3.1-8b")
+    hw = profile_by_id("h100-x4").to_hardware()
+    ctx, conc = 32768, 64
+
+    aggregate = fitmod.solve(m, "q8", hw, ctx, conc)
+    assert aggregate and aggregate.feasible, "the premise: it fits across four devices"
+
+    knob = configure(
+        hw, Requirements(Workload.INTERACTIVE, concurrency=conc, context=ctx), m, "q8"
+    ).get(Setting.TENSOR_PARALLEL)
+    assert knob and knob.value == 1, "the premise: the planner narrows this to one device"
+
+    offer = host.Offer("h100-x4", "4x H100 80 GB", 11.60)
+    assert host._rescored_for_parallelism(aggregate, offer, m, "q8", ctx, conc) is None, (
+        "it does not fit the parallelism the emitted command uses, so it must be "
+        "dropped — quoting the aggregate figure prices hardware the artifact "
+        "does not configure"
+    )
+
+
+def test_the_survey_does_not_offer_a_shape_it_had_to_drop():
+    """End to end: the dropped option must not reach the table."""
+    surveyed = host.survey(catalog.get("llama-3.1-8b"), context=32768, concurrency=64)
+    for o in surveyed.options:
+        assert o.fit is not None, f"{o.offer.label} was offered with no fit behind it"
+        assert o.fit.feasible, f"{o.offer.label} was offered while not feasible"
