@@ -23,6 +23,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
+  actions: read
 
 jobs:
   audit:
@@ -33,6 +34,9 @@ jobs:
       github.actor != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    outputs:
+      key_present: ${{ steps.key.outputs.present }}
+      codex_outcome: ${{ steps.codex.outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,24 +97,59 @@ jobs:
           # at all when one audit failed and the other succeeded after it).
           gh pr edit "$PR" --remove-label 'agent:audit-codex-did-not-run' >/dev/null 2>&1 || true
 
-      # An audit that did not happen is a fact about this PR, and the most
-      # dangerous one to leave implicit: "audited, nothing found" and "never
-      # audited" are opposite claims that a green check renders identically.
-      # PR #26 merged with BOTH cross-audits skipped and twelve green checks.
+  # An audit that did not happen is a fact about this PR, and the most
+  # dangerous one to leave implicit: "audited, nothing found" and "never
+  # audited" are opposite claims that a green check renders identically.
+  # PR #26 merged with BOTH cross-audits skipped and twelve green checks.
+  #
+  # This is a separate job (not a trailing step in `audit`) because the log
+  # classifier below needs to read the `audit` job's own log via the Actions
+  # API, and that API only serves a job's log once the job has *completed* —
+  # a job can never successfully read its own still-running log. `needs: audit`
+  # guarantees the job we want to inspect is finished by the time this runs.
+  report-failure:
+    needs: audit
+    if: >-
+      !cancelled() &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (needs.audit.outputs.key_present != 'true' || needs.audit.outputs.codex_outcome != 'success')
+    runs-on: ubuntu-latest
+    steps:
       - name: Say so when the audit did not run
-        if: >-
-          !cancelled() && (steps.key.outputs.present != 'true' || steps.codex.outcome != 'success') &&
-          github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          HAVE_KEY: ${{ steps.key.outputs.present }}
+          HAVE_KEY: ${{ needs.audit.outputs.key_present }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           if [ "$HAVE_KEY" != "true" ]; then
             why='`OPENAI_API_KEY` is not set on this repository.'
           else
-            why='the Codex action failed — commonly an exhausted OpenAI quota. See the job log.'
+            # Two very different problems were reporting the same sentence, and
+            # they need opposite responses: a quota is a billing action, a
+            # reconnect loop is transient and worth re-running. Both have been
+            # seen on this repo. Read the (now-completed) `audit` job's own log
+            # and say which.
+            # `--job` takes the numeric Actions job database ID, not the job
+            # key ("audit") — resolve it via `--json jobs` first. Fetching by
+            # name would also work only once the run overall is done; fetching
+            # by ID works as soon as that specific job is done, which is now.
+            job_id="$(gh run view "$GITHUB_RUN_ID" --json jobs --jq '.jobs[] | select(.name == "audit") | .databaseId' 2>/dev/null || true)"
+            log=""
+            if [ -n "$job_id" ]; then
+              log="$(gh run view "$GITHUB_RUN_ID" --job "$job_id" --log 2>/dev/null || true)"
+            fi
+            if printf '%s' "$log" | grep -qiE 'quota exceeded|insufficient_quota|billing'; then
+              why='the OpenAI **quota is exhausted**. This is a billing action: top up or raise the limit for the account behind `OPENAI_API_KEY` at platform.openai.com. Re-running will not help.'
+            elif printf '%s' "$log" | grep -qiE 'reconnecting|connection|timed out|ECONNRESET'; then
+              why='the Codex action lost its **connection** to the API. This is transient — re-running the job is worth a try, and no billing change is needed.'
+            elif printf '%s' "$log" | grep -qiE 'maximum number of turns|max.?turns|error_max_turns'; then
+              why='the auditor hit its **turn limit** before finishing. Raise `--max-turns` for this job, or narrow what it is asked to audit.'
+            else
+              why='the Codex action failed for a reason this step could not classify. See the job log.'
+            fi
           fi
           {
             printf '### ⚠️ Codex cross-audit did NOT run\n\n'
