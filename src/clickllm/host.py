@@ -399,6 +399,18 @@ REGISTRY: tuple[Provider, ...] = (
 )
 
 
+def _no_free_reason(provider: Provider) -> str:
+    """Why `--free` ruled this provider out, with the price when there is one."""
+    priced = [o.usd_per_hour for o in provider.offers if o.usd_per_hour is not None]
+    if not provider.offers:
+        return "lists no hardware shapes"
+    if not priced:
+        # An unpriced offer is not a free one. Saying "from $0.00/hr" here would
+        # invent the number this repo refuses to invent (invariant 6).
+        return f"no free tier — {provider.name} publishes no price for its shapes"
+    return f"no free tier — every {provider.name} shape is paid, from ${min(priced):.2f}/hr"
+
+
 def _gives_free_hardware(provider: Provider) -> bool:
     """Whether this provider hands out GPU time, as opposed to credit for it."""
     return any(o.usd_per_hour == 0.0 for o in provider.offers) or (
@@ -646,6 +658,18 @@ def survey(
 
         shapes = [o for o in provider.offers if not free_only or o.usd_per_hour == 0.0]
         if not shapes:
+            # `continue` here dropped the provider from options AND excluded, so
+            # `--free` silently shortened the list — the exact thing `Excluded`
+            # exists to prevent. "RunPod has no free tier" is the answer to the
+            # question; a shorter list with no explanation is not.
+            excluded.append(
+                Excluded(
+                    provider.id,
+                    provider.name,
+                    _no_free_reason(provider),
+                    _gives_free_hardware(provider),
+                )
+            )
             continue
 
         fitting = []

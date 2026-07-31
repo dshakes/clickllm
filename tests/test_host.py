@@ -582,3 +582,30 @@ def test_the_survey_does_not_offer_a_shape_it_had_to_drop():
     for o in surveyed.options:
         assert o.fit is not None, f"{o.offer.label} was offered with no fit behind it"
         assert o.fit.feasible, f"{o.offer.label} was offered while not feasible"
+
+
+def test_free_only_reports_the_providers_it_ruled_out_rather_than_hiding_them():
+    """From the deep review of host.py (#45), finding 2.
+
+    `--free` filtered each provider's offers and `continue`d when none survived,
+    so a paid-only provider vanished from BOTH options and excluded. This module's
+    own docstring says a provider that cannot be used is reported with its reason;
+    a silently shorter list reads as "we looked and there was nothing", when what
+    happened is "we looked and did not say".
+    """
+    paid_only = {p.id for p in host.REGISTRY if p.offers and not _gives_free(p)}
+    assert paid_only, "fixture assumption: some provider is paid-only"
+
+    out = host.survey(catalog.get("llama-3.1-8b"), free_only=True, context=8192, concurrency=4)
+    named = {e.provider_id for e in out.excluded} | {o.provider.id for o in out.options}
+    missing = paid_only - named
+    assert not missing, f"ruled out without saying so: {sorted(missing)}"
+
+    for e in out.excluded:
+        if e.provider_id in paid_only:
+            assert "free" in e.reason or "shapes" in e.reason, e.reason
+            assert not e.was_free
+
+
+def _gives_free(p) -> bool:
+    return any(o.usd_per_hour == 0.0 for o in p.offers)
