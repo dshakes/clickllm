@@ -65,6 +65,19 @@ The solver is the auditable core; these errors are all common in the wild:
 
 Any new catalog entry with `kv_scheme: mla` **must** set `kv_lora_rank` — enforced by a test.
 
+## When the reviewers disagree, the blocking one wins
+Three agents review every PR: `review` gates, `audit` (Codex) and `audit-gemini`
+advise. They have split twice, and **both times the clean verdict was on code that
+had a real defect** — once praising the exact append-ordering that carried an
+off-by-one, once calling a timeout floor "boundary safety" while it overran the
+budget 5x at the small end. A clean verdict is the weaker signal: it is consistent
+with having looked and with not having looked. Reconcile a split by tracing the
+disputed line yourself; never let a pass offset a block.
+
+Corollary, learned the same way: two reviewers can both be right about
+*different* failure modes of one line. The fix that satisfies only one of them
+trades a defect for its mirror image.
+
 ## Conventions
 - **Errors:** raise with the offending value in the message; CLI catches and returns
   a nonzero exit code, never a traceback.

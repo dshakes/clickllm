@@ -17,7 +17,7 @@ clickllm-mcp = "clickllm.mcp:serve"
 # people who never wanted the extension. Neither name is on PyPI yet, so build the
 # bindings from the checkout instead: `maturin develop` in clickllm-py/.
 # The extra goes back the day the wheel is published. See ADR-0009.
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "pyyaml>=6"]  # pyyaml: tests/test_workflows.py
 
 [build-system]
 requires = ["hatchling"]
