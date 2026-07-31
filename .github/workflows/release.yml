@@ -307,7 +307,11 @@ jobs:
         if: steps.npm.outputs.present == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
+          # `needs.build.outputs.version`, NOT `steps.ver` — `ver` runs in the
+          # build job and step outputs do not cross jobs, so this was silently
+          # the empty string. The agreement check below would then compare the
+          # package version against "" and abort every real release.
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           cd npm
@@ -317,7 +321,11 @@ jobs:
           # a version of the tool nobody asked for.
           pkg="$(node -p "require('./package.json').version")"
           if [ "$pkg" != "${VERSION#v}" ]; then
-            echo "::error::npm package is $pkg but the tag is ${VERSION#v}. `npx clickllm@${VERSION#v}` would run the wrong Python."
+            # Single quotes and no backticks: inside double quotes those were
+            # command substitution, so the failure path tried to RUN npx while
+            # reporting that it should not be run.
+            printf '::error::npm package is %s but the tag is %s. npx clickllm@%s would run the wrong Python.\n' \
+              "$pkg" "${VERSION#v}" "${VERSION#v}"
             exit 1
           fi
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc

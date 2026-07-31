@@ -416,6 +416,13 @@ too similar to the existing `click-llm`, so `pip install clickllm` and `uvx clic
 will never work. `--from` is what bridges the two names, which is why every `uvx` line
 here carries one.
 
+**`npx clickllm` arrives with the next release.** npm allowed the bare name PyPI refused,
+so there the package *and* the command are both `clickllm` — three names in total, and
+only the two above are live today. The npm package is a shim rather than a second
+implementation: it execs `uvx --from clickllm-cli==<version> clickllm`, falling back to
+`uv tool run` then `pipx run`, so a Python runner is still required underneath. Nothing
+has been published to npm yet, so `npx clickllm` is a 404 right now.
+
 There is no Homebrew formula — `dshakes/homebrew-tap` carries `compass.rb`, `distil.rb`
 and `firstpass-proxy.rb` and nothing for clickllm. `tests/test_docs_lab.py` fails the
 build if these docs ever name a package we have not actually published.
