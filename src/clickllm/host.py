@@ -655,6 +655,12 @@ def survey(
             if f is None:
                 continue
             f = _rescored_for_parallelism(f, offer, model, quant, context, concurrency)
+            if f is None:
+                # It fits on paper across every device, and not on the one the
+                # plan will actually use. Dropping it is the honest outcome —
+                # quoting the aggregate figure beside a single-device command is
+                # a price for hardware the artifact does not configure.
+                continue
             fitting.append(
                 HostOption(
                     provider,
@@ -855,7 +861,7 @@ def _commented(lines: list[str], marker: str = "#") -> str:
 
 def _rescored_for_parallelism(
     f: Fit, offer: Offer, model: ModelSpec, quant: str, context: int, concurrency: int
-) -> Fit:
+) -> Fit | None:
     """Re-cost a multi-device shape at the bandwidth it will really run at.
 
     `fit` sizes an N-device shape on *aggregate* memory and bandwidth, which is
@@ -898,9 +904,22 @@ def _rescored_for_parallelism(
         usable_bytes=int(hw.usable_bytes * used / profile.devices),
     )
     rescored = _sized(model, f.quant, narrowed, context, concurrency)
-    # If it no longer fits in the narrowed footprint the planner was wrong to
-    # narrow it; keep the original rather than silently dropping the option.
-    return rescored or f
+    # None means it does NOT fit the parallelism the plan will actually use.
+    #
+    # This used to `return rescored or f` — falling back to the aggregate Fit,
+    # which is the exact number this function exists to correct. The comment
+    # justifying it said the planner "was wrong to narrow it", which is true and
+    # is not a reason to quote a figure describing hardware the emitted argv will
+    # not use. `plan._tensor_parallel` decides TP=1 by comparing weights alone to
+    # the per-device share; it never looks at KV or overhead, so at high context
+    # x concurrency it narrows to one device that the full footprint cannot fit.
+    # The row then carried N-device throughput and price beside a
+    # `--tensor-parallel-size 1` command that will not start.
+    #
+    # Returning None drops the option, and the caller reports it as excluded with
+    # its shortfall — this module's own rule: report, do not quietly serve a
+    # number that cannot be delivered.
+    return rescored
 
 
 def _engine_command(
