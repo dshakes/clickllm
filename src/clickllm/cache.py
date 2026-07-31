@@ -86,12 +86,18 @@ def hub_dir() -> Path:
     at import, because a test — and a user with two boxes' caches on one
     machine — changes it between calls.
     """
+    # `.expanduser()` on every branch: a shell exports HF_HUB_CACHE=~/weights
+    # unexpanded whenever it is set without quotes stripped, and `Path("~/w")` is
+    # a literal directory named "~". Unexpanded, `entries()` finds nothing and
+    # `usage()` reports an empty cache while the real one fills up — a budget
+    # that reads 0 GB against a disk that is full. It fails safe for deletion
+    # and silently useless for everything else.
     if direct := os.environ.get("HF_HUB_CACHE"):
-        return Path(direct)
+        return Path(direct).expanduser()
     if home := os.environ.get("HF_HOME"):
-        return Path(home) / "hub"
+        return Path(home).expanduser() / "hub"
     base = os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
-    return Path(base) / "huggingface" / "hub"
+    return Path(base).expanduser() / "huggingface" / "hub"
 
 
 @dataclass(frozen=True, slots=True)
