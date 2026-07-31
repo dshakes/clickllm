@@ -281,7 +281,17 @@ def _pick_engine(hw: Hardware, req: Requirements) -> tuple[Engine, str]:
             "most predictable single-stream option on Metal.",
         )
 
-    if req.prefix_sharing >= PREFIX_SHARING_FOR_RADIX:
+    # The two branches below are CUDA-only builds, as this function's own
+    # docstring says — but only "apple" and "tpu" were ever checked, so an AMD
+    # host fell straight through to them. `clickllm box` would then bake
+    # lmsysorg/sglang:latest into a linux-rocm artifact with /dev/kfd mounted
+    # and an amd.com/gpu resource: a container that starts, finds no CUDA
+    # device, and dies on the hardware its own header says it was tuned for.
+    # Unreachable through `box` today only because prefix_sharing and workload
+    # are not exposed there — incidental cover, not a guard.
+    cuda_only_ok = hw.kind == "nvidia"
+
+    if cuda_only_ok and req.prefix_sharing >= PREFIX_SHARING_FOR_RADIX:
         return (
             Engine.SGLANG,
             f"{req.prefix_sharing:.0%} of prompt tokens are shared across "
@@ -290,12 +300,24 @@ def _pick_engine(hw: Hardware, req: Requirements) -> tuple[Engine, str]:
             f"reproduces, and it grows with fleet size.",
         )
 
-    if req.workload is Workload.BATCH and req.concurrency >= 64:
+    if cuda_only_ok and req.workload is Workload.BATCH and req.concurrency >= 64:
         return (
             Engine.LLMD,
             "high-concurrency batch: prefill and decode have opposite hardware "
             "appetites, and disaggregating them lets each scale on the resource "
             "it is actually bound by.",
+        )
+
+    if not cuda_only_ok and (
+        req.prefix_sharing >= PREFIX_SHARING_FOR_RADIX
+        or (req.workload is Workload.BATCH and req.concurrency >= 64)
+    ):
+        return (
+            Engine.VLLM,
+            f"this workload has a structural case for SGLang or llm-d, but both "
+            f"ship CUDA-only builds and this is {hw.kind} hardware. vLLM has a "
+            f"ROCm build, so it is the engine that can actually start here — "
+            f"the better stack is unavailable, not unconsidered.",
         )
 
     return (

@@ -131,6 +131,11 @@ class Refusal:
     Carries `tried` so a resolution failure reads as "these six names do not
     exist" rather than "could not find it", which is unactionable and is what
     every tool in this space says.
+
+    The field is the candidate list this resolution CONSIDERED, not a claim that
+    each was reached — offline, none of them were, and the list is still the
+    useful thing to hand someone. `reason` says how many answered; the render
+    calls them candidates for the same reason.
     """
 
     reason: str
@@ -140,7 +145,7 @@ class Refusal:
     def render(self) -> str:
         out = [f"  REFUSED   {self.reason}"]
         if self.tried:
-            out += ["", "  TRIED"] + [f"    · {t}" for t in self.tried]
+            out += ["", "  CANDIDATES"] + [f"    · {t}" for t in self.tried]
         if self.next_step:
             out += ["", f"  NEXT      {self.next_step}"]
         return "\n".join(out)
@@ -414,14 +419,32 @@ def resolve_weights(
             next_step=f"clickllm catalog-add <repo> --params-b {model.params_b:g} --network",
         )
 
+    # `checked` is what was ACTUALLY asked about, which diverges from `tried` the
+    # moment the network fails mid-loop. Reporting the full candidate list there
+    # says "these six do not exist" when five of them were never reached — and
+    # the whole point of listing candidates is to send someone to the right place.
+    # `checked` is what actually ANSWERED, which diverges from `tried` on both
+    # exits. On the failure path, reporting the full candidate list says "these
+    # six do not exist" when five were never reached. On the success path the
+    # same overclaim reached the user's screen: `Resolved` renders "confirmed;
+    # N candidate(s) checked", and returning `tried` there printed 6 for a match
+    # found on the first try. Appended AFTER `check` returns, so the repo whose
+    # lookup raised is not counted as one that answered.
+    checked: list[str] = []
     try:
         for repo in tried:
-            if check(repo):
+            found = check(repo)
+            checked.append(repo)
+            if found:
                 _cache_write(path, key, repo)
-                return Resolved(repo, tried)
+                return Resolved(repo, tuple(checked))
     except OSError as e:
         return Refusal(
-            reason=f"could not reach the model index to confirm any repo — {e}",
+            reason=(
+                f"could not reach the model index to confirm any repo — {e}. "
+                f"{len(checked)} of {len(tried)} candidates answered before the "
+                f"connection failed; the rest are unknown, not absent"
+            ),
             tried=tried,
             next_step="connect, or re-run once a previous run has cached the answer",
         )
@@ -717,7 +740,21 @@ def serve(
                 f"{launch_plan.engine} exited with code {code} before serving "
                 f"{launch_plan.repo}; its output above is the reason"
             )
-        if _healthy(launch_plan.base, launch_plan.repo):
+        # The probe's own timeout must fit inside what is LEFT of serve()'s
+        # budget. It was a fixed 10s default, so `serve(timeout=2.0)` could block
+        # ten seconds in the first probe alone — a caller's deadline overrun by
+        # 5x by the thing measuring it.
+        #
+        # No floor under this. A `max(0.5, ...)` floor keeps urlopen off a
+        # non-positive timeout, but it re-opens the same hole at the small end:
+        # `serve(timeout=0.1)` would hand the probe 0.5s and overrun by 5x
+        # again, in the other direction. Instead the loop stops when the budget
+        # is gone — which is the honest reading of "it never answered in time",
+        # and leaves urlopen a strictly positive timeout on every call it makes.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if _healthy(launch_plan.base, launch_plan.repo, timeout=min(10.0, remaining)):
             return Endpoint(
                 launch_plan.base,
                 launch_plan.repo,

@@ -21,6 +21,7 @@ from clickllm.plan import (
     Engine,
     Requirements,
     Workload,
+    _pick_engine,
     plan,
 )
 
@@ -719,3 +720,37 @@ def test_the_per_batch_cap_cannot_exceed_the_concurrency():
     fleet = LoraFleet(adapters=tuple((f"a{i}", f"p{i}") for i in range(8)), max_rank=16)
     p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=2, context=8192, lora=fleet))
     assert p.get(Setting.LORA_FLEET).value.max_concurrent == 2
+
+
+def test_a_cuda_only_engine_is_never_chosen_for_amd_hardware():
+    """From the deep review of box.py (#38).
+
+    `_pick_engine`'s docstring says SGLang and llm-d are CUDA-only, but only
+    "apple" and "tpu" were checked — an AMD host fell through to both branches.
+    `clickllm box` would then bake a CUDA image into a linux-rocm artifact with
+    /dev/kfd mounted: a container that starts, finds no GPU, and dies under a
+    header saying it was tuned for that hardware. Invariants 2 and 3 at once.
+    """
+    mi300 = Hardware(
+        kind="amd",
+        name="AMD MI300X 192 GB",
+        total_bytes=192 * 2**30,
+        usable_bytes=182 * 2**30,
+        bandwidth_gbps=5300.0,
+        cores=304,
+    )
+
+    # The two workloads that structurally select a CUDA-only engine.
+    radix = Requirements(Workload.INTERACTIVE, concurrency=8, context=8192, prefix_sharing=0.9)
+    batch = Requirements(Workload.BATCH, concurrency=64, context=8192)
+
+    for req, cuda_engine in ((radix, Engine.SGLANG), (batch, Engine.LLMD)):
+        # Positive control: on NVIDIA the structural choice is still made, so
+        # this test cannot pass by the branch having been deleted.
+        picked, _ = _pick_engine(H100, req)
+        assert picked is cuda_engine, f"nvidia should still pick {cuda_engine}"
+
+        picked, why = _pick_engine(mi300, req)
+        assert picked is Engine.VLLM, f"amd got a CUDA-only engine: {picked}"
+        # And it says the better stack was ruled out, not never considered.
+        assert "CUDA-only" in why and "amd" in why, why

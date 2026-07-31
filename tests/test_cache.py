@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -505,3 +506,25 @@ def test_a_refusal_late_in_a_plan_deletes_nothing_at_all(tmp_path):
     assert good.exists(), "a valid entry earlier in the plan was deleted anyway"
     assert (good / "blob").read_bytes() == b"x" * 4096
     assert (outside / "precious.txt").exists()
+
+
+def test_hub_dir_expands_a_tilde_in_every_override(monkeypatch):
+    """From the deep review of cache.py (#39), finding 2.
+
+    A shell that exports `HF_HUB_CACHE=~/weights` without expansion hands us the
+    literal string, and `Path("~/weights")` is a directory named "~". Unexpanded,
+    `entries()` finds nothing and `usage()` reports an empty cache while the real
+    one fills up — a budget reading 0 GB against a full disk.
+    """
+    home = Path.home()
+    for var, raw, want in (
+        ("HF_HUB_CACHE", "~/weights", home / "weights"),
+        ("HF_HOME", "~/hf", home / "hf" / "hub"),
+        ("XDG_CACHE_HOME", "~/xdg", home / "xdg" / "huggingface" / "hub"),
+    ):
+        for clear in ("HF_HUB_CACHE", "HF_HOME", "XDG_CACHE_HOME"):
+            monkeypatch.delenv(clear, raising=False)
+        monkeypatch.setenv(var, raw)
+        got = cache.hub_dir()
+        assert got == want, f"{var}={raw} → {got}, wanted {want}"
+        assert "~" not in str(got)

@@ -500,3 +500,124 @@ def test_a_missing_engine_says_how_to_install_it(tmp_path):
 
 def test_demo_self_check():
     launch.demo()
+
+
+def test_a_refusal_lists_only_the_repos_it_actually_reached():
+    """From the deep review of launch.py (#44).
+
+    When the network fails mid-loop, `Refusal.tried` carried the full candidate
+    list — reporting "none of these exist" for repos never asked about. The whole
+    value of listing candidates is sending someone to the right place, and five
+    unreached names dressed as five confirmed absences sends them to the wrong one.
+    """
+    calls = []
+
+    def dies_after_one(repo: str) -> bool:
+        calls.append(repo)
+        if len(calls) > 1:
+            raise OSError("no route to host")
+        return False
+
+    out = launch.resolve_weights(
+        catalog.get("llama-3.1-8b"),
+        "q8",
+        "mlx",
+        exists=dies_after_one,
+        cache=Path("/nonexistent/never-written.json"),
+    )
+    assert isinstance(out, launch.Refusal)
+    # The candidate list is still handed over — offline, "go look for these" is
+    # the actionable thing. What must not happen is claiming they were reached.
+    assert out.tried, "dropped the candidate list the user needs offline"
+    assert f"{len(calls) - 1} of {len(out.tried)} candidates answered" in out.reason
+    assert "TRIED" not in out.render(), "labelled unreached candidates as tried"
+    assert "not absent" in out.reason, "must distinguish unreached from confirmed-missing"
+
+
+def test_the_readiness_probe_cannot_outlast_the_deadline_it_serves(monkeypatch, tmp_path):
+    """From the deep review of launch.py (#44).
+
+    `_healthy`'s timeout defaulted to 10s regardless of `serve`'s budget, so
+    `serve(timeout=2.0)` could block ten seconds inside the first probe — the
+    caller's deadline overrun 5x by the very thing measuring it. Asserted on the
+    timeout the probe is actually HANDED, not on the source text: a source check
+    passes for code that computes the right number and then ignores it.
+    """
+    handed: list[float] = []
+
+    def record(base, model="clickllm-probe", timeout=10.0):
+        handed.append(timeout)
+        return False  # never ready, so serve() runs its budget out
+
+    class FakeProc:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    lp = launch.plan(
+        "llama-3.1-8b", hw=M4, context=8192, exists=lambda r: True, cache=tmp_path / "w.json"
+    )
+    assert isinstance(lp, launch.LaunchPlan), lp
+
+    # Patched only now: planning itself shells out to the engine for its flag
+    # vocabulary, and a Popen stub installed earlier would intercept that too.
+    monkeypatch.setattr(launch, "_healthy", record)
+    monkeypatch.setattr(launch.subprocess, "Popen", lambda *a, **k: FakeProc())
+
+    with pytest.raises(TimeoutError):
+        launch.serve(lp, timeout=2.0, poll=0.05)
+
+    assert handed, "the probe was never called"
+    assert max(handed) <= 2.0, f"probe allowed {max(handed)}s inside a 2.0s budget"
+    # And it shrinks as the budget is spent, rather than being pinned at the cap.
+    assert handed[-1] < handed[0]
+    # Strict at the small end too: a `max(0.5, ...)` floor would re-open the same
+    # hole for `serve(timeout=0.1)`, handing the probe 5x the whole budget. Every
+    # timeout is strictly positive, so urlopen never gets a nonsensical one.
+    assert min(handed) > 0, f"probe handed a non-positive timeout: {min(handed)}"
+
+    handed.clear()
+    with pytest.raises(TimeoutError):
+        launch.serve(lp, timeout=0.15, poll=0.01)
+    assert all(0 < h <= 0.15 for h in handed), f"overran a 0.15s budget: {handed}"
+
+
+def test_a_confirmed_repo_does_not_claim_candidates_it_never_looked_at(tmp_path):
+    """The same overclaim as the refusal path, on the success path — and this one
+    reaches the screen. `LaunchPlan.render()` prints "confirmed; N candidate(s)
+    checked" straight off `Resolved.tried`, so matching on the first candidate
+    printed the whole list's length as though every name had been looked up.
+    """
+    asked: list[str] = []
+
+    def first_one_wins(repo: str) -> bool:
+        asked.append(repo)
+        return True
+
+    model = catalog.get("llama-3.1-8b")
+    assert len(launch.candidates(model, "q8", "mlx")) > 1, "fixture: >1 candidate"
+
+    out = launch.resolve_weights(
+        model, "q8", "mlx", exists=first_one_wins, cache=tmp_path / "a.json"
+    )
+    assert isinstance(out, launch.Resolved)
+    assert len(asked) == 1, "stopped at the first match, as expected"
+    assert len(out.tried) == 1, f"claimed {len(out.tried)} checked, asked about {len(asked)}"
+
+    # And the number that reaches the screen is the one that was true.
+    asked.clear()
+    lp = launch.plan(
+        "llama-3.1-8b", hw=M4, context=8192, exists=first_one_wins, cache=tmp_path / "b.json"
+    )
+    assert isinstance(lp, launch.LaunchPlan), lp
+    assert f"confirmed; {len(asked)} candidate(s) checked" in lp.render()
