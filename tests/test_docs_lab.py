@@ -755,3 +755,65 @@ def test_the_npm_shim_does_not_reimplement_the_tool():
         assert leaked not in shim, (
             f"the npm shim mentions {leaked!r} — it is starting to reimplement the CLI"
         )
+
+
+def _split_claims() -> dict[tuple[str, str], int]:
+    """Every per-runner count, per file, as published."""
+    root = Path(__file__).resolve().parents[1]
+    surfaces = (
+        ("README.md", "rust", r"cargo test --all\s+# (\d+) Rust"),
+        ("README.md", "python", r"pytest -q\s+# (\d+) Python"),
+        ("CLAUDE.md", "rust", r"# Rust gate \((\d+) tests\)"),
+        ("CLAUDE.md", "python", r"# Python gate \((\d+) tests\)"),
+    )
+    out = {}
+    for rel, which, pattern in surfaces:
+        m = re.search(pattern, (root / rel).read_text())
+        assert m, f"{rel}: no {which} count found — did the markup change?"
+        out[rel, which] = int(m.group(1))
+    return out
+
+
+def test_every_file_publishes_the_same_per_runner_counts():
+    """The totals were checked; the per-runner numbers were not, and CLAUDE.md
+    drifted furthest of anything in the repo — 61 Rust and 27 Python against a
+    real 227 and 702. It is the file every agent reads first, which makes a
+    wrong number there the most expensive one here.
+
+    Cheap enough to run without cargo, so it holds even where the total check
+    skips.
+    """
+    claims = _split_claims()
+    for which in ("rust", "python"):
+        vals = {rel: n for (rel, w), n in claims.items() if w == which}
+        assert len(set(vals.values())) == 1, f"{which} counts disagree: {vals}"
+
+
+def test_the_published_python_count_matches_what_pytest_collected(request):
+    """The Python half, against this very run. A number no one recomputes is a
+    number that rots."""
+    opt = request.config.option
+    root = Path(__file__).resolve().parents[1]
+    args = [Path(a).resolve() for a in request.config.args]
+    if bool(getattr(opt, "keyword", "") or getattr(opt, "markexpr", "")) or any(
+        a != root and a != root / "tests" for a in args
+    ):
+        pytest.skip("partial run — the collected count is a selection, not the suite")
+
+    collected = request.session.testscollected
+    assert collected > 0, "collected nothing; the check would be vacuous"
+    for (rel, which), n in _split_claims().items():
+        if which == "python":
+            assert n == collected, f"{rel} says {n} Python tests, this run collected {collected}"
+
+
+def test_the_documented_gate_command_installs_what_the_suite_needs():
+    """`tests/test_workflows.py` needs pyyaml, and a documented command without
+    it turns those tests into silent skips for anyone following the docs — the
+    same failure the file itself was written to catch."""
+    root = Path(__file__).resolve().parents[1]
+    gate = re.search(r"^(uv run .*pytest -q.*)$", (root / "CLAUDE.md").read_text(), re.M)
+    assert gate, "no pytest gate command in CLAUDE.md"
+    assert "pyyaml" in gate.group(1), (
+        f"the documented gate skips the workflow tests: {gate.group(1)!r}"
+    )
