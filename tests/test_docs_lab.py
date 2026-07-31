@@ -807,13 +807,20 @@ def test_the_published_python_count_matches_what_pytest_collected(request):
             assert n == collected, f"{rel} says {n} Python tests, this run collected {collected}"
 
 
-def test_the_documented_gate_command_installs_what_the_suite_needs():
+@pytest.mark.parametrize("doc", ["CLAUDE.md", "README.md"])
+def test_the_documented_gate_command_installs_what_the_suite_needs(doc):
     """`tests/test_workflows.py` needs pyyaml, and a documented command without
     it turns those tests into silent skips for anyone following the docs — the
-    same failure the file itself was written to catch."""
+    same failure the file itself was written to catch.
+
+    Parametrised over every file that publishes the command. The first version
+    of this test checked CLAUDE.md alone, so the identical defect sat in README
+    one release longer: a check aimed at one instance of a duplicated fact,
+    which is how the test counts drifted in the first place.
+    """
     root = Path(__file__).resolve().parents[1]
-    gate = re.search(r"^(uv run .*pytest -q.*)$", (root / "CLAUDE.md").read_text(), re.M)
-    assert gate, "no pytest gate command in CLAUDE.md"
+    gate = re.search(r"^(uv run .*pytest -q.*)$", (root / doc).read_text(), re.M)
+    assert gate, f"no pytest gate command in {doc}"
     assert "pyyaml" in gate.group(1), (
-        f"the documented gate skips the workflow tests: {gate.group(1)!r}"
+        f"{doc}'s documented gate skips the workflow tests: {gate.group(1)!r}"
     )
