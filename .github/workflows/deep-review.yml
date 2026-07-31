@@ -103,3 +103,35 @@ jobs:
             --max-turns 60
             --max-budget-usd 3.00
             --allowedTools "Read,Grep,Glob,Bash(gh issue create:*),Bash(git log:*)"
+
+      # The review step reports success whether or not it filed anything. Five
+      # dispatches produced four issues — host.py and collect.py read their files
+      # (the log shows "reviewing src/clickllm/host.py — 1457 lines") and then
+      # filed nothing, while cache.py was written twice. Both runs were green.
+      #
+      # A reviewer that produces no finding and no issue is indistinguishable
+      # from one that found nothing, which is the single equivalence this
+      # workflow exists to break. So the artifact is verified, not assumed.
+      - name: an issue must exist for this path, or the review did not happen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ github.event.inputs.path }}
+        run: |
+          set -euo pipefail
+          want="deep review: $TARGET"
+          # --search rather than a client-side grep: the title must match, and a
+          # near-miss (wrong path in the title) must read as absent, because that
+          # is exactly how cache.py came to be reviewed twice.
+          # Title AND substance. Of five dispatches, two filed an issue whose
+          # body was `test-body-placeholder` (21 chars) and 4 chars — a title
+          # check alone calls both of those a review. 400 chars is well under any
+          # real finding and well over any placeholder.
+          n="$(gh issue list --label agent:review --state all --limit 50 \
+            --json title,body --jq \
+            '[.[] | select(.title == "'"$want"'") | select((.body|length) > 400)] | length')"
+          found="$n"
+          if [ "$found" = "0" ]; then
+            echo "::error::no substantive issue titled '$want'. Either none was filed, or one was filed with a placeholder body. The file was read and the finding was lost; treating that as a pass would make an unreviewed file look reviewed."
+            exit 1
+          fi
+          echo "issue present for $TARGET"
