@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-933-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-935-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -455,10 +455,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 706 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 708 Python
 ```
 
-**933 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**935 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That

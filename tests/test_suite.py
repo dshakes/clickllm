@@ -518,3 +518,80 @@ def test_normalisation_does_not_erase_a_real_difference():
     for base, got in (("3.14", "314"), ("yes", "no"), ("Paris", "Lyon")):
         item = EvalItem("i", "extraction", "q", base, got)
         assert g.grade(item).outcome is Outcome.FAIL, f"{base!r} vs {got!r} must differ"
+
+
+def test_the_openai_response_format_shape_does_not_kill_the_run():
+    """Found by running the loop end to end, not by a test.
+
+    `response_format` is documented in `clickllm prove --help` as the OpenAI
+    request shape, and the CLI reads it straight out of an eval-set file with no
+    validation. As a dict it reached `x in {"enum", "json_schema"}` and raised
+    `TypeError: unhashable type: 'dict'` — killing the whole suite AFTER all 40
+    replies had been collected and paid for. A malformed or merely
+    differently-spelled field must cost one grader's opinion, never the run.
+    """
+    from clickllm.prove.graders import ExactMatch, Outcome, _format_name
+
+    # Both spellings of the same intent resolve identically.
+    assert _format_name("enum") == "enum"
+    assert _format_name({"type": "enum"}) == "enum"
+    assert _format_name({"type": "json_schema", "json_schema": {}}) == "json_schema"
+    # And the shapes that carry no name are absent, not an exception.
+    for junk in (None, {}, {"type": None}, {"type": 7}, 42, [], object()):
+        assert _format_name(junk) is None, junk
+
+    # The grader survives every one of them.
+    for fmt in (None, "enum", {"type": "enum"}, {"type": "json_object"}, {}, 42, ["x"]):
+        item = EvalItem(
+            item_id="i",
+            cluster="c",
+            prompt="p",
+            baseline="billing",
+            candidate="billing",
+            response_format=fmt,
+        )
+        assert ExactMatch().grade(item).outcome in tuple(Outcome), fmt
+
+    # An enum declaration is still authoritative through the dict spelling:
+    # a baseline that the heuristic would reject is matched anyway.
+    sentence = EvalItem(
+        item_id="i",
+        cluster="c",
+        prompt="p",
+        baseline="Yes, refund it.",
+        candidate="Yes, refund it.",
+        response_format={"type": "enum"},
+    )
+    assert ExactMatch().grade(sentence).outcome is Outcome.PASS
+
+    # ...and json_object is NOT, because a serialised object is not a label —
+    # exact-matching one would fail on key order and whitespace alone.
+    obj = EvalItem(
+        item_id="i",
+        cluster="c",
+        prompt="p",
+        baseline='{"a": 1, "b": 2}',
+        candidate='{"b": 2, "a": 1}',
+        response_format={"type": "json_object"},
+    )
+    assert ExactMatch().grade(obj).outcome is Outcome.NOT_APPLICABLE
+
+
+def test_a_receipt_stamps_the_version_that_actually_wrote_it():
+    """Found by reading a receipt this tool had just produced.
+
+    `SERVER_INFO["version"]` was the literal "0.1.0" and never moved, so every
+    receipt written by 0.1.1 through 0.1.4 claimed 0.1.0 wrote it. That is the
+    one artifact whose entire purpose is provenance, and the one `clickllm
+    receipt --against` exists to audit — a receipt that misreports its own tool
+    cannot be checked against anything.
+    """
+    from clickllm import __version__
+    from clickllm.mcp import SERVER_INFO
+
+    assert SERVER_INFO["version"] == __version__, (
+        f"receipts would be stamped {SERVER_INFO['version']}, but this is {__version__}"
+    )
+    # And it is derived, not a copy that happens to agree today.
+    src = (Path(__file__).resolve().parents[1] / "src/clickllm/mcp.py").read_text()
+    assert '"version": __version__' in src, "re-typing the version is how it drifted"

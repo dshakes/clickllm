@@ -17,10 +17,16 @@ import sys
 from collections.abc import Callable
 from typing import Any, BinaryIO
 
-from . import catalog, fit, hardware
+from . import __version__, catalog, fit, hardware
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "clickllm", "version": "0.1.0"}
+# Derived, never typed. This was the literal "0.1.0" through four releases, so
+# every receipt written by 0.1.1 through 0.1.4 claims it was produced by 0.1.0 —
+# on the one artifact whose whole purpose is provenance, and which `clickllm
+# receipt --against` exists to audit. `__version__` already resolves from
+# installed metadata with a pyproject fallback; there was never a second source
+# of truth, only a copy that stopped tracking it.
+SERVER_INFO = {"name": "clickllm", "version": __version__}
 
 GB = 1024**3
 
