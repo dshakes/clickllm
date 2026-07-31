@@ -1,6 +1,6 @@
 [project]
 name = "clickllm-cli"
-version = "0.1.5"
+version = "0.1.6"
 description = "Prove which open model can replace your closed one — on your traffic, your hardware, your budget."
 requires-python = ">=3.11"
 dependencies = []  # Phase 0 is stdlib-only on purpose: `uvx clickllm fit` must just work.
