@@ -930,3 +930,58 @@ def test_version_pins_in_the_docs_match_the_version_we_ship():
                 if found != ours:
                     wrong.append(f"{page}: pins {found}, we ship {ours}")
     assert not wrong, "docs pin a version we do not ship:\n  " + "\n  ".join(wrong)
+
+
+def test_every_version_surface_agrees_with_the_manifest():
+    """Fourteen places state the release version. They drift.
+
+    `tools/bump.py` sets them all in one command; this is the half that fails
+    the build when one is missed — including surfaces the sibling pin test does
+    not reach, like npm/package.json. Everything else numeric in this repo
+    drifted before something compared it, so a release process that depends on
+    remembering six files is a release process that will publish a wrong one.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("bump", root / "tools" / "bump.py")
+    bump = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bump)
+
+    state = bump.current()
+    versions = sorted(set(state.values()))
+    assert len(versions) == 1, "version surfaces disagree: " + ", ".join(
+        f"{rel}:{what}={v}" for (rel, what), v in sorted(state.items())
+    )
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (root / "pyproject.toml").read_text(), re.M)
+    assert versions[0] == m.group(1)
+
+
+def test_bumping_refuses_to_rewrite_a_claim_about_a_past_release():
+    """ "Fixed in 0.1.5, so a receipt now names the build that produced it" is
+    history. A bump that moved it would make the sentence false — and a global
+    find-and-replace, which is what a release script usually is, moves it.
+
+    The guard is asserted here rather than trusted, because it only ever fires
+    on the day someone adds a pattern loose enough to catch prose.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("bump", root / "tools" / "bump.py")
+    bump = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bump)
+
+    # The history line exists and is being watched.
+    assert bump.HISTORY, "nothing is protected from the bump"
+    snapshot = bump._history_snapshot()
+    assert snapshot, "the protected claim is not in the file — the guard watches nothing"
+    assert re.search(r"Fixed in \d+\.\d+\.\d+", snapshot[0])
+
+    # And no bump pattern matches it, which is what keeps it still.
+    readme = (root / "README.md").read_text()
+    for rel, what, pattern in bump.SURFACES:
+        if rel != "README.md":
+            continue
+        for m in re.finditer(pattern, readme, re.M):
+            assert "Fixed in" not in m.group(0), f"the {what} pattern would rewrite history"

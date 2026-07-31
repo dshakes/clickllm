@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-941-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-943-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -422,17 +422,17 @@ here carries one.
 rather than a second implementation: it execs `uvx --from clickllm-cli==<version>
 clickllm`, falling back to `uv tool run` then `pipx run`. A Python runner is still
 required underneath, so `npx` saves you naming the distribution, not installing Python.
-The `==` is exact on purpose: `npx clickllm@0.1.5` runs `clickllm-cli` 0.1.5 and nothing
+The `==` is exact on purpose: `npx clickllm@0.1.6` runs `clickllm-cli` 0.1.6 and nothing
 else, so the two registries cannot drift apart under you.
 
 ### Versions
 
-The commands above are unpinned and fetch the newest release — currently **0.1.5**. Pin
+The commands above are unpinned and fetch the newest release — currently **0.1.6**. Pin
 when you need a build to stay put:
 
 ```bash
-uvx --from clickllm-cli==0.1.5 clickllm fit   # exactly this build
-npx clickllm@0.1.5 fit                        # same build, via npm
+uvx --from clickllm-cli==0.1.6 clickllm fit   # exactly this build
+npx clickllm@0.1.6 fit                        # same build, via npm
 clickllm version                              # what you have, and where it came from
 clickllm upgrade                              # how to move, for the way you installed it
 ```
@@ -474,10 +474,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 714 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 716 Python
 ```
 
-**941 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**943 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
