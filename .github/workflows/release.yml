@@ -288,6 +288,50 @@ jobs:
           echo "::error::PyPI does not report clickllm-cli ${VERSION} with PEP 740 attestations. Either the upload never landed (skip-existing hides that) or the publish failed to attest."
           exit 1
 
+      - name: Say what was published
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          {
+            printf '## Published to PyPI\n\n'
+            printf '`pip install clickllm-cli` resolves at %s, and installs the `clickllm` command.\n\n' "$VERSION"
+            printf 'Add `clickllm-cli` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py` '
+            printf 'so the docs may use bare-name install commands again.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+# ── PyPI trusted publishing setup (one-time, on pypi.org) ──────────────────────
+# PyPI → Your projects → Publishing → Add a new pending publisher. All four must
+# match this file exactly or the OIDC claim is rejected:
+#   PyPI Project Name : clickllm-cli
+#   Owner             : dshakes
+#   Repository        : clickllm
+#   Workflow name     : release.yml
+#   Environment       : pypi
+# No API token is ever stored — auth is OIDC, scoped to the publish-pypi job.
+
+  # Its own job, not a tail on publish-pypi. That job never checks out the repo —
+  # it only downloads the dist artifact — so `cd npm` there ran in an empty
+  # workspace. It also holds `id-token: write` for Trusted Publishing, which npm
+  # has no use for; a job that needs a checkout and not OIDC should not inherit
+  # the inverse.
+  #
+  # `needs: publish-pypi` is load-bearing: the shim pins an exact PyPI version,
+  # so publishing it first would ship a package pointing at something that does
+  # not exist yet.
+  publish-npm:
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # npm --provenance attests the tarball to this run
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
       # npm is a SHIM over the PyPI distribution — `npx clickllm` execs
       # `uvx --from clickllm-cli==<version> clickllm`. It publishes after PyPI on
       # purpose: the npm package names an exact PyPI version, so publishing it
@@ -341,24 +385,3 @@ jobs:
             printf '`NPM_TOKEN` is not set, so `npx clickllm` still resolves nothing.\n'
             printf 'PyPI is unaffected: `pip install clickllm-cli` works.\n'
           } >>"$GITHUB_STEP_SUMMARY"
-
-      - name: Say what was published
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          {
-            printf '## Published to PyPI\n\n'
-            printf '`pip install clickllm-cli` resolves at %s, and installs the `clickllm` command.\n\n' "$VERSION"
-            printf 'Add `clickllm-cli` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py` '
-            printf 'so the docs may use bare-name install commands again.\n'
-          } >>"$GITHUB_STEP_SUMMARY"
-
-# ── PyPI trusted publishing setup (one-time, on pypi.org) ──────────────────────
-# PyPI → Your projects → Publishing → Add a new pending publisher. All four must
-# match this file exactly or the OIDC claim is rejected:
-#   PyPI Project Name : clickllm-cli
-#   Owner             : dshakes
-#   Repository        : clickllm
-#   Workflow name     : release.yml
-#   Environment       : pypi
-# No API token is ever stored — auth is OIDC, scoped to the publish-pypi job.
