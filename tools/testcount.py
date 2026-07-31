@@ -45,6 +45,12 @@ SURFACES: tuple[tuple[str, str], ...] = (
 SPLIT_SURFACES: tuple[tuple[str, str, str], ...] = (
     ("README.md", "rust", r"(cargo test --all\s+# )(\d+)( Rust)"),
     ("README.md", "python", r"(pytest -q\s+# )(\d+)( Python)"),
+    # CLAUDE.md publishes the same two numbers in its gate block and was not
+    # listed here, so it drifted furthest of all: it advertised 61 Rust and 27
+    # Python against a real 227 and 702. It is the file every agent reads first,
+    # which makes a wrong number there the most expensive one in the repo.
+    ("CLAUDE.md", "rust", r"(# Rust gate \()(\d+)( tests\))"),
+    ("CLAUDE.md", "python", r"(# Python gate \()(\d+)( tests\))"),
 )
 
 
@@ -83,14 +89,19 @@ def python_tests() -> int:
     return int(m.group(1))
 
 
-def published_split() -> dict[str, int]:
-    """What the per-runner comments currently claim."""
+def published_split() -> dict[tuple[str, str], int]:
+    """What each per-runner comment currently claims, per file.
+
+    Keyed by `(file, runner)`, not by runner alone. Keyed by runner, a second
+    file publishing the same two numbers would overwrite the first's entry and
+    be checked only by accident — the drift would move rather than be caught.
+    """
     out = {}
     for rel, which, pattern in SPLIT_SURFACES:
         m = re.search(pattern, (ROOT / rel).read_text())
         if not m:
             raise RuntimeError(f"{rel}: no {which} count matched {pattern!r}")
-        out[which] = int(m.group(2).replace(",", ""))
+        out[rel, which] = int(m.group(2).replace(",", ""))
     return out
 
 
@@ -151,10 +162,10 @@ def main() -> int:
         print(f"  {where:<52} {mark}")
 
     split = published_split()
-    want = {"rust": rust, "python": py}
-    for which, n in split.items():
-        mark = "ok" if n == want[which] else f"STALE (says {n}, is {want[which]})"
-        print(f"  README.md:{which + ' count':<42} {mark}")
+    want = {k: (rust if k[1] == "rust" else py) for k in split}
+    for (rel, which), n in split.items():
+        mark = "ok" if n == want[rel, which] else f"STALE (says {n}, is {want[rel, which]})"
+        print(f"  {rel}:{which + ' count':<{52 - len(rel) - 1}} {mark}")
 
     if all(n == total for n in current.values()) and split == want:
         return 0
