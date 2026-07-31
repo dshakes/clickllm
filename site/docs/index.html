@@ -334,9 +334,15 @@ eval result moves production traffic without a human.</pre>
   run it without installing anything at all. Python 3.11 or newer.</p>
 
 <pre><span class="u">$ uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8</span>   <span class="c"># run it, install nothing</span>
+<span class="u">$ npx clickllm fit --context 32k --concurrency 8</span>                  <span class="c"># same, if node is what you have</span>
 <span class="u">$ uv tool install clickllm-cli</span>                                    <span class="c"># or put clickllm on your PATH</span>
 <span class="u">$ pipx install clickllm-cli</span>
 <span class="u">$ pip install clickllm-cli</span>
+
+<span class="u">$ uvx --from clickllm-cli==0.1.5 clickllm fit</span>                     <span class="c"># pin a build that stays put</span>
+<span class="u">$ npx clickllm@0.1.5 fit</span>                                         <span class="c"># the same build, via npm</span>
+<span class="u">$ clickllm version</span>                                                <span class="c"># what you have, and where it came from</span>
+<span class="u">$ clickllm upgrade</span>                                                <span class="c"># how to move, for the way you installed it</span>
 
 <span class="u">$ curl -fsSL https://dshakes.github.io/clickllm/install.sh | sh</span>    <span class="c"># picks whichever of those you already have</span></pre>
 
@@ -349,13 +355,14 @@ eval result moves production traffic without a human.</pre>
 </div>
 
 <div class="note">
-  <p><b><code>npx clickllm</code> arrives with the next release.</b> npm allowed the bare name
-  PyPI refused, so the npm package and the command are both <code>clickllm</code>. It is a shim,
-  not a second implementation — it execs <code>uvx --from clickllm-cli==&lt;version&gt; clickllm</code>
-  and falls back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python
-  3.11+ are still required underneath. Nothing has been published to npm yet, so
-  <code>npx clickllm</code> is a 404 today; until it lands, the <code>uvx</code> line above is the
-  same thing.</p>
+  <p><b><code>npx clickllm</code> works.</b> npm allowed the bare name PyPI refused, so the npm
+  package and the command are both <code>clickllm</code>. It is a shim, not a second
+  implementation — it execs <code>uvx --from clickllm-cli==&lt;version&gt; clickllm</code> and falls
+  back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python 3.11+ are
+  still required underneath. <code>npx</code> saves you naming the distribution, not installing
+  Python. The <code>==</code> is exact by design: <code>npx clickllm@0.1.5</code> runs
+  <code>clickllm-cli</code> 0.1.5 and nothing else, so the two registries cannot drift apart
+  under you.</p>
 </div>
 
 <!-- ══════════ EDUCATION ══════════ -->

@@ -1088,6 +1088,15 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     print()
     print("  Running it once, without installing:")
     print("    uvx --from clickllm-cli clickllm fit")
+    print("    npx clickllm fit                        # if node is what you have")
+    print()
+    # npx has no upgrade step — the shim resolves a version per invocation, so
+    # `npx clickllm@latest` IS the upgrade. Saying so matters because this text
+    # listed three Python installers and no npm one for four releases after the
+    # npm package went live, which reads as "npx is not supported".
+    print("  Installed via npx? There is nothing to upgrade — the shim resolves")
+    print("  per run, so `npx clickllm@latest fit` is already the newest, and")
+    print(f"  `npx clickllm@{__version__} fit` pins one build.")
     print()
     print("  This prints the commands rather than running one: clickllm cannot")
     print("  see which tool owns its environment, and upgrading the wrong copy")
