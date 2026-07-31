@@ -731,7 +731,16 @@ def serve(
         # budget. It was a fixed 10s default, so `serve(timeout=2.0)` could block
         # ten seconds in the first probe alone — a caller's deadline overrun by
         # 5x by the thing measuring it.
-        remaining = max(0.5, deadline - time.monotonic())
+        #
+        # No floor under this. A `max(0.5, ...)` floor keeps urlopen off a
+        # non-positive timeout, but it re-opens the same hole at the small end:
+        # `serve(timeout=0.1)` would hand the probe 0.5s and overrun by 5x
+        # again, in the other direction. Instead the loop stops when the budget
+        # is gone — which is the honest reading of "it never answered in time",
+        # and leaves urlopen a strictly positive timeout on every call it makes.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         if _healthy(launch_plan.base, launch_plan.repo, timeout=min(10.0, remaining)):
             return Endpoint(
                 launch_plan.base,

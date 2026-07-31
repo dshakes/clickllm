@@ -578,4 +578,12 @@ def test_the_readiness_probe_cannot_outlast_the_deadline_it_serves(monkeypatch, 
     assert max(handed) <= 2.0, f"probe allowed {max(handed)}s inside a 2.0s budget"
     # And it shrinks as the budget is spent, rather than being pinned at the cap.
     assert handed[-1] < handed[0]
-    assert min(handed) >= 0.5, "a floor keeps the last probe from being unrunnable"
+    # Strict at the small end too: a `max(0.5, ...)` floor would re-open the same
+    # hole for `serve(timeout=0.1)`, handing the probe 5x the whole budget. Every
+    # timeout is strictly positive, so urlopen never gets a nonsensical one.
+    assert min(handed) > 0, f"probe handed a non-positive timeout: {min(handed)}"
+
+    handed.clear()
+    with pytest.raises(TimeoutError):
+        launch.serve(lp, timeout=0.15, poll=0.01)
+    assert all(0 < h <= 0.15 for h in handed), f"overran a 0.15s budget: {handed}"
