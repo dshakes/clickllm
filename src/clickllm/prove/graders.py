@@ -76,7 +76,10 @@ class EvalItem:
     candidate: str
     baseline_tool_calls: tuple[dict[str, Any], ...] = ()
     candidate_tool_calls: tuple[dict[str, Any], ...] = ()
-    response_format: str | None = None
+    #: Either a bare name ("enum", "json_schema") or the OpenAI request shape
+    #: `{"type": "json_object"}` — the CLI reads this straight out of an eval-set
+    #: file, so whatever a user wrote arrives here unvalidated.
+    response_format: str | dict | None = None
 
 
 @runtime_checkable
@@ -278,7 +281,25 @@ def _label_key(text: str) -> str:
     return (stripped or t).casefold()
 
 
-def _looks_like_a_label(text: str, response_format: str | None) -> bool:
+def _format_name(response_format: str | dict | None) -> str | None:
+    """The format's name, from either spelling people actually write.
+
+    `{"type": "json_object"}` is the OpenAI request shape and the one the
+    `prove` help text points at, so it is what ends up in an eval-set file. It
+    reached `x in {"enum", "json_schema"}` as a dict and raised TypeError —
+    unhashable — which killed the entire suite AFTER every reply had been
+    collected and paid for. A malformed field must cost one grader's opinion,
+    never the run.
+    """
+    if isinstance(response_format, str):
+        return response_format
+    if isinstance(response_format, dict):
+        kind = response_format.get("type")
+        return kind if isinstance(kind, str) else None
+    return None
+
+
+def _looks_like_a_label(text: str, response_format: str | dict | None) -> bool:
     """Whether an answer is a classification label rather than a short sentence.
 
     Word count alone is not enough: "Revenue was 42.5m." is three words and a
@@ -286,7 +307,11 @@ def _looks_like_a_label(text: str, response_format: str | None) -> bool:
     punctuation is the discriminator. When the request declared an enum or
     json_schema format, that is authoritative and the heuristic is skipped.
     """
-    if response_format in {"enum", "json_schema"}:
+    # `json_object` is deliberately NOT here: it constrains the answer to JSON,
+    # which is the opposite of a short label — exact-matching a serialised object
+    # would fail on key order and whitespace. Only formats that pin the answer to
+    # a fixed set are authoritative.
+    if _format_name(response_format) in {"enum", "json_schema"}:
         return True
     if not text or "\n" in text:
         return False
