@@ -24,7 +24,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: uv run --with pytest pytest -q
+      - run: uv run --with pytest --with pyyaml pytest -q
       - name: module self-checks
         run: |
           uv run python -c "from clickllm import hardware, catalog, fit; \
