@@ -14,7 +14,7 @@ the model is actually good enough for *your* traffic. clickllm collapses that
 into one decision — and prints the arithmetic behind every number in it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-935-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-941-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -405,23 +405,42 @@ That reversed an earlier decision; [ADR-0010](docs/adr/0010-retire-the-weights-c
 
 ```bash
 uvx --from clickllm-cli clickllm fit      # run it, install nothing
+npx clickllm fit                          # same, if node is what you have
 uv tool install clickllm-cli              # or put clickllm on your PATH
 pipx install clickllm-cli                 # same, via pipx
 pip install clickllm-cli                  # into the current environment
 ```
 
-All four give you the `clickllm` command. **The distribution is `clickllm-cli`, the
+All five give you the `clickllm` command. **The distribution is `clickllm-cli`, the
 command is `clickllm`**, and that split is not cosmetic: PyPI refused the bare name as
 too similar to the existing `click-llm`, so `pip install clickllm` and `uvx clickllm`
 will never work. `--from` is what bridges the two names, which is why every `uvx` line
 here carries one.
 
-**`npx clickllm` arrives with the next release.** npm allowed the bare name PyPI refused,
-so there the package *and* the command are both `clickllm` — three names in total, and
-only the two above are live today. The npm package is a shim rather than a second
-implementation: it execs `uvx --from clickllm-cli==<version> clickllm`, falling back to
-`uv tool run` then `pipx run`, so a Python runner is still required underneath. Nothing
-has been published to npm yet, so `npx clickllm` is a 404 right now.
+**`npx clickllm` works.** npm allowed the bare name PyPI refused, so there the package
+*and* the command are both `clickllm` — three names in total. The npm package is a shim
+rather than a second implementation: it execs `uvx --from clickllm-cli==<version>
+clickllm`, falling back to `uv tool run` then `pipx run`. A Python runner is still
+required underneath, so `npx` saves you naming the distribution, not installing Python.
+The `==` is exact on purpose: `npx clickllm@0.1.5` runs `clickllm-cli` 0.1.5 and nothing
+else, so the two registries cannot drift apart under you.
+
+### Versions
+
+The commands above are unpinned and fetch the newest release — currently **0.1.5**. Pin
+when you need a build to stay put:
+
+```bash
+uvx --from clickllm-cli==0.1.5 clickllm fit   # exactly this build
+npx clickllm@0.1.5 fit                        # same build, via npm
+clickllm version                              # what you have, and where it came from
+clickllm upgrade                              # how to move, for the way you installed it
+```
+
+`clickllm version` reads the installed metadata rather than a string someone typed —
+through 0.1.4 the receipts it writes were stamped `0.1.0`, because that literal had been
+hand-written once and never moved. Fixed in 0.1.5, so a receipt now names the build that
+produced it.
 
 There is no Homebrew formula — `dshakes/homebrew-tap` carries `compass.rb`, `distil.rb`
 and `firstpass-proxy.rb` and nothing for clickllm. `tests/test_docs_lab.py` fails the
@@ -455,10 +474,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 708 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 714 Python
 ```
 
-**935 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
+**941 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
 the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That

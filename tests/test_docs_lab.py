@@ -574,7 +574,18 @@ def test_every_command_the_docs_tell_you_to_run_exists(page):
 #: `distil.rb` and `firstpass-proxy.rb` — no clickllm formula. Publishing
 #: something means adding it here, which is the point: the constant is the claim,
 #: and the test is what makes stating it falsely cost something.
-PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"clickllm-cli"})
+PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"clickllm-cli", "clickllm"})
+#: A flat set of names cannot express what is actually true, because the answer
+#: depends on the registry: `clickllm` is live on npm and a 404 on PyPI, so the
+#: same token is correct after `npx` and wrong after `uvx`. Keyed by the verb's
+#: registry instead — otherwise adding `npx clickllm` to the docs would have had
+#: to whitelist the bare name everywhere, re-permitting the `uvx clickllm` line
+#: this whole check exists to forbid.
+PUBLISHED_BY_REGISTRY: dict[str, frozenset[str]] = {
+    "pypi": frozenset({"clickllm-cli"}),
+    # Published 2026-07-30, verified by running `npx clickllm@0.1.5 version`.
+    "npm": frozenset({"clickllm"}),
+}
 #: Published 2026-07-30 and verified by installing it: `uvx --from clickllm-cli
 #: clickllm fit` ran. `clickllm` itself is NOT in here and cannot be — PyPI
 #: refused it as too similar to the existing `click-llm`. The distribution is
@@ -598,13 +609,28 @@ INSTALL_SURFACES = (
 #: `docker run … IMAGE`. The verb is what makes the line an instruction.
 _INSTALL_VERB = re.compile(
     r"\b(?:pip3?\s+install|python3?\s+-m\s+pip\s+install|pipx\s+install"
-    r"|uv\s+tool\s+install|uvx|brew\s+install|docker\s+run)\b"
+    r"|uv\s+tool\s+install|uvx|brew\s+install|docker\s+run"
+    # npx was absent, so every `npx clickllm` line in the docs went unchecked —
+    # including the four releases' worth that said it 404s when it did not.
+    r"|npx|npm\s+(?:install|i)\s+-g)\b"
 )
+
+
+def _registry_of(verb: str) -> str:
+    """Which index a verb fetches from. The same name is not valid in both."""
+    return "npm" if verb.startswith(("npx", "npm")) else "pypi"
+
 
 #: Anything that looks like one of our distribution or image names, including the
 #: tap-qualified (`dshakes/tap/clickllm`) and registry-qualified
 #: (`ghcr.io/dshakes/clickllm:latest`) forms.
 _OUR_NAME = re.compile(r"[\w./-]*clickllm[\w.-]*")
+
+
+def _install_registry(line: str) -> str:
+    """The registry the line's verb fetches from, defaulting to pypi."""
+    verb = _INSTALL_VERB.search(line)
+    return _registry_of(verb.group(0)) if verb else "pypi"
 
 
 def _install_targets(line: str) -> set[str]:
@@ -631,7 +657,10 @@ def _install_targets(line: str) -> set[str]:
     tokens = [t for t in line[verb.end() :].split("#")[0].split() if not t.startswith("-")]
     if verb.group(0).startswith("docker"):
         return {n for t in tokens for n in _OUR_NAME.findall(t)}
-    return set(_OUR_NAME.findall(tokens[0])) if tokens else set()
+    if not tokens:
+        return set()
+    # `npx clickllm@0.1.5` names the package `clickllm`; the pin is not part of it.
+    return set(_OUR_NAME.findall(tokens[0].split("@")[0]))
 
 
 def _instruction_text(path: Path) -> str:
@@ -688,14 +717,18 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
         ours = _install_targets(line)
         if not ours or "git+" in line:
             continue
-        unpublished = sorted(n for n in ours if n not in PUBLISHED_PACKAGE_NAMES)
+        # Per registry, not per name: `clickllm` is live on npm and a 404 on
+        # PyPI, so `npx clickllm` is correct and `uvx clickllm` never will be.
+        reg = _install_registry(line)
+        live = PUBLISHED_BY_REGISTRY[reg]
+        unpublished = sorted(n for n in ours if n not in live)
         if unpublished:
-            offenders.append(f"{unpublished} in: {line.strip()[:100]}")
+            offenders.append(f"{unpublished} (not on {reg}) in: {line.strip()[:100]}")
     assert not offenders, (
-        f"{page} tells the reader to install something we have never published. "
-        f"Use the git form (`--from git+https://github.com/dshakes/clickllm`), or add "
-        f"the name to PUBLISHED_PACKAGE_NAMES once it is genuinely on PyPI:\n  "
-        + "\n  ".join(offenders)
+        f"{page} tells the reader to install something we have never published "
+        f"on that registry. Use the git form "
+        f"(`--from git+https://github.com/dshakes/clickllm`), or add the name to "
+        f"PUBLISHED_BY_REGISTRY once it is genuinely there:\n  " + "\n  ".join(offenders)
     )
 
 
@@ -824,3 +857,76 @@ def test_the_documented_gate_command_installs_what_the_suite_needs(doc):
     assert "pyyaml" in gate.group(1), (
         f"{doc}'s documented gate skips the workflow tests: {gate.group(1)!r}"
     )
+
+
+def _reader_visible(path: Path) -> str:
+    """The page with its source comments removed — HTML, JS and shell alike."""
+    text = path.read_text()
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+    if path.suffix in {".html", ".js"}:
+        text = re.sub(r"^\s*//.*$", " ", text, flags=re.M)
+    if path.suffix == ".sh":
+        text = re.sub(r"^\s*#.*$", " ", text, flags=re.M)
+    return text
+
+
+@pytest.mark.parametrize("page", INSTALL_SURFACES, ids=str)
+def test_no_page_claims_a_published_package_is_unpublished(page):
+    """The mirror of the check above, and the direction nothing covered.
+
+    `npx clickllm` shipped in 0.1.2. Four releases later the README, the landing
+    page's npx tab and the docs site all still said "arrives with the next
+    release", "not on npm yet", "a 404 today". The sibling test polices claiming
+    MORE than we have published; claiming LESS produced no failure anywhere,
+    because a stale warning reads as caution rather than as a bug.
+
+    It is the worse direction of the two. An over-claim gives a reader a command
+    that errors, and they come back. An under-claim steers them off a working
+    install path entirely, and they do not.
+    """
+    # What a READER sees. A source comment explaining that the page once said
+    # "not on npm yet" is not the page saying it — and this test tripped on
+    # exactly that, on the comment recording the very fix it was written for.
+    text = _reader_visible(Path(__file__).resolve().parents[1] / page)
+    stale = [
+        pat
+        for pat in (
+            r"not (?:yet )?(?:been )?published",
+            r"nothing has been published",
+            r"arrives with the next release",
+            r"lands with the next release",
+            r"not on npm yet",
+            r"npx clickllm</code>? is a 404",
+            r"npx clickllm.{0,20}404",
+        )
+        if re.search(pat, text, re.I)
+    ]
+    assert not stale, (
+        f"{page} still says clickllm is unpublished, but it is live on npm "
+        f"(and clickllm-cli on PyPI). Stale caution is not free — it sends "
+        f"readers away from an install path that works: {stale}"
+    )
+
+
+def test_version_pins_in_the_docs_match_the_version_we_ship():
+    """A pinned example is a published number, and published numbers drift here.
+
+    `uvx --from clickllm-cli==0.1.5` and `npx clickllm@0.1.5` are worth showing —
+    they are how a reader freezes a build — but they are also four more copies of
+    a fact that lives in pyproject.toml. Every other copy of a number in this repo
+    drifted before something checked it, including the one in CLAUDE.md that read
+    61 against a real 227.
+    """
+    root = Path(__file__).resolve().parents[1]
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (root / "pyproject.toml").read_text(), re.M)
+    assert m, "no version in pyproject.toml"
+    ours = m.group(1)
+
+    wrong = []
+    for page in INSTALL_SURFACES:
+        text = (root / page).read_text()
+        for pat in (r"clickllm-cli==(\d+\.\d+\.\d+)", r"clickllm@(\d+\.\d+\.\d+)"):
+            for found in set(re.findall(pat, text)):
+                if found != ours:
+                    wrong.append(f"{page}: pins {found}, we ship {ours}")
+    assert not wrong, "docs pin a version we do not ship:\n  " + "\n  ".join(wrong)

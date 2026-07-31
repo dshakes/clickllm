@@ -438,7 +438,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">935</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">941</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">5</div><div class="l">engines planned for and emitted</div></div>
@@ -718,9 +718,9 @@
     <code>click-llm</code>, so <code>pip install clickllm</code> and
     <code>uvx clickllm</code> both fail — the <code>--from</code> is not optional. npm allowed
     the name PyPI refused, so there the package and the command are both
-    <code>clickllm</code> — but it is not published yet, which the npx tab says rather than
-    hides. There is no Homebrew tab because there is no clickllm formula in the tap; a tab
-    advertising one would be the same defect as before.</p></div>
+    <code>clickllm</code>, and <code>npx clickllm</code> works. There is no Homebrew tab
+    because there is no clickllm formula in the tap; a tab advertising one would be the
+    same defect as before.</p></div>
 
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-t="uvx">uvx</button>
@@ -751,18 +751,21 @@ const CMDS = {
   // clickllm-cli and the command is clickllm; dropping the --from breaks the line.
   uvx:  [['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
           'size what runs on this machine — nothing cloned, nothing installed'],
+         ['uvx --from clickllm-cli==0.1.5 clickllm fit --context 32k --concurrency 8',
+          'pinned to a build that stays put; unpinned always fetches the newest'],
          ['uv tool install clickllm-cli',
           'or put the clickllm command on your PATH']],
   pip:  [['pip install clickllm-cli', 'gives you the clickllm command; needs Python 3.11+'],
          ['pipx install clickllm-cli', 'or isolated from your other packages']],
-  // Not published yet: the npm package builds and runs here, but no release has
-  // pushed it, so the first line 404s today. Shipping it as though it worked is
-  // the defect this whole tab list exists to prevent — so it is labelled, not
-  // hidden, and the line under it is the one that works right now.
+  // Live on npm since 0.1.2. This tab spent four releases saying "not published
+  // yet, this 404s today" AFTER it had shipped — the mirror image of the brew
+  // defect above, and a worse one: a stale warning steers people away from an
+  // install path that works, and nothing complains because the page still reads
+  // cautious. tests/test_docs_lab.py now checks both directions.
   npm:  [['npx clickllm fit --context 32k --concurrency 8',
-          'lands with the next release — not on npm yet, so this 404s today'],
-         ['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
-          'the same run, working now: npx clickllm is a shim that execs exactly this']],
+          'no Python packaging to name — the shim execs uvx --from clickllm-cli underneath'],
+         ['npx clickllm@0.1.5 fit --context 32k --concurrency 8',
+          'pinned: runs clickllm-cli==0.1.5 exactly, so the two registries cannot drift apart']],
   git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
          ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
 };
