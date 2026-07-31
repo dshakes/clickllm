@@ -855,3 +855,29 @@ def test_a_collection_with_no_failures_does_not_crash_the_error_path():
     # The old form is the bug, and it is still an IndexError.
     with pytest.raises(IndexError):
         _ = (clean, broken)[0].failures[0]
+
+
+def test_a_hostile_retry_after_does_not_kill_the_whole_collection():
+    """From the deep review of collect.py (#42).
+
+    `_retry_after` used a bare `float()` and rejected only non-numeric values. A
+    negative or NaN reached `sleep()`, which raises — and that escaped the
+    per-item handler and ended the entire run, when this module's stated rule is
+    that a per-item failure is data. One buggy server answering `Retry-After: -1`
+    destroyed a collection that had already paid for every other item.
+    """
+    from clickllm.prove import collect as C
+
+    for bad in ("-1", "-0.5", "nan", "-inf"):
+        assert C._retry_after({"Retry-After": bad}) is None, bad
+    # An absurd wait is bounded rather than obeyed.
+    assert C._retry_after({"Retry-After": "86400"}) == C.MAX_BACKOFF
+    # And a sane one still works.
+    assert C._retry_after({"Retry-After": "2.5"}) == 2.5
+    assert C._retry_after({"Retry-After": "not-a-number"}) is None
+    assert C._retry_after({}) is None
+
+    # Whatever it returns must be something sleep() accepts.
+    for v in ("-1", "nan", "86400", "2.5", "garbage"):
+        got = C._retry_after({"Retry-After": v})
+        assert got is None or (got >= 0 and got == got)

@@ -500,3 +500,82 @@ def test_a_missing_engine_says_how_to_install_it(tmp_path):
 
 def test_demo_self_check():
     launch.demo()
+
+
+def test_a_refusal_lists_only_the_repos_it_actually_reached():
+    """From the deep review of launch.py (#44).
+
+    When the network fails mid-loop, `Refusal.tried` carried the full candidate
+    list — reporting "none of these exist" for repos never asked about. The whole
+    value of listing candidates is sending someone to the right place, and five
+    unreached names dressed as five confirmed absences sends them to the wrong one.
+    """
+    calls = []
+
+    def dies_after_one(repo: str) -> bool:
+        calls.append(repo)
+        if len(calls) > 1:
+            raise OSError("no route to host")
+        return False
+
+    out = launch.resolve_weights(
+        catalog.get("llama-3.1-8b"),
+        "q8",
+        "mlx",
+        exists=dies_after_one,
+        cache=Path("/nonexistent/never-written.json"),
+    )
+    assert isinstance(out, launch.Refusal)
+    assert len(out.tried) == len(calls), "reported more candidates than it asked about"
+    assert len(out.tried) < len(launch.candidates(catalog.get("llama-3.1-8b"), "q8", "mlx"))
+    assert "not absent" in out.reason, "must distinguish unreached from confirmed-missing"
+
+
+def test_the_readiness_probe_cannot_outlast_the_deadline_it_serves(monkeypatch, tmp_path):
+    """From the deep review of launch.py (#44).
+
+    `_healthy`'s timeout defaulted to 10s regardless of `serve`'s budget, so
+    `serve(timeout=2.0)` could block ten seconds inside the first probe — the
+    caller's deadline overrun 5x by the very thing measuring it. Asserted on the
+    timeout the probe is actually HANDED, not on the source text: a source check
+    passes for code that computes the right number and then ignores it.
+    """
+    handed: list[float] = []
+
+    def record(base, model="clickllm-probe", timeout=10.0):
+        handed.append(timeout)
+        return False  # never ready, so serve() runs its budget out
+
+    class FakeProc:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    lp = launch.plan(
+        "llama-3.1-8b", hw=M4, context=8192, exists=lambda r: True, cache=tmp_path / "w.json"
+    )
+    assert isinstance(lp, launch.LaunchPlan), lp
+
+    # Patched only now: planning itself shells out to the engine for its flag
+    # vocabulary, and a Popen stub installed earlier would intercept that too.
+    monkeypatch.setattr(launch, "_healthy", record)
+    monkeypatch.setattr(launch.subprocess, "Popen", lambda *a, **k: FakeProc())
+
+    with pytest.raises(TimeoutError):
+        launch.serve(lp, timeout=2.0, poll=0.05)
+
+    assert handed, "the probe was never called"
+    assert max(handed) <= 2.0, f"probe allowed {max(handed)}s inside a 2.0s budget"
+    # And it shrinks as the budget is spent, rather than being pinned at the cap.
+    assert handed[-1] < handed[0]
+    assert min(handed) >= 0.5, "a floor keeps the last probe from being unrunnable"

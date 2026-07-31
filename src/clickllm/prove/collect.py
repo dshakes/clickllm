@@ -234,9 +234,18 @@ def chat_url(base: str) -> str:
 def _retry_after(headers: Any) -> float | None:
     """`Retry-After` in seconds, when the server sent a number we can use."""
     try:
-        return float(headers.get("Retry-After"))
+        seconds = float(headers.get("Retry-After"))
     except (AttributeError, TypeError, ValueError):
         return None
+    # A bare float() accepted negatives and infinities. Either reaches sleep(),
+    # which raises — and that exception escapes the per-item handler and kills
+    # the WHOLE collection, when this module's rule is that a per-item failure is
+    # data. One hostile or buggy server answering `Retry-After: -1` ended a run
+    # that had already paid for every other item.
+    if seconds != seconds or seconds < 0:  # NaN or negative
+        return None
+    # Also bounded: a server asking us to wait an hour is not honoured silently.
+    return min(seconds, MAX_BACKOFF)
 
 
 def _once(url: str, payload: bytes, headers: dict[str, str], timeout: float) -> dict[str, Any]:

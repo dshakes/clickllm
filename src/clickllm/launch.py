@@ -414,15 +414,25 @@ def resolve_weights(
             next_step=f"clickllm catalog-add <repo> --params-b {model.params_b:g} --network",
         )
 
+    # `checked` is what was ACTUALLY asked about, which diverges from `tried` the
+    # moment the network fails mid-loop. Reporting the full candidate list there
+    # says "these six do not exist" when five of them were never reached — and
+    # the whole point of listing candidates is to send someone to the right place.
+    checked: list[str] = []
     try:
         for repo in tried:
+            checked.append(repo)
             if check(repo):
                 _cache_write(path, key, repo)
                 return Resolved(repo, tried)
     except OSError as e:
         return Refusal(
-            reason=f"could not reach the model index to confirm any repo — {e}",
-            tried=tried,
+            reason=(
+                f"could not reach the model index to confirm any repo — {e}. "
+                f"{len(checked)} of {len(tried)} candidates were reached before "
+                f"the connection failed; the rest are unknown, not absent"
+            ),
+            tried=tuple(checked),
             next_step="connect, or re-run once a previous run has cached the answer",
         )
 
@@ -717,7 +727,12 @@ def serve(
                 f"{launch_plan.engine} exited with code {code} before serving "
                 f"{launch_plan.repo}; its output above is the reason"
             )
-        if _healthy(launch_plan.base, launch_plan.repo):
+        # The probe's own timeout must fit inside what is LEFT of serve()'s
+        # budget. It was a fixed 10s default, so `serve(timeout=2.0)` could block
+        # ten seconds in the first probe alone — a caller's deadline overrun by
+        # 5x by the thing measuring it.
+        remaining = max(0.5, deadline - time.monotonic())
+        if _healthy(launch_plan.base, launch_plan.repo, timeout=min(10.0, remaining)):
             return Endpoint(
                 launch_plan.base,
                 launch_plan.repo,
