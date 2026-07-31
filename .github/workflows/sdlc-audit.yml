@@ -106,11 +106,26 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HAVE_KEY: ${{ steps.key.outputs.present }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_JOB: ${{ github.job }}
         run: |
           if [ "$HAVE_KEY" != "true" ]; then
             why='`OPENAI_API_KEY` is not set on this repository.'
           else
-            why='the Codex action failed — commonly an exhausted OpenAI quota. See the job log.'
+            # Two very different problems were reporting the same sentence, and
+            # they need opposite responses: a quota is a billing action, a
+            # reconnect loop is transient and worth re-running. Both have been
+            # seen on this repo. Read the step's own log and say which.
+            log="$(gh run view "$GITHUB_RUN_ID" --log --job "$GITHUB_JOB" 2>/dev/null || true)"
+            if printf '%s' "$log" | grep -qiE 'quota exceeded|insufficient_quota|billing'; then
+              why='the OpenAI **quota is exhausted**. This is a billing action: top up or raise the limit for the account behind `OPENAI_API_KEY` at platform.openai.com. Re-running will not help.'
+            elif printf '%s' "$log" | grep -qiE 'reconnecting|connection|timed out|ECONNRESET'; then
+              why='the Codex action lost its **connection** to the API. This is transient — re-running the job is worth a try, and no billing change is needed.'
+            elif printf '%s' "$log" | grep -qiE 'maximum number of turns|max.?turns|error_max_turns'; then
+              why='the auditor hit its **turn limit** before finishing. Raise `--max-turns` for this job, or narrow what it is asked to audit.'
+            else
+              why='the Codex action failed for a reason this step could not classify. See the job log.'
+            fi
           fi
           {
             printf '### ⚠️ Codex cross-audit did NOT run\n\n'
