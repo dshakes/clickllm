@@ -11,6 +11,12 @@
 # similar to the existing `click-llm` — so `pip install clickllm` will never work,
 # and the `-cli` suffix below is load-bearing rather than a typo. There is still no
 # Homebrew formula, so there is no brew branch.
+#
+# No npm branch either, and that is a decision rather than an omission. `npx
+# clickllm` is a shim that execs uvx, then `uv tool run`, then `pipx run` — every
+# channel this script already tries first. A branch for it could only ever be
+# reached on a machine where all three are missing, which is exactly where the
+# shim itself gives up. It would add node as a dependency and install nothing.
 set -eu
 
 say()  { printf '%s\n' "$*"; }

@@ -348,6 +348,16 @@ eval result moves production traffic without a human.</pre>
   line in these docs carries one. There is no Homebrew formula.</p>
 </div>
 
+<div class="note">
+  <p><b><code>npx clickllm</code> arrives with the next release.</b> npm allowed the bare name
+  PyPI refused, so the npm package and the command are both <code>clickllm</code>. It is a shim,
+  not a second implementation — it execs <code>uvx --from clickllm-cli==&lt;version&gt; clickllm</code>
+  and falls back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python
+  3.11+ are still required underneath. Nothing has been published to npm yet, so
+  <code>npx clickllm</code> is a 404 today; until it lands, the <code>uvx</code> line above is the
+  same thing.</p>
+</div>
+
 <!-- ══════════ EDUCATION ══════════ -->
 <hr>
 <h2 id="edu-why"><i class="chip"></i>Learn: why a GPU at all</h2>

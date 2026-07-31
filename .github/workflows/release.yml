@@ -308,3 +308,80 @@ jobs:
 #   Workflow name     : release.yml
 #   Environment       : pypi
 # No API token is ever stored — auth is OIDC, scoped to the publish-pypi job.
+
+  # Its own job, not a tail on publish-pypi. That job never checks out the repo —
+  # it only downloads the dist artifact — so `cd npm` there ran in an empty
+  # workspace. It also holds `id-token: write` for Trusted Publishing, which npm
+  # has no use for; a job that needs a checkout and not OIDC should not inherit
+  # the inverse.
+  #
+  # `needs: publish-pypi` is load-bearing: the shim pins an exact PyPI version,
+  # so publishing it first would ship a package pointing at something that does
+  # not exist yet.
+  publish-npm:
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # npm --provenance attests the tarball to this run
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # npm is a SHIM over the PyPI distribution — `npx clickllm` execs
+      # `uvx --from clickllm-cli==<version> clickllm`. It publishes after PyPI on
+      # purpose: the npm package names an exact PyPI version, so publishing it
+      # first would ship a package pointing at something that does not exist yet.
+      #
+      # Gated on NPM_TOKEN, and NOT silent when absent — "released" and
+      # "installable via npx" reading the same green tick is the defect.
+      - name: Check for NPM_TOKEN
+        id: npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then echo "present=true" >>"$GITHUB_OUTPUT"
+          else echo "present=false" >>"$GITHUB_OUTPUT"; fi
+
+      - name: Publish the npm shim
+        if: steps.npm.outputs.present == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # `needs.build.outputs.version`, NOT `steps.ver` — `ver` runs in the
+          # build job and step outputs do not cross jobs, so this was silently
+          # the empty string. The agreement check below would then compare the
+          # package version against "" and abort every real release.
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd npm
+          # The same agreement gate PyPI gets. `tests/test_docs_lab.py` already
+          # pins npm's version to pyproject's, so a mismatch here means the tag
+          # disagrees with both — publish nothing rather than a shim that execs
+          # a version of the tool nobody asked for.
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "${VERSION#v}" ]; then
+            # Single quotes and no backticks: inside double quotes those were
+            # command substitution, so the failure path tried to RUN npx while
+            # reporting that it should not be run.
+            printf '::error::npm package is %s but the tag is %s. npx clickllm@%s would run the wrong Python.\n' \
+              "$pkg" "${VERSION#v}" "${VERSION#v}"
+            exit 1
+          fi
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
+          # --provenance ties the tarball to this workflow run, the same property
+          # PEP 740 attestations give the wheel.
+          npm publish --access public --provenance
+
+      - name: Say so when npm was NOT published
+        if: steps.npm.outputs.present != 'true'
+        run: |
+          {
+            printf '## npm shim NOT published\n\n'
+            printf '`NPM_TOKEN` is not set, so `npx clickllm` still resolves nothing.\n'
+            printf 'PyPI is unaffected: `pip install clickllm-cli` works.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
