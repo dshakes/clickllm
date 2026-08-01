@@ -595,3 +595,89 @@ def test_a_receipt_stamps_the_version_that_actually_wrote_it():
     # And it is derived, not a copy that happens to agree today.
     src = (Path(__file__).resolve().parents[1] / "src/clickllm/mcp.py").read_text()
     assert '"version": __version__' in src, "re-typing the version is how it drifted"
+
+
+def test_a_repeated_prompt_is_one_observation_not_two():
+    """Found by building an eval set carelessly and reading the result.
+
+    A real set had 40 classification items over 28 distinct prompts and scored
+    95% [83-99]. The 28 distinct ones scored 90% [77-96] and did not clear the
+    bar — so the copies moved both the rate and the width, and the report said
+    nothing. Every interval here is Wilson, which assumes independent
+    observations; a prompt asked twice is one observation, and counting it twice
+    narrows the interval on evidence nobody collected.
+    """
+    from clickllm.prove import run
+
+    # Ten distinct prompts, nine passing — then the failing one repeated twice
+    # more. Uncollapsed that reads 9/12; collapsed it is 9/10.
+    items = [EvalItem(f"p{i}", "c", f"prompt-{i}", "x", "x") for i in range(9)]
+    items += [EvalItem(f"f{j}", "c", "prompt-bad", "x", "WRONG") for j in range(3)]
+
+    cluster = run(items, shares={"c": 1.0}).candidates[0].clusters[0]
+    assert cluster.interval.total == 10, f"denominator counted copies: {cluster.interval.total}"
+    assert cluster.interval.passed == 9
+    assert cluster.duplicates == 2
+
+    # The collapse is conjunctive: a prompt answered right once and wrong once
+    # is not a pass, because this gate moves production traffic.
+    split = [
+        EvalItem("a", "c", "same", "x", "x"),
+        EvalItem("b", "c", "same", "x", "WRONG"),
+    ]
+    only = run(split, shares={"c": 1.0}).candidates[0].clusters[0]
+    assert only.interval.total == 1 and only.interval.passed == 0, (
+        "a split answer counted as a pass"
+    )
+
+
+def test_collapsing_duplicates_is_disclosed_rather_than_silent():
+    """A denominator smaller than the file the reader wrote, with no explanation,
+    is its own defect — and leaves the eval set wrong because nothing said so."""
+    from clickllm.prove import run
+
+    items = [EvalItem(f"d{i}", "c", "same", "x", "x") for i in range(3)]
+    items += [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(9)]
+    text = run(items, shares={"c": 1.0}, names={"c": "Repeats"}).render()
+
+    assert "duplicate prompt(s) collapsed" in text
+    assert "Repeats (2)" in text, "must name which cluster and how many"
+    assert "only if every copy of it passed" in text, "must state the merge rule"
+
+    # And a clean set says nothing — a warning that always fires is noise.
+    clean = [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(10)]
+    assert "duplicate" not in run(clean, shares={"c": 1.0}).render()
+
+
+def test_the_same_prompt_in_different_clusters_is_not_a_duplicate():
+    """Clusters are separate populations. "Summarise this" appearing in both a
+    summarisation and a routing cluster is two genuine observations, and merging
+    across them would silently shrink an unrelated denominator."""
+    from clickllm.prove import run
+
+    items = [EvalItem("a", "c1", "shared prompt", "x", "x")]
+    items += [EvalItem("b", "c2", "shared prompt", "x", "x")]
+    m = run(items, shares={"c1": 0.5, "c2": 0.5})
+    for c in m.candidates[0].clusters:
+        assert c.interval.total == 1, f"{c.cluster} lost an item to cross-cluster merging"
+        assert c.duplicates == 0
+
+
+def test_the_receipt_records_a_collapse_so_its_denominator_is_explainable():
+    """A receipt reading `9/10` against an eval-set file holding 20 items looks
+    like lost data. An auditor cannot tell a deliberate collapse from a bug, and
+    the receipt is the artifact `clickllm receipt --against` exists to audit."""
+    from clickllm.prove import run
+    from clickllm.prove.receipt import Claim
+
+    items = [EvalItem(f"d{i}", "c", "same", "x", "x") for i in range(3)]
+    items += [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(9)]
+    claim = Claim.of(run(items, shares={"c": 1.0}, names={"c": "R"}).candidates[0].clusters[0])
+
+    assert claim.total == 10 and claim.duplicates == 2
+    assert "2 duplicate prompt(s) merged" in claim.render()
+
+    # A clean cluster stays quiet.
+    clean = [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(10)]
+    quiet = Claim.of(run(clean, shares={"c": 1.0}).candidates[0].clusters[0])
+    assert quiet.duplicates == 0 and "duplicate" not in quiet.render()

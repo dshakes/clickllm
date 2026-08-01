@@ -55,6 +55,12 @@ class ClusterScore:
     #: than two independent rates that throw the pairing away. Empty for a score
     #: built by hand rather than from results.
     outcomes: tuple[tuple[str, bool], ...] = ()
+    #: Items dropped because an identical prompt already appeared in this
+    #: cluster. A repeated prompt is one observation asked twice, not two
+    #: independent ones, and a Wilson interval assumes independence — counting
+    #: the copies narrows the interval on evidence that was never collected.
+    #: Zero for the normal case; the report only mentions it when it is not.
+    duplicates: int = 0
 
     @property
     def known(self) -> bool:
@@ -337,6 +343,19 @@ class Matrix:
             out.append(
                 f"⚠ {ung} items had no applicable grader and are excluded, not counted as passes"
             )
+        # Collapsing silently would be its own defect: the reader sees a
+        # denominator smaller than the file they wrote and has no way to know
+        # why, and the eval set stays wrong because nothing told them.
+        dup = [c for c in clusters if c.duplicates]
+        if dup:
+            total = sum(c.duplicates for c in dup)
+            detail = ", ".join(f"{c.name} ({c.duplicates})" for c in dup)
+            out.append(
+                f"⚠ {total} duplicate prompt(s) collapsed — {detail}. A prompt repeated "
+                f"within a cluster is one observation asked twice, and every interval "
+                f"here assumes independent ones, so the copies are merged rather than "
+                f"counted. An item passes only if every copy of it passed."
+            )
         return "\n".join(out)
 
     def _render_statistics(self, best: CandidateReport | None) -> list[str]:
@@ -414,12 +433,16 @@ def score_cluster(
     name: str,
     share: float,
     results: list[ItemResult],
+    duplicates: int = 0,
 ) -> ClusterScore:
     """Turn per-item results into one cluster score.
 
     Items where no grader applied are counted separately and excluded from the
     denominator — including them as failures would punish a model for our
     instrument's blind spots, and as passes would be a lie.
+
+    ``duplicates`` is how many items were collapsed before this was called, for
+    disclosure only; the arithmetic here already sees the collapsed set.
     """
     graded = [r for r in results if r.graded]
     passed = sum(1 for r in graded if r.passed)
@@ -430,6 +453,7 @@ def score_cluster(
         interval=wilson(passed, len(graded)),
         ungraded=len(results) - len(graded),
         outcomes=tuple((r.item_id, r.passed) for r in graded),
+        duplicates=duplicates,
     )
 
 

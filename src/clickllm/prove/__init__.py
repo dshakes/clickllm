@@ -173,6 +173,18 @@ def _judged(
     return replace(result, scores=result.scores + (verdict.to_score(),))
 
 
+def _merge(a: ItemResult, b: ItemResult) -> ItemResult:
+    """Fold a repeated prompt's second result into the first.
+
+    Conjunctive: the surviving observation carries both copies' scores, so
+    `passed` (which already requires every applicable grader to pass) is true
+    only when both copies passed. Keeps `a`'s item_id — the report points at a
+    real item someone can go read, and naming one of two arbitrary ids is more
+    useful than inventing a synthetic one that matches nothing in the file.
+    """
+    return ItemResult(item_id=a.item_id, cluster=a.cluster, scores=a.scores + b.scores)
+
+
 def run(
     items: list[EvalItem],
     *,
@@ -219,15 +231,37 @@ def run(
         raise ValueError("judge_model is required when a judge is supplied, for disclosure")
 
     by_cluster: dict[str, list[ItemResult]] = defaultdict(list)
+    seen: dict[tuple[str, str], int] = {}
+    dupes: dict[str, int] = defaultdict(int)
     for item in items:
         result = grade(item, graders)
         if judge is not None:
             result = _judged(result, item, judge, judge_model)
+        # An identical prompt inside one cluster is the same question asked
+        # twice, not two independent observations, and every interval below
+        # assumes independence. Left in, the copies shrink the interval on
+        # evidence nobody collected — and they move the point estimate too: a
+        # real eval set here had 40 classification items over 28 distinct
+        # prompts and read 95%, where the 28 read 90% and did not clear the bar.
+        #
+        # Collapsed conjunctively, matching how a single item is already scored
+        # across graders: the observation passes only if every copy passed. A
+        # prompt the model answers correctly only sometimes is not one it can be
+        # trusted on, and this gate exists to move production traffic.
+        key = (item.cluster, item.prompt)
+        if key in seen:
+            dupes[item.cluster] += 1
+            prior = by_cluster[item.cluster][seen[key]]
+            by_cluster[item.cluster][seen[key]] = _merge(prior, result)
+            continue
+        seen[key] = len(by_cluster[item.cluster])
         by_cluster[item.cluster].append(result)
 
     names = names or {}
     scores = [
-        score_cluster(key, names.get(key, key), shares.get(key, 0.0), results)
+        score_cluster(
+            key, names.get(key, key), shares.get(key, 0.0), results, duplicates=dupes.get(key, 0)
+        )
         for key, results in sorted(by_cluster.items())
     ]
     report = CandidateReport(model=candidate, clusters=tuple(scores), monthly_cost=monthly_cost)

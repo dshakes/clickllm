@@ -105,6 +105,11 @@ class Claim:
     #: Items that could not be graded at all. Disclosed rather than dropped from
     #: the denominator, which is the usual way a pass rate gets flattered.
     ungraded: int = 0
+    #: Items merged because an identical prompt already appeared in this cluster.
+    #: Recorded because `total` would otherwise be unexplainable: a receipt
+    #: reading `9/10` against an eval set file holding 20 summarisation items
+    #: looks like lost data, and an auditor cannot tell a collapse from a bug.
+    duplicates: int = 0
     #: Graded items this cluster would need to clear the bar at its observed rate.
     #: `None` on a cluster that already cleared it, or on one whose rate is at or
     #: below the bar — where the answer is a better candidate, not a bigger eval
@@ -121,6 +126,8 @@ class Claim:
         if self.total == 0:
             return "?"
         out = f"{self.point:.0%} [{self.low:.0%}–{self.high:.0%}] over {self.total} items"
+        if self.duplicates:
+            out += f" ({self.duplicates} duplicate prompt(s) merged)"
         if self.needed is not None:
             out += f" — needs {self.needed} to clear the bar at this rate"
         return out
@@ -137,6 +144,7 @@ class Claim:
             low=s.interval.low,
             high=s.interval.high,
             ungraded=s.ungraded,
+            duplicates=s.duplicates,
             needed=None if s.band(bar) == "equivalent" else s.needed(bar),
         )
 
