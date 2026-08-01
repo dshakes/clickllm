@@ -985,3 +985,42 @@ def test_bumping_refuses_to_rewrite_a_claim_about_a_past_release():
             continue
         for m in re.finditer(pattern, readme, re.M):
             assert "Fixed in" not in m.group(0), f"the {what} pattern would rewrite history"
+
+
+def test_bumping_a_file_with_several_patterns_keeps_all_of_them(tmp_path, monkeypatch):
+    """README.md carries five version patterns. Computing each rewrite from the
+    ORIGINAL file text makes them siblings that overwrite each other — the last
+    write wins and the rest are lost.
+
+    That is not hypothetical: making `write()` atomic introduced exactly this,
+    and cutting 0.1.7 produced `INCONSISTENT: ['0.1.6', '0.1.7']` with nine of
+    fourteen surfaces silently unchanged while the tool reported all fourteen
+    as changed. Only the post-write verification caught it.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("bump", root / "tools" / "bump.py")
+    bump = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bump)
+
+    # A fake repo where one file holds three independent version facts.
+    monkeypatch.setattr(bump, "ROOT", tmp_path)
+    (tmp_path / "many.md").write_text("alpha 1.0.0 end\nbeta 1.0.0 end\ngamma 1.0.0 end\n")
+    monkeypatch.setattr(
+        bump,
+        "SURFACES",
+        (
+            ("many.md", "alpha", r"(alpha )(\d+\.\d+\.\d+)( end)"),
+            ("many.md", "beta", r"(beta )(\d+\.\d+\.\d+)( end)"),
+            ("many.md", "gamma", r"(gamma )(\d+\.\d+\.\d+)( end)"),
+        ),
+    )
+    monkeypatch.setattr(bump, "HISTORY", ())
+
+    changed = bump.write("2.0.0")
+    assert len(changed) == 3, changed
+    got = (tmp_path / "many.md").read_text()
+    assert got.count("2.0.0") == 3, f"writes clobbered each other:\n{got}"
+    assert "1.0.0" not in got
+    assert set(bump.current().values()) == {"2.0.0"}
