@@ -88,21 +88,28 @@ def write(version: str) -> list[str]:
     the new version, some on the old, and the release only discovering it later.
     A guard that fires after the damage is a report, not a guard.
     """
-    pending: list[tuple[Path, str, str]] = []
+    # Accumulated per FILE, not per pattern. README.md alone has five patterns,
+    # and computing each rewrite from the original text made them siblings that
+    # overwrite each other — the last one written wins and the other four are
+    # lost. The sequential read-modify-write this replaced did not have that
+    # problem; making the write atomic reintroduced it, and only the post-write
+    # verification below caught it (`INCONSISTENT: ['0.1.6', '0.1.7']`).
+    proposed: dict[Path, str] = {}
+    labels: list[str] = []
     for rel, what, pattern in SURFACES:
         path = ROOT / rel
-        text = path.read_text()
+        text = proposed.get(path, path.read_text())
         new_text = re.sub(
             pattern, lambda m, v=version: f"{m.group(1)}{v}{m.group(3)}", text, count=1, flags=re.M
         )
         if new_text != text:
-            pending.append((path, new_text, f"{rel}:{what}"))
-
-    proposed = {path: text for path, text, _ in pending}
+            proposed[path] = new_text
+            labels.append(f"{rel}:{what}")
     for rel, pattern in HISTORY:
         path = ROOT / rel
-        was = re.search(pattern, path.read_text())
-        now = re.search(pattern, proposed.get(path, path.read_text()))
+        original = path.read_text()
+        was = re.search(pattern, original)
+        now = re.search(pattern, proposed.get(path, original))
         if (was is None) != (now is None) or (was and now and was.group(0) != now.group(0)):
             raise RuntimeError(
                 f"a pattern would rewrite a historical claim in {rel}, making it false:\n"
@@ -110,9 +117,9 @@ def write(version: str) -> list[str]:
                 f"Nothing was written."
             )
 
-    for path, text, _ in pending:
+    for path, text in proposed.items():
         path.write_text(text)
-    return [label for _, _, label in pending]
+    return labels
 
 
 def main() -> int:
