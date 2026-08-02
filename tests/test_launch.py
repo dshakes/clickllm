@@ -12,7 +12,10 @@ network fails on a train, which is where this repo's users are.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
 import sys
 import time
 from dataclasses import replace
@@ -573,6 +576,11 @@ def test_the_readiness_probe_cannot_outlast_the_deadline_it_serves(monkeypatch, 
     # vocabulary, and a Popen stub installed earlier would intercept that too.
     monkeypatch.setattr(launch, "_healthy", record)
     monkeypatch.setattr(launch.subprocess, "Popen", lambda *a, **k: FakeProc())
+    # This test is about the probe's budget, not teardown. The Popen stub above
+    # is global to the module, so the `ps` call inside `_descendants` would get
+    # a FakeProc too — stubbing it out keeps the stub's blast radius equal to
+    # what the test actually means to replace.
+    monkeypatch.setattr(launch, "_descendants", lambda pid: ())
 
     with pytest.raises(TimeoutError):
         launch.serve(lp, timeout=2.0, poll=0.05)
@@ -621,3 +629,132 @@ def test_a_confirmed_repo_does_not_claim_candidates_it_never_looked_at(tmp_path)
     )
     assert isinstance(lp, launch.LaunchPlan), lp
     assert f"confirmed; {len(asked)} candidate(s) checked" in lp.render()
+
+
+# --- teardown: the engine AND what it spawned ----------------------------------
+
+
+def test_stopping_an_engine_kills_the_workers_it_spawned():
+    """From the deep review of launch.py (#44), the finding left open.
+
+    `stop()` signalled only the immediate child. vLLM runs an API server that
+    forks engine workers, each holding GPU memory — terminate the parent alone
+    and the workers are reparented to init and keep the device, while
+    `serve()`'s timeout path reports the engine "has been stopped rather than
+    left running".
+
+    Real processes, not a stub: the whole defect is about what the OS does with
+    orphans, and a stub would model exactly the assumption under test.
+    """
+    import subprocess as sp
+    import sys
+    import time as t
+
+    # A parent that spawns two children and then sleeps. Children outlive it
+    # unless something goes looking for them.
+    script = (
+        "import subprocess,sys,time;"
+        "ks=[subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)'])"
+        " for _ in range(2)];"
+        "print(' '.join(str(k.pid) for k in ks),flush=True);"
+        "time.sleep(120)"
+    )
+    kids: list[int] = []
+    proc = sp.Popen([sys.executable, "-c", script], stdout=sp.PIPE, text=True)
+    try:
+        kids = [int(p) for p in proc.stdout.readline().split()]
+        assert len(kids) == 2
+        t.sleep(0.3)
+        assert all(launch._running(k) for k in kids), "fixture: children did not start"
+        assert set(kids) <= set(launch._descendants(proc.pid)), "did not find the children"
+
+        ep = launch.Endpoint("http://127.0.0.1:1", "m", proc.pid, 0.0, proc)
+        survivors = ep.stop(grace=3.0)
+
+        assert survivors == (), f"left running: {survivors}"
+        for k in kids:
+            assert not launch._running(k), f"worker {k} outlived the engine"
+    finally:
+        for p in [proc.pid, *kids]:
+            with contextlib.suppress(OSError):
+                os.kill(p, signal.SIGKILL)
+
+
+def test_descendants_degrades_to_empty_rather_than_raising(monkeypatch):
+    """Best effort. A machine without `ps` must not take the shutdown path with
+    it — reporting what it could not do beats raising during teardown."""
+
+    def boom(*a, **k):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(launch.subprocess, "run", boom)
+    assert launch._descendants(os.getpid()) == ()
+
+
+def test_two_concurrent_resolutions_do_not_lose_each_others_cache_entry(tmp_path):
+    """From the same review. `_cache_write` did read-modify-write with no lock
+    and a FIXED temp filename, so two `clickllm run` invocations racing lost one
+    entry and could publish a half-written file."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "weights.json"
+    keys = [f"model-{i}" for i in range(40)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda k: launch._cache_write(path, k, f"repo/{k}"), keys))
+
+    got = launch._cache_read(path)
+    missing = sorted(set(keys) - set(got))
+    assert not missing, f"{len(missing)} entries lost to the race: {missing[:5]}"
+    assert all(got[k] == f"repo/{k}" for k in keys)
+
+
+def test_the_cache_temp_file_is_not_shared_between_processes(tmp_path):
+    """The temp was a fixed `weights.json.tmp`, so two processes wrote the same
+    path and one could rename a file the other was still writing."""
+    import re as _re
+
+    src = (Path(__file__).resolve().parents[1] / "src/clickllm/launch.py").read_text()
+    body = src[src.index("def _cache_write") : src.index("def _cache_lock")]
+    assert "os.getpid()" in body, "the scratch file is still shared between processes"
+    assert not _re.search(r'with_suffix\(\s*"\.json\.tmp"\s*\)', body)
+
+
+def test_the_timeout_message_does_not_claim_a_teardown_it_did_not_achieve(monkeypatch, tmp_path):
+    """The old text always said the engine "has been stopped rather than left
+    running". With `stop()` signalling only the immediate child, that sentence
+    was false whenever a worker survived — and it is the sentence someone reads
+    before deciding whether it is safe to start another engine on that GPU."""
+
+    class FakeProc:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    lp = launch.plan(
+        "llama-3.1-8b", hw=M4, context=8192, exists=lambda r: True, cache=tmp_path / "w.json"
+    )
+    assert isinstance(lp, launch.LaunchPlan), lp
+    monkeypatch.setattr(launch, "_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(launch.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(launch, "_descendants", lambda pid: (999001, 999002))
+    # Nothing dies.
+    monkeypatch.setattr(launch, "_running", lambda pid: True)
+    monkeypatch.setattr(launch.os, "kill", lambda *a: None)
+
+    with pytest.raises(TimeoutError) as e:
+        launch.serve(lp, timeout=0.3, poll=0.05)
+    msg = str(e.value)
+    assert "would not die" in msg and "999001" in msg, msg
+    assert "has been stopped rather than left running" not in msg, (
+        "claimed a teardown it did not do"
+    )
