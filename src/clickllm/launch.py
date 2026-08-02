@@ -52,9 +52,11 @@ resolution is keyed on the quant the solver picked.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shlex
+import signal
 import subprocess
 import time
 from collections.abc import Callable
@@ -234,16 +236,111 @@ class Endpoint:
             self.stop()
             return self.process.returncode or 0
 
-    def stop(self, grace: float = 10.0) -> None:
-        """Terminate, then kill. Returns only once the child is actually gone."""
+    def stop(self, grace: float = 10.0) -> tuple[int, ...]:
+        """Terminate, then kill — the engine AND anything it spawned.
+
+        Signalling only the immediate child is not stopping the engine. vLLM
+        runs an API server that forks engine workers, each holding GPU memory;
+        terminate the parent alone and the workers are reparented to init and
+        keep the device. `serve()`'s timeout path says the engine "has been
+        stopped rather than left running", and for a multi-process engine that
+        sentence was false.
+
+        Descendants are collected BEFORE the parent is signalled. Afterwards the
+        parent links are gone — the children have been reparented — and there is
+        no way left to tell which processes were ours.
+
+        A new session would make this trivial (signal the group) and is
+        deliberately not used: `serve()` keeps the child in this process group
+        so an interactive Ctrl-C reaches it, and that is worth more than tidy
+        teardown, because Ctrl-C is what people actually press.
+
+        Returns:
+            PIDs that were still alive after the kill — empty in the normal
+            case. Non-empty is the honest answer to "did you stop it", and the
+            caller can say so rather than claiming the GPU is free.
+        """
         if self.process.poll() is not None:
-            return
+            return ()
+        kin = _descendants(self.pid)
         self.process.terminate()
         try:
             self.process.wait(timeout=grace)
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.wait()
+        return _reap(kin, grace)
+
+
+def _descendants(pid: int) -> tuple[int, ...]:
+    """Every process descended from `pid`, deepest last. Empty if we cannot ask.
+
+    Reads the whole pid/ppid table once and walks it, rather than shelling out
+    per level: one `ps` is cheap, N is not, and the table is a consistent
+    snapshot where N separate calls are not.
+
+    Returning empty on failure is deliberate. A best-effort teardown that
+    reports what it could not do beats one that raises on a machine where `ps`
+    is missing and takes the shutdown path with it.
+    """
+    try:
+        proc = subprocess.run(  # noqa: S603,S607 — fixed argv, no user input
+            ["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    children: dict[int, list[int]] = {}
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            child, parent = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(parent, []).append(child)
+
+    out: list[int] = []
+    queue = list(children.get(pid, ()))
+    seen = {pid}
+    while queue:
+        cur = queue.pop(0)
+        if cur in seen:  # a recycled pid could otherwise loop forever
+            continue
+        seen.add(cur)
+        out.append(cur)
+        queue.extend(children.get(cur, ()))
+    return tuple(out)
+
+
+def _reap(pids: tuple[int, ...], grace: float) -> tuple[int, ...]:
+    """SIGTERM, wait, SIGKILL. Returns whatever is still alive after that."""
+    alive = [p for p in pids if _running(p)]
+    for pid in alive:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + max(0.1, min(grace, 5.0))
+    while time.monotonic() < deadline:
+        alive = [p for p in alive if _running(p)]
+        if not alive:
+            return ()
+        time.sleep(0.05)
+    for pid in alive:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGKILL)
+    time.sleep(0.1)
+    return tuple(p for p in alive if _running(p))
+
+
+def _running(pid: int) -> bool:
+    """Whether the pid exists. Signal 0 checks without delivering anything."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, not ours to signal
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -282,15 +379,57 @@ def _cache_write(path: Path, key: str, repo: str) -> None:
 
     A failure here is not a failure to launch — the answer is already in hand,
     and a read-only home should not stop a server from starting.
+
+    Two `clickllm run` invocations resolving different models at once used to
+    lose one of the two entries, in two separate ways:
+
+    * **Lost update.** Both read the same dict, both added their own key, both
+      wrote the whole thing back — last writer wins and the other resolution is
+      gone. The read-modify-write now happens under an exclusive lock.
+    * **Shared scratch file.** The temp was a fixed `weights.json.tmp`, so both
+      processes wrote the *same* path and renamed it. One could rename a file
+      the other was still writing, publishing a truncated cache. The temp name
+      now carries the pid.
+
+    Neither corrupts anything a reader cannot recover from — `_cache_read`
+    treats a bad file as empty — but a silently dropped entry costs an HTTP
+    round trip on a later run and looks like the resolver forgetting.
     """
+    lock = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        lock = _cache_lock(path)
         data = _cache_read(path) | {key: repo}
-        tmp = path.with_suffix(".json.tmp")
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
         tmp.replace(path)
     except OSError:
         pass  # ponytail: the cache is an optimisation; losing it costs one HTTP call
+    finally:
+        if lock is not None:
+            with contextlib.suppress(OSError):
+                lock.close()
+
+
+def _cache_lock(path: Path):
+    """An exclusive lock held for the read-modify-write, or None if unavailable.
+
+    `fcntl` is POSIX-only and this repo has no runtime dependencies, so a
+    platform without it degrades to the unique-temp behaviour rather than
+    failing — which is still strictly better than what was here, and does not
+    make the lock a reason a server will not start.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover — Windows
+        return None
+    handle = (path.parent / f"{path.name}.lock").open("w")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    except OSError:
+        handle.close()
+        return None
+    return handle
 
 
 def hf_exists(repo: str, timeout: float = 10.0) -> bool:
@@ -765,10 +904,22 @@ def serve(
         time.sleep(poll)
 
     ep = Endpoint(launch_plan.base, launch_plan.repo, proc.pid, timeout, proc)
-    ep.stop()
+    # The claim below used to be unconditional, and `stop()` only ever signalled
+    # the immediate child — so for a multi-process engine it asserted a GPU had
+    # been released while workers still held it. Now it is reported, not assumed.
+    survivors = ep.stop()
+    if survivors:
+        raise TimeoutError(
+            f"{launch_plan.engine} did not complete a single token at "
+            f"{launch_plan.base} within {timeout:.0f}s. It was stopped, but "
+            f"{len(survivors)} process(es) it spawned would not die: "
+            f"{', '.join(str(p) for p in survivors)}. They may still hold the "
+            f"device — kill them before starting another engine."
+        )
     raise TimeoutError(
         f"{launch_plan.engine} did not complete a single token at {launch_plan.base} "
-        f"within {timeout:.0f}s; it has been stopped rather than left running"
+        f"within {timeout:.0f}s; it and everything it spawned have been stopped "
+        f"rather than left running"
     )
 
 
