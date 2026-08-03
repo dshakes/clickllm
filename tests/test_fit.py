@@ -844,3 +844,61 @@ def test_upgrade_tells_you_how_rather_than_guessing():
     upgrades a different copy than the one running. Naming the commands is the
     honest answer and cannot corrupt anything."""
     assert cli.main(["upgrade"]) == 0
+
+
+def test_cost_per_token_falls_as_concurrency_rises():
+    """Audit finding. `$/Mtok` divided an hourly rate by SINGLE-STREAM output, so
+    it read identically at concurrency 1 and 8 — and `clickllm host` printed it
+    beside hosted providers' prices, which are batched. The number the whole
+    product turns on was biased against self-hosting by roughly the batch factor.
+    """
+    m = catalog.get("llama-3.1-8b")
+    costs = {}
+    for c in (1, 8, 32):
+        best = next(p for p in fit.where(m, 8192, c) if p.feasible and p.cost_per_mtok_usd)
+        costs[c] = best.cost_per_mtok_usd
+
+    assert costs[8] < costs[1], f"batching must lower cost per token: {costs}"
+    assert costs[32] < costs[8], costs
+    # And by a material amount — this is the difference between winning and
+    # losing a cost comparison, not a rounding correction.
+    assert costs[8] < costs[1] / 2, f"batching barely moved the number: {costs}"
+
+
+def test_aggregate_throughput_beats_one_stream_and_then_saturates():
+    """Weights are read once per forward pass however many sequences are in
+    flight; each sequence additionally streams its own KV. So throughput climbs
+    almost linearly while the weight read dominates and flattens once KV traffic
+    does. A model that scaled forever would be the flattering kind of wrong.
+    """
+    m = catalog.get("llama-3.1-8b")
+    hw = _hw(96)
+    single = fit.solve(m, "q8", hw, 8192, 1)
+    assert single.aggregate_tokens_per_sec is not None
+
+    prev = single.aggregate_tokens_per_sec
+    ratios = []
+    for c in (2, 4, 8, 16, 32, 64, 128):
+        agg = fit.solve(m, "q8", hw, 8192, c).aggregate_tokens_per_sec
+        assert agg > prev, f"aggregate fell going to concurrency {c}"
+        ratios.append(agg / prev)
+        prev = agg
+
+    # Diminishing returns: each doubling buys less than the one before it.
+    assert ratios[-1] < ratios[0], f"no saturation — scaling never slowed: {ratios}"
+    # And it is bounded by bandwidth / KV-read, not unbounded.
+    huge = fit.solve(m, "q8", hw, 8192, 100_000).aggregate_tokens_per_sec
+    weight_read = m.active_b * 1e9 * 1  # q8 -> 1 byte per param
+    ceiling = (single.tokens_per_sec * weight_read) / (m.kv_bytes_per_token() * 8192)
+    assert huge <= ceiling * 1.01, f"exceeded the bandwidth ceiling: {huge} > {ceiling}"
+
+
+def test_a_longer_context_costs_more_per_token_at_the_same_concurrency():
+    """KV is read every step, so context length is a throughput cost and not only
+    a memory cost. A cost model blind to that prices a 128K deployment like an
+    8K one."""
+    m = catalog.get("llama-3.1-8b")
+    hw = _hw(96)
+    short = fit.solve(m, "q8", hw, 8192, 16).aggregate_tokens_per_sec
+    long = fit.solve(m, "q8", hw, 65536, 16).aggregate_tokens_per_sec
+    assert long < short, f"8x the context did not slow decode: {short} -> {long}"

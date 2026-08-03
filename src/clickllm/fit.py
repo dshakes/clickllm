@@ -49,6 +49,44 @@ class Fit:
         return self.usable_bytes - self.total_bytes
 
     @property
+    def aggregate_tokens_per_sec(self) -> float | None:
+        """Tokens per second across ALL concurrent requests, not one of them.
+
+        `tokens_per_sec` is single-stream and correctly labelled as such, but it
+        was the only throughput figure in the codebase — so `$/Mtok` divided an
+        hourly rate by one stream's output and read the same at concurrency 1 and
+        concurrency 32. `clickllm host` then printed that beside hosted providers'
+        per-token prices, which are batched. The comparison the whole product
+        turns on was biased against self-hosting by roughly the batch factor.
+
+        The model is the standard bandwidth account of a decode step. Weights are
+        read once per forward pass however many sequences are in flight; each
+        sequence additionally streams its own KV cache. So for batch B:
+
+            step_seconds = (weight_read + B * kv_read) / effective_bandwidth
+            aggregate    = B / step_seconds
+
+        which scales almost linearly while the weight read dominates and
+        saturates at `bandwidth / kv_read` once KV traffic does — the real shape,
+        and it needs no invented ceiling constant to produce it.
+
+        An estimate, like everything else here: it ignores prefill, scheduler
+        overhead and compute-bound regimes at very large batch, all of which make
+        the true number lower. Named `roofline` wherever it is printed.
+        """
+        if self.tokens_per_sec is None or self.concurrency < 1:
+            return None
+        weight_read = self.model.active_b * 1e9 * QUANT_BITS[self.quant] / 8
+        if weight_read <= 0:
+            return None
+        # `tokens_per_sec` already carries bandwidth x efficiency / weight_read,
+        # so recover the effective bandwidth rather than re-deriving it from the
+        # Hardware, which this dataclass does not keep.
+        effective_bw = self.tokens_per_sec * weight_read
+        kv_read = self.model.kv_bytes_per_token() * self.context
+        return (self.concurrency * effective_bw) / (weight_read + self.concurrency * kv_read)
+
+    @property
     def slow(self) -> bool:
         """Fits, but you won't enjoy it."""
         return self.feasible and self.tokens_per_sec is not None and self.tokens_per_sec < 15
@@ -194,16 +232,27 @@ class Placement:
 
     @property
     def cost_per_mtok_usd(self) -> float | None:
-        """Rough USD per million output tokens at full single-stream utilisation.
+        """Rough USD per million output tokens at the requested concurrency.
 
         A capacity-vs-speed reality check: a cheap card that decodes slowly can
-        cost more per token than an expensive one that decodes fast. Assumes the
-        machine is busy — idle time is not modelled, and real cost is higher.
+        cost more per token than an expensive one that decodes fast.
+
+        Uses AGGREGATE throughput, not single-stream. It used to divide by one
+        stream's output, so the figure was identical at concurrency 1 and 32 and
+        overstated self-hosting by roughly the batch factor — while `clickllm
+        host` printed it beside hosted providers' prices, which are batched. The
+        old docstring said "real cost is higher", which was true of idle time and
+        wrong by more in the other direction.
+
+        Still an estimate, and still assumes the machine is busy: a box at 10%
+        utilisation costs ten times this per token.
         """
-        if self.hourly_usd is None or not self.tokens_per_sec:
+        if self.hourly_usd is None or self.fit is None:
             return None
-        tokens_per_hour = self.tokens_per_sec * 3600
-        return (self.hourly_usd / tokens_per_hour) * 1_000_000
+        agg = self.fit.aggregate_tokens_per_sec
+        if not agg:
+            return None
+        return (self.hourly_usd / (agg * 3600)) * 1_000_000
 
 
 def _shortfall(n: int) -> str:
