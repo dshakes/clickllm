@@ -1101,8 +1101,7 @@ def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
         list((root / "docs").rglob("*.md"))
         + list((root / "docs" / "assets").glob("*.svg"))
         + list((root / "site").rglob("*.svg"))
-        + [root / "site" / "index.html", root / "site" / "docs" / "index.html",
-           root / "README.md"]
+        + [root / "site" / "index.html", root / "site" / "docs" / "index.html", root / "README.md"]
         # The skills too. The reviewer found `vllm-mlx` alive in
         # `.claude/skills/clickllm/SKILL.md` after this PR had corrected the
         # diagrams, the docs and the site — the same defect surviving in the one
