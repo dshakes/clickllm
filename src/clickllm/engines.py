@@ -156,11 +156,14 @@ __all__ = [
 #: changelog because the flags drift and the next person needs to know what to
 #: re-check rather than what to trust.
 SOURCES = {
-    # Docs only. `vllm serve --help` initialises hardware before printing, so
-    # it cannot be interrogated on a GPU-less CI runner — the flags below are
-    # NOT verified against the binary the way MLX's are. Run
-    # `CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py -k vllm`
-    # on a GPU box to close that gap.
+    # Docs, and now the binary too. This comment used to say vLLM "cannot be
+    # interrogated on a GPU-less CI runner", which was true of the CUDA image
+    # and false of vLLM: the device check is the image's platform plugin, not
+    # the CLI. `vllm/vllm-tpu:latest` answers `vllm serve --help=all` with no
+    # accelerator, so engine-flags.yml asks it on every relevant PR.
+    # Remaining gap, and it is small: that is a different *build* of vLLM. On a
+    # GPU box, `CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py
+    # -k vllm` checks the CUDA build itself.
     "vllm": "https://docs.vllm.ai/en/stable/configuration/engine_args.html (checked 2026-07-27)",
     "sglang": "https://docs.sglang.io/advanced_features/server_arguments.html (checked 2026-07-27)",
     # Not a docs page. `mlx_lm.server --help` on the installed wheel, which is the
@@ -261,7 +264,11 @@ class VllmAdapter(Adapter):
     """vLLM. Flags verified against the source in [`SOURCES`]."""
 
     name = "vllm"
-    help_argv = ("vllm", "serve", "--help")
+    # `--help=all`, not `--help`. Since vLLM sectioned its help, plain `--help`
+    # prints a summary that names one flag — `--help` itself — so asking it
+    # yields a one-element set and every flag we emit reads as drift. The
+    # failure would have been blamed on the dialect; the dialect was fine.
+    help_argv = ("vllm", "serve", "--help=all")
 
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         match setting:
@@ -948,15 +955,15 @@ class LlmdAdapter(VllmAdapter):
     Deployments. Those belong to `clickllm.k8s.reconcile`, not to an argv
     dialect, and building them here would be the wrapper NFR-4 forbids.
 
-    Inherits vLLM's verification status, which is worth stating plainly: those
-    flags are documented rather than interrogated, because CI has no GPU to run
-    `vllm serve --help` on. See [`SOURCES`].
+    Inherits vLLM's verification status, which is now interrogated rather than
+    documented: `vllm/vllm-tpu:latest` answers `vllm serve --help=all` on a
+    GPU-less runner, so CI asks the binary. See [`SOURCES`].
     """
 
     name = "llm-d"
     # Deliberately vLLM's binary: that is what the container runs, so that is
-    # whose flags must be right, and it is what to ask if a GPU appears.
-    help_argv = ("vllm", "serve", "--help")
+    # whose flags must be right.
+    help_argv = ("vllm", "serve", "--help=all")
 
 
 _ADAPTERS: dict[str, Adapter] = {
