@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import __version__
+
 __all__ = [
     "CaptureError",
     "SeamError",
@@ -40,7 +42,14 @@ __all__ = [
 #: Extension versions this package knows how to talk to. A mismatch is refused
 #: rather than trusted: an extension that imports fine and then misreads a
 #: binary format is a far worse failure than one that will not load.
-COMPATIBLE = ("0.1.0",)
+#:
+#: Derived, not typed. This was the literal "0.1.0" while the package shipped
+#: 0.1.9, and it happened to work only because `tools/bump.py` did not maintain
+#: the Rust workspace version either — two frozen numbers agreeing by accident.
+#: Bumping either one alone would have made a correctly-paired install refuse to
+#: load, and the failure would have surfaced as "reinstall both together" on a
+#: machine where both were already current. They now move as one.
+COMPATIBLE = (__version__,)
 
 INSTALL_HINT = "pip install clickllm-core"
 

@@ -37,6 +37,11 @@ _V = r"\d+\.\d+\.\d+"
 SURFACES: tuple[tuple[str, str, str], ...] = (
     ("pyproject.toml", "python manifest", rf'(^version = ")({_V})(")'),
     ("npm/package.json", "npm manifest", rf'(^  "version": ")({_V})(")'),
+    # The Rust workspace was NOT here, so it sat at 0.1.0 while the package
+    # shipped 0.1.9. It works only because `core.COMPATIBLE` also said 0.1.0 —
+    # two frozen numbers agreeing by accident. The moment anyone bumped one, the
+    # compiled extension would refuse to load against its own package.
+    ("Cargo.toml", "rust workspace", rf'(^version = ")({_V})(")'),
     # Install pins — examples a reader copies. These must name the new release.
     ("README.md", "uvx pin", rf"(uvx --from clickllm-cli==)({_V})( clickllm fit)"),
     ("README.md", "npx pin", rf"(npx clickllm@)({_V})( fit)"),

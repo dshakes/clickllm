@@ -176,3 +176,31 @@ def _written_by_rust(tmp_path: Path) -> Path:
     if r.returncode != 0:  # pragma: no cover
         pytest.skip(f"cargo unavailable or failed: {r.stderr[-400:]}")
     return log
+
+
+def test_the_extension_version_the_package_accepts_is_the_one_it_builds():
+    """Audit finding. `COMPATIBLE` was the literal "0.1.0" while the package
+    shipped 0.1.9, and it worked only because `tools/bump.py` did not maintain
+    the Rust workspace version either — two frozen numbers agreeing by accident.
+
+    Bumping either alone would make a correctly-paired install refuse to load,
+    and the failure surfaces as "reinstall both together" on a machine where
+    both already are current: the worst kind of error message, one that tells
+    you to do the thing you have already done.
+    """
+    import re
+    from pathlib import Path
+
+    from clickllm import __version__
+
+    root = Path(__file__).resolve().parents[1]
+    crate = re.search(r'^version = "([^"]+)"', (root / "Cargo.toml").read_text(), re.M)
+    assert crate, "no workspace version in Cargo.toml"
+
+    assert (__version__,) == core.COMPATIBLE, (
+        f"package is {__version__} but it accepts {core.COMPATIBLE} — a matched "
+        f"install would be refused"
+    )
+    assert crate.group(1) == __version__, (
+        f"the crate builds {crate.group(1)} and the package accepts {__version__}"
+    )
