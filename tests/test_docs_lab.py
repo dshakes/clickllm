@@ -1038,3 +1038,86 @@ def test_bumping_a_file_with_several_patterns_keeps_all_of_them(tmp_path, monkey
     assert got.count("2.0.0") == 3, f"writes clobbered each other:\n{got}"
     assert "1.0.0" not in got
     assert set(bump.current().values()) == {"2.0.0"}
+
+
+FICTIONAL_ENGINES = ("vllm-mlx", "vllm_mlx", "mlc-llm", "mlc")
+
+
+def _fictional_engine_offenders(root: Path, surfaces: list[Path]) -> list[str]:
+    """Every surface that names a `FICTIONAL_ENGINES` entry, case-insensitively.
+
+    Lower-cased before matching: `MLC-LLM` is exactly as fictional as
+    `mlc-llm`, and a reader does not care which case rendered it.
+    """
+    offenders = []
+    for p in surfaces:
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8").lower()
+        for name in FICTIONAL_ENGINES:
+            if name in text:
+                offenders.append(f"{p.relative_to(root)} names {name!r}")
+    return offenders
+
+
+def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
+    """The diagrams outlived the code by a release.
+
+    `clickllm fit` stopped recommending `vllm-mlx` and `mlc-llm` in #65, but
+    `architecture.svg`, `e2e.svg`, seven docs pages and both site copies kept
+    naming them — so a reader saw them in the picture after they left the
+    product.
+
+    **The reason matters, and my first version of this test got it wrong.** I
+    asserted those names "do not exist". They do: `vllm-metal` is a real vLLM
+    plugin under the vllm-project org that runs vLLM on Apple silicon with MLX
+    as the compute backend, and MLC-LLM is a real project. What was true is
+    narrower — `vllm-mlx` is not the plugin's name, and neither has an adapter
+    here, so `clickllm run` could not start either one. Unlaunchable is not the
+    same as fictional, and a diagram promising something the tool cannot do is
+    wrong for that reason alone.
+
+    So this checks what the product can actually launch, derived from the
+    adapter registry rather than a hand-kept list of banned words. When
+    `vllm-metal` gets an adapter, the name becomes legal here automatically.
+
+    Docstrings that RECOUNT the history are exempt: `fit.recommend_runtime`
+    explains what the command used to print, and that sentence has to name it.
+    """
+    from clickllm.engines import adapter_for
+    from clickllm.plan import Engine
+
+    root = Path(__file__).resolve().parents[1]
+    launchable = {str(e).lower() for e in Engine if adapter_for(str(e)) is not None}
+    # Spellings that have appeared in these surfaces and name nothing this tool
+    # can start. Not "does not exist" — "we cannot launch it".
+    unlaunchable = {"vllm-mlx", "mlc-llm"}
+    assert not (unlaunchable & launchable), (
+        "one of these gained an adapter — remove it from the list rather than "
+        "keeping a name banned after it became real"
+    )
+
+    surfaces = (
+        list((root / "docs").rglob("*.md"))
+        + list((root / "docs" / "assets").glob("*.svg"))
+        + list((root / "site").rglob("*.svg"))
+        + [root / "site" / "index.html", root / "site" / "docs" / "index.html", root / "README.md"]
+        # The skills too. The reviewer found `vllm-mlx` alive in
+        # `.claude/skills/clickllm/SKILL.md` after this PR had corrected the
+        # diagrams, the docs and the site — the same defect surviving in the one
+        # surface the check did not look at, which is how it got everywhere in
+        # the first place. An agent reads this file to learn how to drive
+        # clickllm, so a wrong engine here is acted on rather than merely read.
+        + list((root / ".claude").rglob("*.md"))
+    )
+    offenders = [
+        f"{p.relative_to(root)} names {name!r}"
+        for p in surfaces
+        if p.exists()
+        for name in unlaunchable
+        if name in p.read_text()
+    ]
+    assert not offenders, (
+        "published surfaces promise an engine clickllm has no adapter for, so "
+        "`clickllm run` would refuse it:\n  " + "\n  ".join(offenders)
+    )

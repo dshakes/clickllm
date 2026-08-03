@@ -77,7 +77,7 @@ class Runtime(Protocol):
     def render(self, plan: RuntimePlan, target: Target) -> list[Artifact]: ...
 ```
 
-Implementations: `MlxRuntime`, `VllmMlxRuntime`, `LlamaCppRuntime`, `MlcRuntime`, `VllmCudaRuntime`, `SglangRuntime`, `LlmdRuntime`.
+Implementations: `MlxRuntime`, `LlamaCppRuntime`, `OllamaRuntime`, `VllmCudaRuntime`, `SglangRuntime`, `LlmdRuntime`.
 
 Three rules:
 1. **`render` emits native config, never a wrapper.** BentoML's rebuild-push-redeploy friction and one-release upstream lag are the failure mode we're avoiding. The user gets a real `vllm serve` command or a real `InferencePool`.

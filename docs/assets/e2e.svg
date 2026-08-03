@@ -161,7 +161,7 @@
 <text class="t cap" x="62"  y="638">licence gated before bytes move · resumable · checksummed</text>
 <text class="t cap" x="62"  y="655">converted once, mmap'd, page cache shared across models</text>
 <text class="t ttl" x="442" y="620">Runtimes</text>
-<text class="t cap" x="442" y="638">vLLM · SGLang · llm-d · vllm-mlx · llama.cpp · MLC</text>
+<text class="t cap" x="442" y="638">vLLM · SGLang · llm-d · MLX · llama.cpp · Ollama</text>
 <text class="t cap" x="442" y="655">one trait, native config out — runs without clickllm installed</text>
 <text class="t ttl" x="822" y="620">Local store</text>
 <text class="t cap" x="822" y="638">traffic · eval sets · runs · scores · benchmarks</text>

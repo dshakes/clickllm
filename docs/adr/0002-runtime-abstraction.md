@@ -6,9 +6,9 @@
 
 Two forcing functions:
 
-1. **Dev and prod run different engines.** The primary dev machine is an Apple M4 Max. vLLM (CUDA), SGLang, llm-d, and TensorRT-LLM do not run on it. The Metal-side stack is vllm-mlx, llama.cpp, mlx-lm, and MLC-LLM. Customer prod is CUDA. They share nothing but the OpenAI wire format.
+1. **Dev and prod run different engines.** The primary dev machine is an Apple M4 Max. vLLM (CUDA), SGLang, llm-d, and TensorRT-LLM do not run on it. The Metal-side stack is mlx, llama.cpp, and Ollama. Customer prod is CUDA. They share nothing but the OpenAI wire format.
 
-2. **The runtime layer is not stable.** vllm-mlx was accepted at EuroMLSys '26. mlx-lm got speculative decoding in 0.21 (May 2026). Ollama moved from llama.cpp to MLX in 0.19. P-EAGLE landed in vLLM in March 2026. Anything hard-wired to one engine is refactoring debt with an 18-month fuse.
+2. **The runtime layer is not stable.** mlx-lm added continuous batching and speculative decoding in 0.21 (May 2026). Ollama moved from llama.cpp to MLX in 0.19. P-EAGLE landed in vLLM in March 2026. Anything hard-wired to one engine is refactoring debt with an 18-month fuse.
 
 BentoML demonstrates the tempting wrong answer: wrap the engines behind one manifest. The observed cost is wrappers lagging upstream by one or more releases, plus rebuild-push-redeploy friction on every flag change — while the optimizations that matter (paged attention, prefix caching, continuous batching, spec-decode) are all engine-dependent anyway.
 
@@ -37,5 +37,5 @@ No engine-specific type crosses above the Protocol boundary. The moment `prove` 
 
 ## Notes
 
-- Recommendation logic must encode non-obvious tradeoffs, e.g. *llama.cpp Metal wins single-stream (~15%) but vllm-mlx wins ~27× on aggregate throughput at 32 concurrency* — the right pick depends entirely on workload shape from stage ②.
+- Recommendation logic must encode non-obvious tradeoffs, e.g. *llama.cpp Metal wins single-stream (~15%) but mlx wins ~27× on aggregate throughput at 32 concurrency* — the right pick depends entirely on workload shape from stage ②.
 - Spec-decode config must be tuned to **observed** concurrency. EAGLE-3's 2–3× is a single-stream figure; realistic serving is ~1.3–1.8×, and acceptance degrades above batch ~32. Generating an untuned `num_speculative_tokens` is worse than generating none.

@@ -521,7 +521,7 @@ eval result moves production traffic without a human.</pre>
   <thead><tr><th>Runtime</th><th>Single stream</th><th>32 concurrent</th></tr></thead>
   <tbody>
     <tr><td>llama.cpp (Metal)</td><td><strong>faster</strong></td><td>much slower</td></tr>
-    <tr><td>vllm-mlx (Metal)</td><td>~15% slower</td><td><strong>~27× higher aggregate</strong></td></tr>
+    <tr><td>mlx (Metal)</td><td>~15% slower</td><td><strong>~27× higher aggregate</strong></td></tr>
   </tbody>
 </table></div>
 <p>Neither is "better". <code>clickllm fit --concurrency N</code> picks on the number you give it,
@@ -766,13 +766,13 @@ eval result moves production traffic without a human.</pre>
     <tr><td><strong>SGLang</strong></td><td>CUDA</td><td>RadixAttention — reuses shared prompt prefixes, ideal for agents</td></tr>
     <tr><td><strong>llm-d</strong></td><td>CUDA, multi-node</td><td>disaggregated prefill/decode + KV-cache-aware routing at fleet scale</td></tr>
     <tr><td><strong>llama.cpp</strong></td><td>everything</td><td>best single-stream, widest model coverage, runs anywhere</td></tr>
-    <tr><td><strong>vllm-mlx</strong></td><td>Apple Metal</td><td>continuous batching on Apple Silicon</td></tr>
-    <tr><td><strong>MLC-LLM</strong></td><td>broad</td><td>steadiest throughput at 64K+ context</td></tr>
+    <tr><td><strong>mlx</strong></td><td>Apple Metal</td><td>continuous batching on Apple Silicon</td></tr>
+    <tr><td><strong>Ollama</strong></td><td>everything</td><td>zero-config daemon, configured by environment rather than flags</td></tr>
   </tbody>
 </table></div>
 <div class="note stop">
   <p><b>vLLM, SGLang and llm-d do not run on Apple Silicon.</b> They are CUDA/ROCm-first. On a Mac
-  the real options are vllm-mlx, llama.cpp, and MLC-LLM. Any guide telling a Mac user to
+  the real options are mlx, llama.cpp, and Ollama. Any guide telling a Mac user to
   <code>pip install vllm</code> has not checked.</p>
 </div>
 
@@ -927,7 +927,7 @@ eval result moves production traffic without a human.</pre>
   DeepSeek V4 Pro           weights alone need 838 GB at q4 — MoE sparsity (45B of 1600B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
   MiniMax M3                weights alone need 239 GB at q4 — MoE sparsity (46B of 456B active) cuts <span class="w">compute</span>, not <span class="w">memory</span>
 
-  runtime -> <span class="k">vllm-mlx</span>
+  runtime -> <span class="k">mlx</span>
              continuous batching on Metal; at concurrency 8 aggregate throughput
              dominates, despite ~15% lower single-stream than llama.cpp
 

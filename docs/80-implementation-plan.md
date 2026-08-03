@@ -16,7 +16,7 @@ Traceability matrix at the bottom — every capability you've named maps to a mi
 clickllm-core/          RUST — the datapath. No third-party fit dependency.
   src/weights/       M1  acquire · convert · cache · licence     (mmap, io_uring, SIMD hash)
   src/runtimes/      M2  mod.rs (Runtime trait) · vllm · sglang · llmd
-                         · vllm_mlx · llamacpp · mlc            (render + launch)
+                         · mlx · llamacpp · ollama            (render + launch)
   src/hw/            M0  detect · bandwidth · backend
   src/catalog/       M0  specs · quants · licences
   src/tune/          M3  solve · bench · revert
@@ -87,7 +87,7 @@ Nothing downstream can run without local weights.
 ### M2 · Runtimes — the Protocol and six backends *(3 wks)*
 - `Runtime` trait + `Feasibility`/`RuntimePlan`/`Endpoint` types
 - CUDA: **vLLM**, **SGLang**; multi-node: **llm-d** + GAIE `InferencePool`
-- Metal: **vllm-mlx**, **llama.cpp**, **MLC**; CPU fallback
+- Metal: **mlx**, **llama.cpp**, **Ollama**; CPU fallback
 - Both `render()` (config artifact) and `launch()` (supervised process/container)
 - CI import-guard: no engine-specific type escapes `runtimes/`
 

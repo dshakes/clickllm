@@ -92,7 +92,7 @@
   <rect x="960" y="378" width="176" height="24" rx="6" fill="#1a1f28" stroke="#2c3442"/>
   <circle cx="972" cy="390" r="3.5" fill="#6e7681"/><text class="url m" x="982" y="394" fill="#7d8590">/v1 · phi-4 (idle)</text>
 </g>
-<text class="t cap" x="1136" y="348" text-anchor="end">vLLM · SGLang · llm-d · vllm-mlx · llama.cpp</text>
+<text class="t cap" x="1136" y="348" text-anchor="end">vLLM · SGLang · llm-d · MLX · llama.cpp · Ollama</text>
 
 <!-- ══ control plane ══ -->
 <text class="t zone" x="44" y="450">CONTROL PLANE · OFF THE DATAPATH · WHERE THE MOAT LIVES</text>

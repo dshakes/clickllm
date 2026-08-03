@@ -64,7 +64,7 @@ Sequenced so each phase ships something **independently useful** — no phase is
 
 **Ships:** `clickllm pack` + `clickllm run` — a portable box that serves an OpenAI-compatible endpoint on any hardware, plus native config generation for every target.
 
-- Local: vllm-mlx, llama.cpp Metal, MLC-LLM, mlx-lm
+- Local: mlx, llama.cpp Metal, mlx-lm, Ollama
 - GPU: vLLM + EAGLE-3/P-EAGLE, SGLang + RadixAttention
 - K8s: KServe `InferenceService`, llm-d + GAIE `InferencePool`
 - Spec-decode and quantization tuned from Phase 0's solve and Phase 3's proof

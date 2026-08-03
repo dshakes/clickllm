@@ -322,8 +322,10 @@ def recommend_runtime(hw: Hardware, context: int, concurrency: int) -> tuple[str
     cannot run here at all" — refuting the first command's advice in the second
     command's output.
 
-    Worse, the table named engines that do not exist: there is no `vllm-mlx`
-    (vLLM has no Metal backend at all), and `mlc-llm`, `llama.cpp (Metal)` and
+    Worse, the table named engines this tool cannot launch. `vllm-mlx` is not a
+    real project name — the vLLM Apple-silicon plugin is `vllm-metal`, which
+    runs vLLM on MLX and is worth an adapter — and `mlc-llm`, `llama.cpp (Metal)`
+    and
     `llm-d + GAIE` have no adapter, so nothing in this codebase can configure or
     launch any of them. A first-touch command was recommending software a user
     cannot install, on the CLI, the MCP server and the SDK alike.

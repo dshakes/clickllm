@@ -82,7 +82,7 @@ Plus **regret analysis**: the named, clustered tasks where open loses — so you
 
 ### ⑤ Deploy — generated, not wrapped
 Emit **native** config for the chosen target, tuned by ③:
-- **Local Mac** → vllm-mlx (concurrency) or llama.cpp Metal (single-stream) or MLC-LLM (long context), with mlx-lm spec-decode
+- **Local Mac** → mlx (concurrency) or llama.cpp Metal (single-stream) or Ollama (zero-config), with mlx-lm spec-decode
 - **Single GPU box** → vLLM + EAGLE-3 (`num_speculative_tokens` tuned to observed concurrency — flat gains ~1.3–1.8× at realistic load, not the 2–3× single-stream marketing number)
 - **k8s** → KServe `InferenceService` or llm-d + GAIE `InferencePool` with prefix-cache-aware EPP
 - Quantization chosen by ③'s memory solve and validated by ④ (never quantize without re-proving)
@@ -114,7 +114,7 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 | FR-9 | Run candidates against eval set; assertions + graders + pairwise judge | 4 |
 | FR-10 | Equivalence matrix with per-cluster scores and confidence intervals | 4 |
 | FR-11 | Regret analysis: named clusters where open loses | 4 |
-| FR-12 | Generate native config: vllm-mlx, llama.cpp, vLLM, SGLang, KServe, llm-d + GAIE | 5 |
+| FR-12 | Generate native config: mlx, llama.cpp, vLLM, SGLang, KServe, llm-d + GAIE | 5 |
 | FR-13 | Auto-configure speculative decoding (EAGLE-3/P-EAGLE/mlx spec) tuned to observed concurrency; disable it when observed batch exceeds the acceptance cliff | 5 |
 | FR-13a | Auto-tune quantization, prefix/radix caching, tensor+pipeline parallelism, `max_model_len`, `max_num_seqs`, chunked prefill, KV dtype, and memory utilization — none of them prompted | 5 |
 | FR-13b | **Measure, don't just compute:** benchmark each generated config against the observed workload and automatically revert any optimization that fails to help on this hardware | 5 |
@@ -190,7 +190,7 @@ AC: params (total + active for MoE), layers, KV heads, head dim, context, licens
 AC: computes weights + KV cache + activation overhead per quant; solves max context and max concurrency; ranks feasible models; **explains the arithmetic** (NFR-8); flags "fits but will be slow."
 
 **3.4 Runtime recommendation**
-AC: given hardware + workload shape, recommends engine with a stated reason — e.g. *"M4 Max, 32 concurrent agent requests → vllm-mlx: ~27× aggregate throughput over llama.cpp at this concurrency despite lower single-stream."*
+AC: given hardware + workload shape, recommends engine with a stated reason — e.g. *"M4 Max, 32 concurrent agent requests → mlx: ~27× aggregate throughput over llama.cpp at this concurrency despite lower single-stream."*
 
 ### Epic 4 — Prove
 
