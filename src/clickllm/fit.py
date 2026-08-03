@@ -265,39 +265,65 @@ def where(model: ModelSpec, context: int, concurrency: int = 1) -> list[Placemen
 
 
 def recommend_runtime(hw: Hardware, context: int, concurrency: int) -> tuple[str, str]:
-    """(runtime, why). Encodes the tradeoffs that aren't obvious from docs."""
-    if hw.kind == "apple":
-        if concurrency >= 4:
-            return (
-                "vllm-mlx",
-                f"continuous batching on Metal; at concurrency {concurrency} aggregate "
-                "throughput dominates, despite ~15% lower single-stream than llama.cpp",
-            )
-        if context >= 65536:
-            return ("mlc-llm", "paged KV holds throughput steadiest at 64K+ context")
-        return (
-            "llama.cpp (Metal)",
-            "best single-stream decode and widest model support; "
-            "mlx-lm is the alternative if you want speculative decoding",
-        )
-    if hw.kind == "nvidia":
-        if hw.devices > 1:
-            return (
-                "llm-d + GAIE",
-                f"{hw.devices} GPUs: disaggregated prefill/decode with KV-cache-aware "
-                "routing (measured 3x output tok/s, 2x TTFT reduction)",
-            )
-        if concurrency >= 8:
-            return (
-                "sglang",
-                "RadixAttention reuses shared prefixes — the win case for agent traffic "
-                "with a fixed system prompt",
-            )
-        return (
-            "vllm",
-            "broadest hardware and feature support; enable EAGLE-3 spec-decode",
-        )
-    return ("llama.cpp (CPU)", "no accelerator — expect single-digit tok/s")
+    """(engine, why) — the engine `clickllm run` would actually start here.
+
+    This used to carry its own table, and the two disagreed. On Apple silicon at
+    concurrency 8, `clickllm fit` printed `runtime -> vllm-mlx` while `clickllm
+    run` on the same box started `mlx` and explained that "the CUDA engines
+    cannot run here at all" — refuting the first command's advice in the second
+    command's output.
+
+    Worse, the table named engines that do not exist: there is no `vllm-mlx`
+    (vLLM has no Metal backend at all), and `mlc-llm`, `llama.cpp (Metal)` and
+    `llm-d + GAIE` have no adapter, so nothing in this codebase can configure or
+    launch any of them. A first-touch command was recommending software a user
+    cannot install, on the CLI, the MCP server and the SDK alike.
+
+    So there is one selector now, and it is the one that has to be right because
+    it produces the command: `plan._pick_engine`. A recommendation that cannot
+    become a running server is not a recommendation.
+
+    When the structural pick has no adapter, the alternative is found by asking
+    `launch._launchable_alternative` — the exact function `clickllm run`'s own
+    refusal uses to word its `NEXT` step — rather than a second search over
+    concurrency. Substituting an engine that only appears at a *higher*
+    concurrency must say so: at the concurrency actually asked for, nothing here
+    can be launched at all, and hiding that behind "recommending what will
+    actually start" was its own way of naming software `run` refuses.
+    """
+    # Deferred: `plan` and `launch` both import this module, so top-level
+    # imports would cycle.
+    from .engines import adapter_for
+    from .launch import _launchable_alternative
+    from .plan import Requirements, Workload, _pick_engine
+
+    req = Requirements(Workload.INTERACTIVE, concurrency, context)
+    engine, why = _pick_engine(hw, req)
+    name = str(engine)
+    if hw.kind == "cpu":
+        why += " No accelerator on this machine — expect single-digit tok/s."
+    if adapter_for(name) is not None:
+        return (name, why)
+
+    # `_pick_engine` answers "what is structurally best here", which is not
+    # always "what this tool can launch". On Apple silicon at the DEFAULT
+    # concurrency it picks llama.cpp — correct, and `clickllm run` then refuses
+    # it for want of a verified flag dialect. Recommending it in silence made
+    # the product's first two commands contradict each other on the most common
+    # developer machine.
+    alt = _launchable_alternative(hw, req)
+    if alt is None:
+        return (name, f"{why} NOTE: clickllm cannot launch {name} — no verified flag dialect.")
+    alt_concurrency, alt_name = alt
+    _, alt_why = _pick_engine(hw, Requirements(Workload.INTERACTIVE, alt_concurrency, context))
+    return (
+        alt_name,
+        f"{alt_why} (Structurally {name} suits concurrency {concurrency} better, but "
+        f"clickllm has no verified flag dialect for it, so `clickllm run` would refuse "
+        f"here — nothing launches at concurrency {concurrency} on this hardware. "
+        f"`clickllm run --concurrency {alt_concurrency}` is what starts {alt_name}; "
+        f"that is a higher concurrency than asked for, not a free substitution.)",
+    )
 
 
 def demo() -> None:
@@ -343,10 +369,69 @@ def demo() -> None:
     assert max_concurrency(q3, "q4", m4, 4096) > max_concurrency(q3, "q4", m4, 32768)
     assert max_context(q3, "q4", m4, 1) <= q3.max_context, "must respect model's own limit"
 
-    # Runtime choice must flip on workload shape, not just hardware.
-    assert recommend_runtime(m4, 8192, 16)[0] == "vllm-mlx"
-    assert recommend_runtime(m4, 8192, 1)[0] == "llama.cpp (Metal)"
-    assert recommend_runtime(m4, 131072, 1)[0] == "mlc-llm"
+    # The engine named here must be the engine `run` starts, and must be one we
+    # can actually configure. The old table asserted "vllm-mlx" and "mlc-llm",
+    # neither of which exists — the assertions kept the defect in place.
+    from .engines import adapter_for
+    from .plan import Requirements, Workload, _pick_engine
+
+    for conc, ctx in ((16, 8192), (1, 8192), (1, 131072)):
+        named, why = recommend_runtime(m4, ctx, conc)
+        # Never name an engine `run` cannot start — that was the defect.
+        assert adapter_for(named) is not None, f"recommended {named}, which has no adapter"
+        best, _ = _pick_engine(m4, Requirements(Workload.INTERACTIVE, conc, ctx))
+        if adapter_for(str(best)) is not None:
+            assert named == str(best), f"fit says {named}, run starts {best}"
+        else:
+            assert str(best) in why, f"substituted {named} for {best} without saying so"
+
+    # A substitution is not honest just because `_pick_engine` agrees with it —
+    # the structural pick and its launchable substitute can need *different*
+    # concurrencies, which `_pick_engine` alone cannot see. Checked here against
+    # the real launch path: at concurrency 1, `run` must still refuse, and the
+    # recommendation must have said so rather than implying `mlx` starts now.
+    import tempfile
+    from pathlib import Path
+
+    from . import launch as _launch
+
+    named, why = recommend_runtime(m4, 8192, 1)
+    assert named == "mlx" and "nothing launches at concurrency 1" in why, why
+    with tempfile.TemporaryDirectory() as tmp:
+        weights_cache = Path(tmp) / "weights.json"
+        refused = _launch.plan(
+            "qwen3-30b-a3b",
+            hw=m4,
+            context=8192,
+            concurrency=1,
+            exists=lambda r: True,
+            cache=weights_cache,
+        )
+        assert isinstance(refused, _launch.Refusal), refused
+        started = _launch.plan(
+            "qwen3-30b-a3b",
+            hw=m4,
+            context=8192,
+            concurrency=4,
+            exists=lambda r: True,
+            cache=weights_cache,
+        )
+        assert isinstance(started, _launch.LaunchPlan) and started.engine == named, started
+
+    # CPU-only hardware lost its explicit warning when the old table was
+    # replaced by `_pick_engine` — restored here rather than in the shared
+    # selector, since the rest of `plan` has no CPU-specific reasoning to give.
+    cpu = HW(
+        kind="cpu",
+        name="CPU box",
+        total_bytes=64 * GB,
+        usable_bytes=48 * GB,
+        bandwidth_gbps=50.0,
+        cores=8,
+    )
+    cpu_named, cpu_why = recommend_runtime(cpu, 8192, 1)
+    assert adapter_for(cpu_named) is not None
+    assert "no accelerator" in cpu_why.lower(), cpu_why
 
     feasible, rejected = rank(m4, 32768, 1)
     assert feasible and rejected

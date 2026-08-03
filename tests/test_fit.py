@@ -5,7 +5,8 @@ import re
 
 import pytest
 
-from clickllm import catalog, cli, fit, hardware, sdk
+from clickllm import catalog, cli, fit, hardware, launch, sdk
+from clickllm.engines import adapter_for
 from clickllm.hardware import Hardware
 
 GB = 1024**3
@@ -84,21 +85,110 @@ def test_quant_preference_caps_at_8bit():
     assert fit.quant_preference(("q4",)) == ["q4"]
 
 
-def test_runtime_recommendation_follows_workload_not_just_hardware():
-    apple = _hw(96)
-    assert fit.recommend_runtime(apple, 8192, 32)[0] == "vllm-mlx"
-    assert fit.recommend_runtime(apple, 8192, 1)[0] == "llama.cpp (Metal)"
-    assert fit.recommend_runtime(apple, 131072, 1)[0] == "mlc-llm"
+def test_the_engine_fit_names_is_the_engine_run_starts():
+    """These were two separate tables and they disagreed.
 
-    single = _hw(80, kind="nvidia", bw=None)
-    assert fit.recommend_runtime(single, 8192, 1)[0] == "vllm"
-    assert fit.recommend_runtime(single, 8192, 16)[0] == "sglang"
-    assert (
-        fit.recommend_runtime(_hw(320, kind="nvidia", bw=None, devices=4), 8192, 1)[0]
-        == "llm-d + GAIE"
+    On Apple silicon at concurrency 8, `clickllm fit` printed
+    `runtime -> vllm-mlx` while `clickllm run` on the same box started `mlx` and
+    explained that "the CUDA engines cannot run here at all" — the second command
+    refuting the first in its own output. Three of four hardware/workload shapes
+    disagreed.
+
+    The old assertions are why it survived: they pinned `vllm-mlx` and `mlc-llm`,
+    so the suite defended the wrong answer. Neither name exists — vLLM has no
+    Metal backend, and no adapter in this repo can configure either, so `fit` was
+    recommending software to install that cannot be installed, on the CLI, the
+    MCP server and the SDK alike.
+    """
+    from clickllm.plan import Requirements, Workload, _pick_engine
+
+    shapes = [
+        (_hw(96), 8192, 32),
+        (_hw(96), 8192, 1),
+        (_hw(96), 131072, 1),
+        (_hw(80, kind="nvidia", bw=None), 8192, 1),
+        (_hw(80, kind="nvidia", bw=None), 8192, 16),
+        (_hw(320, kind="nvidia", bw=None, devices=4), 8192, 1),
+    ]
+    for hw, ctx, conc in shapes:
+        named, why = fit.recommend_runtime(hw, ctx, conc)
+        assert why, "a recommendation with no reason is not one"
+
+        # 1. Never name something that cannot become a running server. This is
+        #    the whole point: `clickllm run` refuses an engine with no verified
+        #    flag dialect, so naming one guarantees the next command fails.
+        assert adapter_for(named) is not None, (
+            f"recommended {named!r}, which has no adapter — `run` would refuse it"
+        )
+
+        # 2. Where the planner's choice IS launchable, the two must agree — no
+        #    second opinion, which is what made them drift apart before.
+        best, _ = _pick_engine(hw, Requirements(Workload.INTERACTIVE, conc, ctx))
+        if adapter_for(str(best)) is not None:
+            assert named == str(best), f"{hw.kind} c={conc}: fit {named}, run {best}"
+        else:
+            # 3. And where it is not, say so rather than quietly substituting.
+            assert str(best) in why, f"substituted {named} for {best} without saying so"
+
+
+def test_recommend_runtime_substitution_matches_the_real_launch_path(tmp_path):
+    """The regression Codex found: comparing against `_pick_engine` plus
+    `adapter_for` is not the same as comparing against what `clickllm run`
+    actually does, because the structural pick and the launchable substitute
+    can require *different concurrencies* — and `_pick_engine` alone cannot see
+    that.
+
+    On Apple silicon at concurrency 1, `_pick_engine` chooses `llama.cpp`
+    (no adapter), and the old substitution silently re-asked the planner at
+    concurrency 4 and returned `mlx` as if it were what `clickllm run` starts
+    right now. It is not: `launch.plan` at the *same* concurrency 1 still
+    refuses, because concurrency 1 never selects `mlx` at all. Only a higher
+    concurrency does.
+    """
+    hw = _hw(96, kind="apple", bw=546.0)
+    named, why = fit.recommend_runtime(hw, 8192, 1)
+    assert named == "mlx", named
+    # The recommendation must say a higher concurrency is required — never
+    # imply that `clickllm run` at the concurrency asked for will start it.
+    assert "concurrency 4" in why, why
+    assert "nothing launches at concurrency 1" in why, why
+
+    weights_cache = tmp_path / "weights.json"
+    refused = launch.plan(
+        "qwen3-30b-a3b",
+        hw=hw,
+        context=8192,
+        concurrency=1,
+        exists=lambda r: True,
+        cache=weights_cache,
     )
+    assert isinstance(refused, launch.Refusal), refused
 
-    assert all(why for _, why in [fit.recommend_runtime(apple, 8192, n) for n in (1, 8)])
+    started = launch.plan(
+        "qwen3-30b-a3b",
+        hw=hw,
+        context=8192,
+        concurrency=4,
+        exists=lambda r: True,
+        cache=weights_cache,
+    )
+    assert isinstance(started, launch.LaunchPlan) and started.engine == named, started
+
+
+def test_recommend_runtime_warns_on_cpu_only_hardware():
+    """Lost in the table-to-selector consolidation: the old table had an
+    explicit `("llama.cpp (CPU)", "no accelerator — expect single-digit
+    tok/s")` fallback for hardware with no accelerator at all. `_pick_engine`
+    has no CPU-specific branch — it falls through to the generic vLLM
+    reasoning — so that warning has to be added back here, or a CPU-only user
+    gets an unqualified recommendation that reads as no different from a GPU
+    box.
+    """
+    cpu = _hw(48, kind="cpu", bw=50.0)
+    named, why = fit.recommend_runtime(cpu, 8192, 1)
+
+    assert adapter_for(named) is not None
+    assert "no accelerator" in why.lower(), why
 
 
 def test_max_context_and_concurrency_trade_off():

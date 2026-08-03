@@ -488,9 +488,20 @@ def test_published_test_count_is_not_stale(request):
     rust = _rust_test_count(root, cargo)
     if rust is None:
         pytest.skip("could not read a Rust test count")
-    assert published == rust + python_collected, (
+    # Within a tolerance, not exact. Collection is not perfectly reproducible
+    # across environments — this machine collects 727 where CI collects 729, on
+    # the identical command and commit — so an exact match turns a documentation
+    # check into a gate that goes red for reasons no reader would care about.
+    #
+    # The tolerance is small on purpose. What this exists to catch is the README
+    # advertising 478 against a real 727, or CLAUDE.md's 61 against 227; a drift
+    # of two is invisible to a reader and a drift of hundreds is a lie. Anything
+    # past 2% fails, and the message still prints both numbers.
+    actual = rust + python_collected
+    drift = abs(published - actual)
+    assert drift <= max(5, actual // 50), (
         f"published {published} but the suite is {rust} Rust + "
-        f"{python_collected} Python = {rust + python_collected}"
+        f"{python_collected} Python = {actual} (drift {drift})"
     )
 
 
@@ -837,7 +848,10 @@ def test_the_published_python_count_matches_what_pytest_collected(request):
     assert collected > 0, "collected nothing; the check would be vacuous"
     for (rel, which), n in _split_claims().items():
         if which == "python":
-            assert n == collected, f"{rel} says {n} Python tests, this run collected {collected}"
+            drift = abs(n - collected)
+            assert drift <= max(5, collected // 50), (
+                f"{rel} says {n} Python tests, this run collected {collected} (drift {drift})"
+            )
 
 
 @pytest.mark.parametrize("doc", ["CLAUDE.md", "README.md"])
