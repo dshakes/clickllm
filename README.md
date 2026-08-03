@@ -2,16 +2,18 @@
 
 <img src="docs/assets/loop-animated.svg" alt="Traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning $2,847/mo of closed-model spend into $317/mo of proven open-model inference" width="100%">
 
-# Open weights are free.<br>Running them properly is the hard part.
+# Your model is being retired.<br>Prove what replaces it.
 
 ### One command. You never write a config. Agents drive it natively.
 
-**Between "the weights are on Hugging Face" and "it's serving production" sits a
-project: size a KV cache without getting MoE, GQA or MLA wrong, pick among five
-engines, get the two dozen flags that matter right, deploy it, and still have no
-way to say whether
-the model is actually good enough for *your* traffic. clickllm collapses that
-into one decision — and prints the arithmetic behind every number in it.**
+**GPT-4o left the API in February 2026. GPT-4.1 and o4-mini are next. Whatever
+you built on, the clock is someone else's — and the open weights that could
+replace it sit behind a project: size a KV cache without getting MoE, GQA or MLA
+wrong, pick among five engines, get the two dozen flags that matter right, deploy
+it, and still have no way to say whether the model is actually good enough for
+*your* traffic. clickllm collapses that into one decision, gates the cutover on
+evidence from your own requests, and prints the arithmetic behind every number in
+it.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
 [![tests](https://img.shields.io/badge/tests-959-34d399?style=flat-square)](#verification)
@@ -23,6 +25,59 @@ into one decision — and prints the arithmetic behind every number in it.**
 </div>
 
 ---
+
+## Why now
+
+Three things changed at once, and they point the same way.
+
+**The deadline is not yours.** GPT-4o was retired from the API on 16 February
+2026; OpenAI has said GPT-4.1 and o4-mini follow. Teams are not idly wondering
+whether to move — they are being moved. An open model you host is a model nobody
+can deprecate out from under you.
+
+**The quality argument is over.** At the end of 2023 the best closed model led
+the best open one by about 17.5 points of MMLU. By 2026 that gap is effectively
+zero on knowledge benchmarks and single digits on most reasoning tasks, while the
+cost difference runs 6–62x. The open question stopped being *are they good
+enough* and became *are they good enough for my traffic* — which is a question
+about your requests, not a leaderboard.
+
+**The obvious tool for answering it changed hands.** Promptfoo — the most
+widely used open tool for comparing models before you switch — was acquired by
+OpenAI in March 2026. It remains open source under its existing licence, and it
+is good software. It is also now maintained by the vendor whose models you would
+be evaluating your way off. Draw your own conclusion; clickllm is independent,
+Apache-2.0, and has no model to sell you.
+
+<sub>Sources: GPT-4o API retirement and the GPT-4.1/o4-mini plan — OpenAI's
+deprecation notices, as reported in 2026 platform round-ups. Open-vs-closed
+benchmark convergence and the 6–62x cost spread — published 2026 comparisons of
+the Artificial Analysis index and provider pricing. Promptfoo acquisition —
+announced 9 March 2026 by both parties, with a commitment to keep the project
+open source. These are third-party facts and are dated on purpose: if any has
+changed by the time you read this, that is worth knowing and this paragraph is
+wrong.</sub>
+
+None of those facts belong to us. What we do with them is this: prove the
+replacement on your own captured traffic, size it for hardware you can actually
+buy or rent, generate a config that runs without clickllm installed, gate the
+cutover on a statistical bar you set, and keep a rollback that fires on evidence
+rather than on a hunch.
+
+## What it is not
+
+Naming this is faster than a feature matrix.
+
+| | |
+|---|---|
+| **Not an inference engine.** | vLLM, SGLang and MLX exist and are excellent. clickllm chooses among them and configures them; it never competes with them. |
+| **Not an eval platform.** | Braintrust and LangSmith watch production after you ship. clickllm answers one question before you ship, then gets out of the way. |
+| **Not hosted inference.** | Nothing runs on our machines. There is no account, no telemetry, and no egress you did not ask for. |
+| **Not a router.** | It moves traffic once, on proof, with a rollback — rather than arbitraging every request forever. |
+
+The join between those categories is the product: **your traffic → which model →
+will it fit → what it costs → is it good enough → deploy → roll back.** Nothing
+else walks that whole line.
 
 ## Try it in ten seconds
 
