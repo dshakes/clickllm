@@ -1040,7 +1040,7 @@ def test_bumping_a_file_with_several_patterns_keeps_all_of_them(tmp_path, monkey
     assert set(bump.current().values()) == {"2.0.0"}
 
 
-FICTIONAL_ENGINES = ("vllm-mlx", "mlc-llm")
+FICTIONAL_ENGINES = ("vllm-mlx", "vllm_mlx", "mlc-llm", "mlc")
 
 
 def _fictional_engine_offenders(root: Path, surfaces: list[Path]) -> list[str]:
@@ -1053,7 +1053,7 @@ def _fictional_engine_offenders(root: Path, surfaces: list[Path]) -> list[str]:
     for p in surfaces:
         if not p.exists():
             continue
-        text = p.read_text().lower()
+        text = p.read_text(encoding="utf-8").lower()
         for name in FICTIONAL_ENGINES:
             if name in text:
                 offenders.append(f"{p.relative_to(root)} names {name!r}")
