@@ -29,7 +29,6 @@ import pytest
 from clickllm import box, catalog
 from clickllm.engines import adapter_for
 from clickllm.hardware_catalog import get as profile_by_id
-from clickllm.k8s.reconcile import VLLM_FAMILY
 from clickllm.plan import Requirements, Workload
 from clickllm.plan import plan as configure
 from clickllm.prove.equivalence import CandidateReport, ClusterScore
@@ -301,11 +300,12 @@ def test_the_argv_is_what_the_engine_adapter_produces_for_these_settings(built, 
 
     content = dict(built.files)[path]
     if t.target.binding == "container":
-        # The image's entrypoint supplies the binary, so the file drops it.
-        dropped = 1 if t.engine in VLLM_FAMILY else 3
-        for arg in t.argv[dropped:]:
+        # The whole argv, binary included: the image's entrypoint is overridden
+        # rather than counted on. Dropping the leading tokens is what shipped
+        # `vllm serve serve MODEL` to every container target.
+        for arg in t.argv:
             assert json.dumps(arg) in content, arg
-        assert json.dumps(t.argv[0]) not in content
+        assert "ENTRYPOINT []" in content or "entrypoint: []" in content or "command:" in content
     else:
         assert json.loads(content)["argv"] == list(t.argv)
 

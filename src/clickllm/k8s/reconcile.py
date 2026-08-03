@@ -55,9 +55,6 @@ IMAGES = {
     Engine.LLMD: "ghcr.io/llm-d/llm-d:latest",
 }
 
-#: Engines whose argv starts with the binary rather than `python3 -m`.
-VLLM_FAMILY = (Engine.VLLM, Engine.VLLM_TPU)
-
 #: Port each engine serves on by default.
 PORTS = {Engine.SGLANG: 30000}
 DEFAULT_PORT = 8000
@@ -220,14 +217,17 @@ def deployment_for(
                         {
                             "name": p.engine.value.replace("-", ""),
                             "image": image,
-                            # Skip argv[0..] up to the model: the image's own
-                            # entrypoint supplies the binary.
-                            # vLLM-family argv is `vllm serve MODEL …`, so drop
-                            # only the binary. SGLang's is `python3 -m mod …`,
-                            # so drop three. Getting this wrong for vllm-tpu
-                            # dropped the model name and the container crashed
-                            # on boot with no argument at all.
-                            "args": argv[1:] if p.engine in VLLM_FAMILY else argv[3:],
+                            # `command`, not `args`: the full argv, overriding
+                            # the image's ENTRYPOINT rather than counting on
+                            # what it prepends. An earlier version dropped a
+                            # fixed number of leading tokens per engine family,
+                            # and every image in IMAGES falsified it — inspected,
+                            # not guessed: vllm-openai is ["vllm","serve"] (so
+                            # dropping one left `vllm serve serve MODEL`),
+                            # vllm-tpu and sglang exec "$@" and prepend nothing,
+                            # rocm/vllm has no ENTRYPOINT at all. Overriding is
+                            # the only form that does not depend on any of that.
+                            "command": list(argv),
                             "ports": [{"containerPort": port}],
                             "resources": resources,
                         }

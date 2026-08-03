@@ -61,7 +61,7 @@ from .catalog import ModelSpec
 from .engines import Setting, adapter_for
 from .fit import Fit
 from .hardware_catalog import get as profile_by_id
-from .k8s.reconcile import DEFAULT_PORT, IMAGES, PORTS, VLLM_FAMILY, deployment_for
+from .k8s.reconcile import DEFAULT_PORT, IMAGES, PORTS, deployment_for
 from .launch import Refusal, resolve_weights
 from .plan import Knob, Plan, Requirements, Workload
 from .plan import plan as configure
@@ -477,17 +477,6 @@ def _bind(binding: str, argv: list[str]) -> list[str]:
     return argv + ["--host", NATIVE_HOST, "--port", str(DEFAULT_PORT)]
 
 
-def _container_args(engine: str, argv: tuple[str, ...]) -> list[str]:
-    """The container's args: the argv without the binary its entrypoint supplies.
-
-    vLLM-family argv is `vllm serve MODEL …`, so drop one; SGLang's is
-    `python3 -m sglang.launch_server …`, so drop three. Same rule as the
-    Kubernetes emitter, from the same table — getting it wrong drops the model
-    name and the container crashes on boot with no argument at all.
-    """
-    return list(argv[1:] if engine in VLLM_FAMILY else argv[3:])
-
-
 def _dockerfile(head: list[str], image: str, args: list[str], port: int) -> str:
     return "\n".join(
         [
@@ -496,7 +485,13 @@ def _dockerfile(head: list[str], image: str, args: list[str], port: int) -> str:
             f"FROM {image}",
             "",
             f"EXPOSE {port}",
-            "# The base image's entrypoint supplies the binary; these are its own flags.",
+            # The base image's ENTRYPOINT is reset and the whole argv given as
+            # CMD. An earlier version emitted only the flags and trusted the
+            # entrypoint to supply the binary — every image in the table
+            # falsified that, in three different ways (see reconcile.py). This
+            # form depends on nothing but the binary being on PATH in its own
+            # image, which it is.
+            "ENTRYPOINT []",
             "CMD [" + ", ".join(json.dumps(a) for a in args) + "]",
             "",
         ]
@@ -537,6 +532,9 @@ def _compose(
             "services:",
             "  inference:",
             f"    image: {image}",
+            # The image's own entrypoint is reset, so `command` below is the
+            # whole argv rather than flags appended to whatever it prepends.
+            "    entrypoint: []",
             # Every arg is a quoted YAML string. A bare `32768` parses as an
             # integer and compose refuses a non-string in `command`; one of these
             # flags also carries JSON, which unquoted would parse as a mapping.
@@ -577,7 +575,7 @@ def _kubernetes(head: list[str], t: TargetPlan, p: Plan, image: str, port: int) 
     container["image"] = image
     container["ports"] = [{"containerPort": port}]
     # SGLang binds 127.0.0.1 by default, which in a pod is reachable by nothing.
-    container["args"] = list(container["args"]) + ["--host", CONTAINER_HOST]
+    container["command"] = list(container["command"]) + ["--host", CONTAINER_HOST]
     if (resource := GPU_RESOURCE.get(t.target.id)) is not None:
         count = next(iter(container["resources"]["limits"].values()))
         container["resources"] = {"limits": {resource: count}}
@@ -1010,7 +1008,7 @@ def _files_for(
 
     image = _image_for(t.target, t.engine)
     port = PORTS.get(p.engine, DEFAULT_PORT)
-    args = _container_args(t.engine, t.argv)
+    args = list(t.argv)
     tp = p.get(Setting.TENSOR_PARALLEL)
     devices = int(tp.value) if tp else 1
     return [

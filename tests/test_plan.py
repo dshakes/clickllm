@@ -805,7 +805,7 @@ def test_llmd_emits_a_real_deployment_rather_than_an_empty_one():
     assert dep, f"llm-d produced no Deployment; gaps: {gaps}"
 
     container = dep["spec"]["template"]["spec"]["containers"][0]
-    args = container["args"]
+    args = container["command"]
     # The pod runs vLLM's flags, because the pod runs vLLM.
     assert "--max-model-len" in args and "--max-num-seqs" in args, args
     assert container["resources"]["limits"]["nvidia.com/gpu"] == "8"
