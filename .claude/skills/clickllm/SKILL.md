@@ -68,9 +68,9 @@ print(sdk.explain("glm-5.2"))
 
 | Situation | Runtime | Why |
 |---|---|---|
-| Apple Silicon, concurrency ≥ 4 | `vllm-mlx` | continuous batching; aggregate throughput dominates |
+| Apple Silicon, concurrency ≥ 4 | `mlx` | continuous batching; aggregate throughput dominates |
 | Apple Silicon, single stream | `llama.cpp` Metal | best single-stream decode, widest model support |
-| Apple Silicon, 64K+ context | `MLC-LLM` | paged KV holds throughput steadiest |
+| Apple Silicon, 64K+ context | `llama.cpp` | paged KV holds throughput steadiest |
 | One NVIDIA GPU | `vLLM` | broadest support; enable EAGLE-3 |
 | One GPU, concurrency ≥ 8, shared prefixes | `SGLang` | RadixAttention reuses the prefix |
 | Multi-GPU | `llm-d` + GAIE | disaggregated prefill/decode, KV-cache-aware routing |
