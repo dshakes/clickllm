@@ -241,6 +241,10 @@ class Adapter:
         """Argv for one setting, or why there is none."""
         raise NotImplementedError
 
+    def environment(self, settings: dict[Setting, object]) -> tuple[tuple[str, str], ...]:
+        """Environment this configuration needs. Empty for flag-driven engines."""
+        return ()
+
     def command(
         self, model: str, settings: dict[Setting, object]
     ) -> tuple[list[str], list[Unsupported]]:
@@ -612,6 +616,26 @@ class MlxAdapter(Adapter):
         return argv, gaps
 
 
+#: The planner speaks vLLM's KV-cache vocabulary; llama.cpp has its own, and the
+#: allowed set is read off `llama-server --help`. 8-bit maps to q8_0 because
+#: that is the nearest thing llama.cpp actually implements — there is no fp8
+#: KV type at all, so an unmapped request is refused rather than approximated
+#: into something the binary rejects on start-up.
+LLAMACPP_KV_DTYPE: dict[str, str] = {
+    "fp8": "q8_0",
+    "fp8_e4m3": "q8_0",
+    "fp8_e5m2": "q8_0",
+    "int8": "q8_0",
+    "q8_0": "q8_0",
+    "fp16": "f16",
+    "f16": "f16",
+    "bf16": "bf16",
+    "fp32": "f32",
+    "f32": "f32",
+    "auto": "f16",
+}
+
+
 class LlamaCppAdapter(Adapter):
     """llama.cpp's `llama-server`. Flags verified against the binary in [`SOURCES`].
 
@@ -685,7 +709,20 @@ class LlamaCppAdapter(Adapter):
                     "(response_format, or --json-schema to fix one for the server)",
                 )
             case Setting.KV_CACHE_DTYPE:
-                return Translated(("--cache-type-k", str(value), "--cache-type-v", str(value)))
+                # llama.cpp's own vocabulary, read off `--help`:
+                #   f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+                # The planner speaks vLLM's, and passing `fp8_e4m3` straight
+                # through is rejected by the binary at start-up — exactly the
+                # cross-dialect leak this layer exists to prevent, committed
+                # inside the layer itself.
+                mapped = LLAMACPP_KV_DTYPE.get(str(value))
+                if mapped is None:
+                    return Unsupported(
+                        setting,
+                        f"llama.cpp has no {value!r} KV type; it takes one of "
+                        f"{', '.join(sorted(set(LLAMACPP_KV_DTYPE.values())))}",
+                    )
+                return Translated(("--cache-type-k", mapped, "--cache-type-v", mapped))
             case Setting.QUANTIZATION:
                 return Unsupported(
                     setting,
@@ -788,6 +825,24 @@ class OllamaAdapter(Adapter):
     name = "ollama"
     help_argv = ("ollama", "serve", "--help")
 
+    def environment(self, settings: dict[Setting, object]) -> tuple[tuple[str, str], ...]:
+        """The environment this configuration needs, as (name, value) pairs.
+
+        Separate from `command()` on purpose. The first cut returned
+        `["OLLAMA_CONTEXT_LENGTH=8192", "ollama", "serve"]` as argv, which reads
+        correctly and is not runnable either way: `subprocess.Popen` would try to
+        exec a binary named `OLLAMA_CONTEXT_LENGTH=8192`, and the printed form
+        `shlex.quote`s each element so a paste into bash gives `command not
+        found: OLLAMA_CONTEXT_LENGTH=8192`. The docstring claimed "native,
+        standalone and pasteable" and the code backed none of it.
+        """
+        out: list[tuple[str, str]] = []
+        for setting, value in settings.items():
+            got = self.translate(setting, value)
+            if isinstance(got, Translated):
+                out.extend(got.env)
+        return tuple(sorted(set(out)))
+
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         match setting:
             case Setting.CONTEXT_LENGTH:
@@ -848,7 +903,6 @@ class OllamaAdapter(Adapter):
         emit something that does not run.
         """
         argv: list[str] = ["ollama", "serve"]
-        env: list[tuple[str, str]] = []
         gaps: list[Unsupported] = []
         for setting, value in settings.items():
             out = self.translate(setting, value)
@@ -856,11 +910,7 @@ class OllamaAdapter(Adapter):
                 gaps.append(out)
             else:
                 argv.extend(out.argv)
-                env.extend(out.env)
-        # Env first, so the printed line is a runnable shell command rather than
-        # a command plus a footnote nobody applies.
-        prefix = [f"{k}={v}" for k, v in sorted(set(env))]
-        return prefix + argv, gaps
+        return argv, gaps
 
 
 _ADAPTERS: dict[str, Adapter] = {
