@@ -2,18 +2,21 @@
 
 <img src="docs/assets/loop-animated.svg" alt="Traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning $2,847/mo of closed-model spend into $317/mo of proven open-model inference" width="100%">
 
-# Run the right model for every request.<br>Open or closed. Proven on your traffic.
+# Open models, served properly,<br>in one command.
 
-### One command. You never write a config. Agents drive it natively.
+### No config file. Ever. It reads your hardware, sizes the KV cache, picks the engine, sets the flags — and can show you the evidence that the model is good enough for *your* traffic.
 
-**Nobody should have to choose one model for everything. Your traffic is
-extraction and classification and summarisation and a hard tail, and the cheapest
-model that is *good enough* is different for each of them — usually an 8B you
-host, sometimes a frontier API you keep. clickllm splits your real requests into
-clusters, proves each one against a bar you set, sizes and deploys the open
-models that clear it on hardware you actually have, and leaves the rest on the
-incumbent. The output is not a migration. It is an allocation, with the
-arithmetic shown and a rollback that fires on evidence.**
+```bash
+clickllm run qwen3-30b-a3b
+```
+
+**Behind that one line: the KV cache sized without getting MoE, GQA or MLA
+wrong; the right engine of five chosen for the silicon you actually have; the
+two dozen flags that matter set correctly; the weights resolved to a repo
+confirmed to exist. You get an OpenAI-compatible endpoint and you never opened
+an editor. When you need to know it is good enough — not on someone's
+leaderboard, on your own captured requests — that is one more command, and it
+answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
 [![tests](https://img.shields.io/badge/tests-959-34d399?style=flat-square)](#verification)
@@ -26,59 +29,69 @@ arithmetic shown and a rollback that fires on evidence.**
 
 ---
 
-## The insight
+## Two things, done properly
 
-Every open-model decision is framed as one question — *"is Llama as good as
-GPT-5?"* — and that framing is why they stall, because the honest answer is
-always "on some things." Ask it once and you get **no**. Ask it per cluster and
-you get an allocation.
+**1 — Deploy open models without the project.** Between "the weights are on
+Hugging Face" and "it is serving" sits a specialist skill: KV cache arithmetic
+that goes wrong three different ways, five engines with incompatible flag
+dialects, quantisation that means something different on MLX than on vLLM,
+memory maths that must saturate rather than silently wrap. clickllm does that
+and prints the arithmetic, so you can check it rather than trust it.
 
-Here is a real run: 180 requests, four clusters, a 90% bar, Llama 3.1 8B against
-GPT-4o-mini.
+```
+  M4 Max · 16 cores · 128 GB · 546 GB/s          usable for inference: 96 GB
+
+  model                     quant   weights      kv   total    free  ~tok/s  license
+  Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0
+  Llama 3.1 8B              q8         7.5G   32.0G   41.6G   54.4G      49  Llama 3.1 !
+```
+
+It refuses rather than guesses. A model that will not fit says how far short and
+in what unit. A flag the installed engine does not accept is a refusal, not a
+command that fails on start-up. A repo it has not confirmed exists is never
+printed as though it does.
+
+**2 — Know where open is good enough.** Benchmarks are someone else's exam. The
+model that tops MMLU may fail your extraction schema, and the one ranked
+fortieth may be perfect at your four tasks. So the comparison runs on *your*
+captured requests, per kind of task, against the closed model you are using
+today:
 
 ```
                     Arithmetic  Ticket classific  Structured extra  One-line summari
-                         (20%)             (30%)             (40%)             (10%)
 llama-3.1-8b      98% [87–100]       90% [77–96]     100% [91–100]      98% [91–100]
-
-Move 50% of traffic to llama-3.1-8b.
-  Not yet proven: Arithmetic, Ticket classification
-    → Arithmetic: needs 53 graded items to clear the bar at its observed 98% (has 40)
-    → Ticket classification: 90% [77–96] — at or below the bar; more items will not clear it
+gpt-4o-mini               100%              100%              100%              100%
 ```
 
-Extraction and summarisation moved to the open model. Classification stayed on
-the incumbent, because 90% is not 90%-with-confidence and its interval straddles
-the bar. Arithmetic scored 98% and still stayed, because 40 items is not enough
-evidence at that rate — and the report says how many would be.
+Structured extraction is a solved problem for an 8B model you host — 40 of 40,
+whole interval above the bar. Classification is not: 90% looks fine and the
+interval says 77–96, which is not a number to run production on. Arithmetic
+scored 98% and still does not clear, because 40 items is not enough evidence at
+that rate — and the report says how many would be.
 
-Half the traffic got 6–62x cheaper. The other half kept a frontier model,
-because it earned one. Neither decision was a guess.
+That is the whole answer: **which of your tasks an open model already does, with
+a number you can defend.** What you do with it is yours.
 
 **Why the interval and not the average.** 90% over 20 items and 90% over 400 are
 the same number and completely different decisions. Every cell is a Wilson score
-interval, and a cluster moves only when its *whole* interval clears the bar — so
-a small sample cannot promote itself by getting lucky. At a perfect score you
-need 35 flawless items to clear 90%, and no fewer, however clean 12 looks.
+interval, and a task counts as proven only when its *whole* interval clears the
+bar — so a small sample cannot promote itself by getting lucky. At a perfect
+score you need 35 flawless items to clear 90%, and no fewer, however clean 12
+looks.
 
-**Why your traffic and not a benchmark.** MMLU is someone else's exam. The model
-that tops it may fail your extraction schema; the one ranked fortieth may be
-perfect at your four tasks. Nobody has your traffic but you, which makes it the
-only leaderboard that decides anything.
-
-**Why now.** The quality gap that made this argument moot has closed — about
-17.5 points of MMLU between the best closed and best open model at the end of
-2023, effectively zero on knowledge benchmarks by 2026, with cost still 6–62x
-apart. And the deprecations arrived: GPT-4o left the API in February 2026, with
-GPT-4.1 and o4-mini to follow. The first makes the allocation worth computing;
-the second makes it worth computing this quarter.
+**Why now.** The quality gap has closed — about 17.5 points of MMLU between the
+best closed and best open model at the end of 2023, effectively zero on
+knowledge benchmarks by 2026, with cost still running 6–62x apart. Open weights
+stopped being the compromise and became the default for everything that does not
+specifically need a frontier model. The remaining problem is not whether they
+are good enough. It is that running them well is still a specialist skill, and
+knowing *where* they are good enough is still guesswork.
 
 <sub>Sources: benchmark convergence and the 6–62x cost spread — published 2026
-comparisons of the Artificial Analysis index against provider pricing. GPT-4o API
-retirement and the GPT-4.1/o4-mini plan — OpenAI deprecation notices as reported
-in 2026 platform round-ups. Promptfoo/OpenAI — announced 9 March 2026 by both
-parties with a commitment to keep the project open source. Third-party facts,
-dated on purpose: if one has changed since, this paragraph is wrong.</sub>
+comparisons of the Artificial Analysis index against provider pricing.
+Promptfoo/OpenAI — announced 9 March 2026 by both parties with a commitment to
+keep the project open source. Third-party facts, dated on purpose: if one has
+changed since, this paragraph is wrong.</sub>
 
 ## What it is not
 
@@ -89,7 +102,7 @@ Naming this is faster than a feature matrix.
 | **Not an inference engine.** | vLLM, SGLang and MLX exist and are excellent. clickllm chooses among them and configures them; it never competes with them. |
 | **Not an eval platform.** | Braintrust and LangSmith watch production after you ship. clickllm answers one question before you ship, then gets out of the way. Promptfoo is the closest thing to this and it is good software — it was also acquired by OpenAI in March 2026. clickllm is independent and Apache-2.0, and has no model to sell you. |
 | **Not hosted inference.** | Nothing runs on our machines. There is no account, no telemetry, and no egress you did not ask for. |
-| **Not a per-request router.** | clickllm computes the allocation — which cluster runs on which model — and hands you a config plus a rollback. It does not sit in your request path arbitraging every call, because a proxy that must be up for your app to work is a liability you did not have before. Point your existing router at the endpoints it sizes. |
+| **Not a router or a proxy.** | Nothing sits in your request path. clickllm sizes, configures, launches and measures; where the traffic goes afterwards is your call and your infrastructure. A proxy that must be up for your app to work is a liability you did not have before. |
 
 The join between those categories is the product: **your traffic → which model →
 will it fit → what it costs → is it good enough → deploy → roll back.** Nothing
