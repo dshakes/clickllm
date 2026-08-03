@@ -87,7 +87,7 @@ Nothing downstream can run without local weights.
 ### M2 · Runtimes — the Protocol and six backends *(3 wks)*
 - `Runtime` trait + `Feasibility`/`RuntimePlan`/`Endpoint` types
 - CUDA: **vLLM**, **SGLang**; multi-node: **llm-d** + GAIE `InferencePool`
-- Metal: **vllm-mlx**, **llama.cpp**, **MLC**; CPU fallback
+- Metal: **mlx**, **llama.cpp**, **MLC**; CPU fallback
 - Both `render()` (config artifact) and `launch()` (supervised process/container)
 - CI import-guard: no engine-specific type escapes `runtimes/`
 

@@ -16,8 +16,8 @@ RadixAttention prefix reuse — wins on agent workloads with shared system promp
 **Steal:** RadixAttention is the reason agent workloads are cheaper self-hosted than via API. That's a *sales argument*, and we should compute it per customer.
 **Gap:** same as vLLM. Also CUDA-first.
 
-### 3. llama.cpp / MLX / vllm-mlx / MLC-LLM (Apple Silicon)
-`llama.cpp` best single-stream + widest models; MLX highest throughput (~230 tok/s aggregate) with spec-decode since mlx-lm 0.21; **vllm-mlx** brings continuous batching to Metal (EuroMLSys '26, ~1,150 tok/s @ 32 concurrency on M4 Max); MLC-LLM best for 64K–128K via paged KV.
+### 3. llama.cpp / MLX / mlx / MLC-LLM (Apple Silicon)
+`llama.cpp` best single-stream + widest models; MLX highest throughput (~230 tok/s aggregate) with spec-decode since mlx-lm 0.21; **mlx** brings continuous batching to Metal (EuroMLSys '26, ~1,150 tok/s @ 32 concurrency on M4 Max); MLC-LLM best for 64K–128K via paged KV.
 **Steal:** all four. This is the entire local story and the reason we can dogfood.
 **Gap:** four engines, four config formats, zero guidance on choosing.
 

@@ -1038,3 +1038,37 @@ def test_bumping_a_file_with_several_patterns_keeps_all_of_them(tmp_path, monkey
     assert got.count("2.0.0") == 3, f"writes clobbered each other:\n{got}"
     assert "1.0.0" not in got
     assert set(bump.current().values()) == {"2.0.0"}
+
+
+def test_no_published_surface_names_an_engine_that_does_not_exist():
+    """The diagrams outlived the code by a release.
+
+    `clickllm fit` stopped recommending `vllm-mlx` and `mlc-llm` in #65 — neither
+    exists; vLLM has no Metal backend — but `architecture.svg`, `e2e.svg`, seven
+    docs pages and the site kept naming them, so a reader saw the fiction in the
+    picture after it left the product.
+
+    Docstrings that RECOUNT the defect are exempt: `fit.recommend_runtime`
+    explains what it used to print, and that sentence has to name it.
+    """
+    root = Path(__file__).resolve().parents[1]
+    fictional = ("vllm-mlx", "mlc-llm")
+    surfaces = (
+        list((root / "docs").rglob("*.md"))
+        + list((root / "docs" / "assets").glob("*.svg"))
+        + list((root / "site").rglob("*.svg"))
+        + [root / "site" / "index.html", root / "site" / "docs" / "index.html",
+           root / "README.md"]
+    )
+    offenders = []
+    for p in surfaces:
+        if not p.exists():
+            continue
+        text = p.read_text()
+        for name in fictional:
+            if name in text:
+                offenders.append(f"{p.relative_to(root)} names {name!r}")
+    assert not offenders, (
+        "published surfaces name engines that do not exist and cannot be "
+        "launched:\n  " + "\n  ".join(offenders)
+    )

@@ -60,7 +60,7 @@ mymodel.box  (OCI manifest + layers)
   targets/
     linux-cuda/     Dockerfile + compose + k8s manifests (vLLM / SGLang / llm-d)
     linux-rocm/     "
-    darwin-metal/   native launch spec (vllm-mlx / llama.cpp / MLC)
+    darwin-metal/   native launch spec (mlx / llama.cpp / MLC)
     cpu/            llama.cpp fallback, honest about tok/s
   bench.json        the measurements that ratified the tuning, per host class
   README.md         what was chosen and why — human-readable

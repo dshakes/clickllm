@@ -72,7 +72,7 @@ Half the stack you named is CUDA-first and will not run locally:
 | llm-d | ❌ (needs multi-GPU CUDA nodes) |
 | TensorRT-LLM | ❌ |
 | EAGLE-3 as documented in vLLM | ❌ (mlx-lm 0.21 has its own spec-decode since May 2026) |
-| **vllm-mlx** | ✅ MLX-based vLLM plugin, continuous batching, ~525 tok/s small models on M4 Max, ~1,150 tok/s aggregate @ 32 concurrency |
+| **mlx** | ✅ MLX-based vLLM plugin, continuous batching, ~525 tok/s small models on M4 Max, ~1,150 tok/s aggregate @ 32 concurrency |
 | **llama.cpp Metal** | ✅ best single-stream, broadest model support |
 | **MLX / mlx-lm** | ✅ highest throughput, spec-decode since 0.21 |
 | **MLC-LLM** | ✅ best 64K–128K context (paged KV) |
