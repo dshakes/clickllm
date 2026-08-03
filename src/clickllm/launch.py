@@ -144,7 +144,7 @@ ENGINE_HARDWARE: dict[Engine, tuple[str, ...]] = {
     Engine.VLLM_TPU: ("tpu",),
     Engine.MLX: ("apple",),
     Engine.LLAMA_CPP: ("apple", "nvidia", "amd", "cpu"),
-    Engine.OLLAMA: ("apple", "nvidia", "amd", "cpu", "tpu"),
+    Engine.OLLAMA: ("apple", "nvidia", "amd", "cpu"),
 }
 
 

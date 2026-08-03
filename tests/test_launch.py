@@ -807,6 +807,16 @@ H100 = Hardware(
     cores=132,
 )
 
+TPU_V6E = Hardware(
+    kind="tpu",
+    name="TPU v6e Trillium (8 chips)",
+    total_bytes=256 * GB,
+    usable_bytes=240 * GB,
+    bandwidth_gbps=11384.0,
+    cores=8,
+    devices=8,
+)
+
 
 def test_forcing_a_cuda_only_engine_onto_apple_hardware_refuses(tmp_path):
     """--engine bypasses `_pick_engine`, which is the only place hardware ever
@@ -821,6 +831,24 @@ def test_forcing_a_cuda_only_engine_onto_apple_hardware_refuses(tmp_path):
     assert isinstance(out, launch.Refusal)
     assert "sglang" in out.reason
     assert "apple" in out.reason
+    assert "--engine" in out.next_step
+
+
+def test_forcing_ollama_onto_tpu_hardware_refuses(tmp_path):
+    """`ENGINE_HARDWARE` once listed Ollama as TPU-compatible — a copy-paste
+    leftover contradicting `plan._pick_engine`'s own rule that vLLM's TPU
+    backend is the only engine that runs there (it lowers through JAX; Ollama
+    has no such path). `--engine ollama` on a TPU host must refuse, not pass
+    the gate and hand back a command that cannot start."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        hw=TPU_V6E,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal)
+    assert "ollama" in out.reason
+    assert "tpu" in out.reason
     assert "--engine" in out.next_step
 
 
