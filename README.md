@@ -2,18 +2,17 @@
 
 <img src="docs/assets/loop-animated.svg" alt="Traffic flows through seven stages — observe, distill, fit, prove, deploy, cut over, guard — turning $2,847/mo of closed-model spend into $317/mo of proven open-model inference" width="100%">
 
-# Your model is being retired.<br>Prove what replaces it.
+# Half your traffic is already<br>cheap. Prove which half.
 
 ### One command. You never write a config. Agents drive it natively.
 
-**GPT-4o left the API in February 2026. GPT-4.1 and o4-mini are next. Whatever
-you built on, the clock is someone else's — and the open weights that could
-replace it sit behind a project: size a KV cache without getting MoE, GQA or MLA
-wrong, pick among five engines, get the two dozen flags that matter right, deploy
-it, and still have no way to say whether the model is actually good enough for
-*your* traffic. clickllm collapses that into one decision, gates the cutover on
-evidence from your own requests, and prints the arithmetic behind every number in
-it.**
+**Every open-model migration is framed as one question — "is Llama as good as
+GPT-5?" — and that framing is why they stall, because the honest answer is
+always "on some things." Your traffic is not one workload. It is extraction and
+classification and summarisation and a long tail of hard cases, and they do not
+have one answer between them. clickllm splits your real requests into clusters,
+proves each one separately against a bar you set, and moves only what clears
+it — with the arithmetic shown and a rollback that fires on evidence.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
 [![tests](https://img.shields.io/badge/tests-959-34d399?style=flat-square)](#verification)
@@ -26,43 +25,56 @@ it.**
 
 ---
 
-## Why now
+## The insight
 
-Three things changed at once, and they point the same way.
+Here is a real run — 180 requests, four clusters, a 90% equivalence bar,
+Llama 3.1 8B against GPT-4o-mini:
 
-**The deadline is not yours.** GPT-4o was retired from the API on 16 February
-2026; OpenAI has said GPT-4.1 and o4-mini follow. Teams are not idly wondering
-whether to move — they are being moved. An open model you host is a model nobody
-can deprecate out from under you.
+```
+                    Arithmetic  Ticket classific  Structured extra  One-line summari
+                         (20%)             (30%)             (40%)             (10%)
+llama-3.1-8b      98% [87–100]       90% [77–96]     100% [91–100]      98% [91–100]
 
-**The quality argument is over.** At the end of 2023 the best closed model led
-the best open one by about 17.5 points of MMLU. By 2026 that gap is effectively
-zero on knowledge benchmarks and single digits on most reasoning tasks, while the
-cost difference runs 6–62x. The open question stopped being *are they good
-enough* and became *are they good enough for my traffic* — which is a question
-about your requests, not a leaderboard.
+Move 50% of traffic to llama-3.1-8b.
+  Not yet proven: Arithmetic, Ticket classification
+    → Arithmetic: needs 53 graded items to clear the bar at its observed 98% (has 40)
+    → Ticket classification: 90% [77–96] — at or below the bar; more items will not clear it
+```
 
-**The obvious tool for answering it changed hands.** Promptfoo — the most
-widely used open tool for comparing models before you switch — was acquired by
-OpenAI in March 2026. It remains open source under its existing licence, and it
-is good software. It is also now maintained by the vendor whose models you would
-be evaluating your way off. Draw your own conclusion; clickllm is independent,
-Apache-2.0, and has no model to sell you.
+Extraction moved. Summarisation moved. Classification sat at 90% and **did not**
+move, because the interval straddles the bar and 90% is not 90%-with-confidence.
+Arithmetic scored 98% and still did not move — 40 items is not enough evidence
+at that rate, and the report says exactly how many would be.
 
-<sub>Sources: GPT-4o API retirement and the GPT-4.1/o4-mini plan — OpenAI's
-deprecation notices, as reported in 2026 platform round-ups. Open-vs-closed
-benchmark convergence and the 6–62x cost spread — published 2026 comparisons of
-the Artificial Analysis index and provider pricing. Promptfoo acquisition —
-announced 9 March 2026 by both parties, with a commitment to keep the project
-open source. These are third-party facts and are dated on purpose: if any has
-changed by the time you read this, that is worth knowing and this paragraph is
-wrong.</sub>
+Ask "is Llama as good as GPT?" and the answer is no. Ask it four times and half
+your traffic gets 6–62x cheaper this week, while the half that genuinely needs a
+frontier model keeps one. That is the whole product.
 
-None of those facts belong to us. What we do with them is this: prove the
-replacement on your own captured traffic, size it for hardware you can actually
-buy or rent, generate a config that runs without clickllm installed, gate the
-cutover on a statistical bar you set, and keep a rollback that fires on evidence
-rather than on a hunch.
+**Why the interval and not the average.** A cluster at 90% over 20 items and a
+cluster at 90% over 400 items are the same number and completely different
+decisions. Every cell here is a Wilson score interval and a cluster moves only
+when its *entire* interval clears the bar — so a small sample cannot promote
+itself by getting lucky. At a perfect score you need 35 flawless items to clear
+90%, and no fewer, however clean 12 looks.
+
+**Why your traffic and not a benchmark.** MMLU is someone else's exam. The model
+that tops it may still fail your extraction schema, and the one that ranks
+fortieth may be perfect at your four tasks. Nobody has your traffic but you,
+which makes it the only leaderboard that decides anything.
+
+**Why now.** Two things landed at once. The quality gap that used to make this
+argument moot has closed — about 17.5 points of MMLU between the best closed and
+best open model at the end of 2023, effectively zero on knowledge benchmarks by
+2026, with cost still running 6–62x apart. And the deprecations arrived: GPT-4o
+left the API in February 2026, with GPT-4.1 and o4-mini announced to follow. The
+first makes the move worth doing; the second makes it worth doing now.
+
+<sub>Sources: benchmark convergence and the 6–62x cost spread — published 2026
+comparisons of the Artificial Analysis index against provider pricing. GPT-4o API
+retirement and the GPT-4.1/o4-mini plan — OpenAI deprecation notices, as reported
+in 2026 platform round-ups. Promptfoo/OpenAI — announced 9 March 2026 by both
+parties, with a commitment to keep the project open source. Third-party facts,
+dated on purpose: if one has changed since, this paragraph is wrong.</sub>
 
 ## What it is not
 
@@ -71,7 +83,7 @@ Naming this is faster than a feature matrix.
 | | |
 |---|---|
 | **Not an inference engine.** | vLLM, SGLang and MLX exist and are excellent. clickllm chooses among them and configures them; it never competes with them. |
-| **Not an eval platform.** | Braintrust and LangSmith watch production after you ship. clickllm answers one question before you ship, then gets out of the way. |
+| **Not an eval platform.** | Braintrust and LangSmith watch production after you ship. clickllm answers one question before you ship, then gets out of the way. Promptfoo is the closest thing to this and it is good software — it was also acquired by OpenAI in March 2026. clickllm is independent and Apache-2.0, and has no model to sell you. |
 | **Not hosted inference.** | Nothing runs on our machines. There is no account, no telemetry, and no egress you did not ask for. |
 | **Not a router.** | It moves traffic once, on proof, with a rollback — rather than arbitraging every request forever. |
 
