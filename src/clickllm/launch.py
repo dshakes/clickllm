@@ -131,6 +131,22 @@ INSTALL_HINT = {
 #: the engine choice stays in `plan._pick_engine`, where it belongs.
 _CONCURRENCY_PROBES = (2, 4, 8, 16, 32, 64)
 
+#: Hardware each engine's build actually runs on. vLLM wraps CUDA kernels and
+#: also ships a ROCm build; SGLang and llm-d are CUDA-only; the vLLM TPU build
+#: lowers through JAX instead of either. MLX is Metal-only. llama.cpp and
+#: Ollama both ship CPU/Metal/CUDA builds, so they run anywhere.
+#: `_pick_engine` never emits a mismatch — hardware gates its branches — but
+#: `--engine`/`force_engine` bypasses that gate, so `plan()` checks it here.
+ENGINE_HARDWARE: dict[Engine, tuple[str, ...]] = {
+    Engine.VLLM: ("nvidia", "amd"),
+    Engine.SGLANG: ("nvidia",),
+    Engine.LLMD: ("nvidia",),
+    Engine.VLLM_TPU: ("tpu",),
+    Engine.MLX: ("apple",),
+    Engine.LLAMA_CPP: ("apple", "nvidia", "amd", "cpu"),
+    Engine.OLLAMA: ("apple", "nvidia", "amd", "cpu", "tpu"),
+}
+
 
 # --------------------------------------------------------------------------- #
 # Results
@@ -523,6 +539,7 @@ def resolve_weights(
     quant: str,
     engine: str,
     *,
+    tag: str | None = None,
     exists: Callable[[str], bool] | None = None,
     cache: Path | None = None,
 ) -> Resolved | Refusal:
@@ -533,6 +550,9 @@ def resolve_weights(
         quant: the quantisation the solver picked. Part of the repo identity on
             MLX, so it is not optional.
         engine: engine id, as `adapter_for` spells it.
+        tag: the Ollama tag to pull, e.g. `llama3.1:8b-instruct-q8_0`. Ollama's
+            registry names do not follow the catalogue's ids or the Hugging
+            Face repo, so this only ever comes from the caller — see below.
         exists: existence check, injected. Defaults to [`hf_exists`]. Injected
             rather than mocked so the test suite never opens a socket.
         cache: where confirmed resolutions are remembered. Defaults to
@@ -543,11 +563,25 @@ def resolve_weights(
         name that was not confirmed.
     """
     if engine == "ollama":
-        # Its own registry, its own pull — see `candidates`. The model argument
-        # is not part of the launch command either (`OllamaAdapter.command`), so
-        # there is nothing here to verify against the Hub, and refusing for want
-        # of one would be refusing to launch an engine that has no such gap.
-        return Resolved(model.id, ())
+        # Its own registry, its own names — see `candidates`. The catalogue id
+        # (e.g. `llama-3.1-8b`) is not an Ollama tag, and guessing one and
+        # calling it Resolved is exactly the fabrication this function exists
+        # to refuse elsewhere: `_healthy` would then poll a model name Ollama
+        # was never asked to serve, and the printed command would start a bare
+        # `ollama serve` with no way to know what to request from it.
+        if not tag:
+            return Refusal(
+                reason=(
+                    f"ollama has its own registry and its own names; {model.id!r} is "
+                    f"a catalogue id, not an Ollama tag, so there is nothing here to "
+                    f"confirm without one"
+                ),
+                next_step=(
+                    f"clickllm run {model.id} --engine ollama --tag <ollama-tag>, e.g. "
+                    f"--tag llama3.1:8b-instruct-{quant}"
+                ),
+            )
+        return Resolved(tag, ())
 
     check = exists or hf_exists
     path = _cache_path(cache)
@@ -681,6 +715,7 @@ def plan(
     port: int = 8000,
     host: str = "127.0.0.1",
     engine: str | None = None,
+    tag: str | None = None,
     hw: Hardware | None = None,
     exists: Callable[[str], bool] | None = None,
     cache: Path | None = None,
@@ -702,6 +737,8 @@ def plan(
         engine: force this engine rather than letting the planner pick one.
             Some engines have no hardware signature to be auto-selected by —
             Ollama runs equally well anywhere — so this is their only way in.
+        tag: the Ollama tag to pull, e.g. `llama3.1:8b-instruct-q8_0`. Required
+            when `engine="ollama"` — see [`resolve_weights`]. Ignored otherwise.
         hw: the machine. Detected when omitted.
         exists: repo existence check, forwarded to [`resolve_weights`].
         cache: resolution cache path, forwarded to [`resolve_weights`].
@@ -723,6 +760,18 @@ def plan(
         raise ValueError(f"{model.id} does not publish {quant!r}; it has {', '.join(model.quants)}")
     forced = Engine(engine) if engine is not None else None
 
+    if forced is not None:
+        compatible = ENGINE_HARDWARE[forced]
+        if machine.kind not in compatible:
+            return Refusal(
+                reason=(
+                    f"{forced.value} only runs on {'/'.join(compatible)}; this machine is "
+                    f"{machine.kind}, so `--engine {forced.value}` would produce a command "
+                    f"that cannot start"
+                ),
+                next_step="drop --engine and let the planner pick one this hardware can run",
+            )
+
     if quant is None:
         best = fit.best_quant(model, machine, context, concurrency)
         if best is None:
@@ -737,9 +786,12 @@ def plan(
     deployment = configure(machine, req, model, sized.quant, force_engine=forced)
     engine_name = deployment.engine.value
 
-    if engine_name == "llama.cpp":
-        # --ctx-size is TOTAL across --parallel slots (LlamaCppAdapter.command
-        # multiplies context by it), and the planner's MAX_CONCURRENT knob is
+    if engine_name in ("llama.cpp", "ollama"):
+        # Both pre-allocate KV for every parallel slot at start-up rather than
+        # growing it on demand — llama.cpp because --ctx-size is TOTAL across
+        # --parallel slots (LlamaCppAdapter.command multiplies context by it),
+        # Ollama because OLLAMA_NUM_PARALLEL divides the same fixed context
+        # window the same way. Either way the planner's MAX_CONCURRENT knob is
         # not `concurrency` — interactive workloads round it up for burst
         # headroom (e.g. 4 becomes 32). Sizing the fit at the caller's
         # concurrency while launching at the padded slot count would approve a
@@ -767,7 +819,7 @@ def plan(
             ),
         )
 
-    resolved = resolve_weights(model, sized.quant, engine_name, exists=exists, cache=cache)
+    resolved = resolve_weights(model, sized.quant, engine_name, tag=tag, exists=exists, cache=cache)
     if isinstance(resolved, Refusal):
         return resolved
 

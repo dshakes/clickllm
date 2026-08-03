@@ -794,3 +794,117 @@ def test_llamacpp_is_offered_gguf_repos_and_ollama_is_offered_none():
     gguf = launch.candidates(m, "q4", "llama.cpp")
     assert gguf and all(c.endswith("-GGUF") for c in gguf), gguf
     assert launch.candidates(m, "q4", "ollama") == ()
+
+
+# --- hardware compatibility for a forced engine ---------------------------------
+
+H100 = Hardware(
+    kind="nvidia",
+    name="H100 80GB",
+    total_bytes=80 * GB,
+    usable_bytes=76 * GB,
+    bandwidth_gbps=3350.0,
+    cores=132,
+)
+
+
+def test_forcing_a_cuda_only_engine_onto_apple_hardware_refuses(tmp_path):
+    """--engine bypasses `_pick_engine`, which is the only place hardware ever
+    gated an engine choice — so `plan()` has to check it itself, or a caller can
+    force sglang onto a Mac and get a command that cannot start."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="sglang",
+        hw=M4,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal)
+    assert "sglang" in out.reason
+    assert "apple" in out.reason
+    assert "--engine" in out.next_step
+
+
+def test_forcing_an_engine_the_hardware_actually_runs_does_not_refuse(tmp_path):
+    """The gate must not reject a legitimate forced choice — only a mismatch."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        quant="q4",
+        engine="vllm",
+        hw=H100,
+        context=8192,
+        exists=only("meta-llama/Llama-3.1-8B-Instruct"),
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.LaunchPlan), out
+    assert out.engine == "vllm"
+
+
+# --- Ollama: real tags in, real concurrency checked -----------------------------
+
+
+def test_ollama_resolution_refuses_rather_than_fabricating_a_tag(tmp_path):
+    """The catalogue id is not an Ollama tag. Returning it as `Resolved` would
+    have `_healthy` poll a model name Ollama was never asked to serve, and the
+    printed command would start a bare `ollama serve` with nothing telling
+    anyone what to request from it."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        hw=M4,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal)
+    assert "not an Ollama tag" in out.reason
+    assert "--tag" in out.next_step
+
+
+def test_ollama_resolution_accepts_an_explicit_tag(tmp_path):
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        tag="llama3.1:8b-instruct-q4_K_M",
+        hw=M4,
+        context=8192,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.LaunchPlan), out
+    assert out.repo == "llama3.1:8b-instruct-q4_K_M"
+
+
+def test_ollama_is_fit_checked_at_the_planners_padded_slot_count_not_requested_concurrency(
+    tmp_path,
+):
+    """Interactive concurrency=1 becomes MAX_CONCURRENT=32 in the planner, and
+    OLLAMA_NUM_PARALLEL carries that padded count — not the concurrency the fit
+    was originally checked at. Proves the same re-solve guard llama.cpp has
+    also covers Ollama."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        tag="llama3.1:8b-instruct-q4_K_M",
+        quant="q4",
+        concurrency=1,
+        context=8192,
+        hw=M4,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.LaunchPlan), out
+    assert out.fit.concurrency == 32
+    assert ("OLLAMA_NUM_PARALLEL", "32") in out.env
+
+
+def test_ollama_refuses_rather_than_launch_more_parallelism_than_was_checked(tmp_path):
+    """Same guard, its refusal side: a machine that fits one stream but not the
+    32 the planner pads interactive workloads to must not silently approve."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        tag="llama3.1:8b-instruct-q4_K_M",
+        quant="q4",
+        concurrency=1,
+        context=8192,
+        hw=AIR,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal), out
+    assert "short by" in out.reason and "GB" in out.reason
