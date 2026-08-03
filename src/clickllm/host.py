@@ -62,7 +62,6 @@ from .hardware_catalog import get as profile_by_id
 # Container images and the argv-slicing rule, borrowed from the Kubernetes
 # emitter so a `docker-compose.yml` and a `Deployment` cannot drift apart.
 from .k8s.reconcile import IMAGES as ENGINE_IMAGES
-from .k8s.reconcile import VLLM_FAMILY
 from .plan import Requirements, Workload
 from .plan import plan as configure
 
@@ -980,12 +979,12 @@ def _docker(option: HostOption, head: list[str], argv: list[str], engine: str) -
         raise ValueError(f"no container image recorded for engine {engine!r}")
 
     devices = _profile(option.offer.profile_id).devices
-    # The image's entrypoint supplies the binary, so the container's args are the
-    # argv without it. vLLM-family argv is `vllm serve MODEL …`, so drop one;
-    # SGLang's is `python3 -m sglang.launch_server …`, so drop three. Same rule
-    # as the Kubernetes emitter — getting it wrong drops the model name and the
-    # container crashes on boot with no argument at all.
-    args = argv[1:] if engine in VLLM_FAMILY else argv[3:]
+    # The whole argv, with the image's entrypoint overridden — not flags appended
+    # to whatever it prepends. Same rule as the box and Kubernetes emitters, and
+    # for the same reason: every image in the table prepends something different
+    # (`vllm serve`, `exec "$@"`, nothing at all), so counting tokens to drop was
+    # wrong for all of them.
+    args = list(argv)
     compose = "\n".join(
         [
             _commented(head),
@@ -993,6 +992,9 @@ def _docker(option: HostOption, head: list[str], argv: list[str], engine: str) -
             "services:",
             "  inference:",
             f"    image: {image}",
+            # The image's own entrypoint is reset, so `command` below is the
+            # whole argv rather than flags appended to whatever it prepends.
+            "    entrypoint: []",
             # Every arg is a *quoted* YAML string. Bare `32768` parses as an
             # integer and compose refuses a non-string in `command`; one of these
             # flags also carries JSON, which unquoted would parse as a mapping.
@@ -1031,6 +1033,9 @@ def _docker(option: HostOption, head: list[str], argv: list[str], engine: str) -
             "",
             "docker run --rm -it \\",
             f"  --gpus {'all' if devices > 1 else '1'} --ipc=host -p 8000:8000 \\",
+            # Same reset as the compose file: the command below is the whole
+            # argv, not flags appended to the image's own entrypoint.
+            '  --entrypoint "" \\',
             '  -e HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN:-}" \\',
             '  -v "$PWD/hf-cache:/root/.cache/huggingface" \\',
             f"  {image} \\",

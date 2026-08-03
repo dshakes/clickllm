@@ -171,13 +171,13 @@ def test_prefix_sharing_changes_the_engine_the_image_and_the_flags():
     assert r.status["engine"] == "sglang"
     c = r.objects[0]["spec"]["template"]["spec"]["containers"][0]
     assert c["image"].startswith("lmsysorg/")
-    assert "--context-length" in c["args"] and "--max-model-len" not in c["args"]
+    assert "--context-length" in c["command"] and "--max-model-len" not in c["command"]
 
 
 def test_an_unverifiable_flag_is_reported_as_a_gap_not_emitted():
     r = reconcile(workload(prefixSharing=0.9, structuredOutput=True), CLUSTER)
     assert any("structured_output" in g for g in r.status["gaps"])
-    args = " ".join(r.objects[0]["spec"]["template"]["spec"]["containers"][0]["args"])
+    args = " ".join(r.objects[0]["spec"]["template"]["spec"]["containers"][0]["command"])
     assert "grammar-backend" not in args
 
 
@@ -398,8 +398,12 @@ def test_a_tpu_workload_produces_a_runnable_deployment():
     c = r.objects[0]["spec"]["template"]["spec"]["containers"][0]
     # The model name must survive the argv slice — without it the container
     # boots with no model and crashes immediately.
-    assert "Qwen/Qwen3-32B" in c["args"], c["args"]
-    assert c["args"][0] == "serve", c["args"][:3]
+    assert "Qwen/Qwen3-32B" in c["command"], c["command"]
+    # The binary, not `serve`: vllm/vllm-openai's ENTRYPOINT is already
+    # ["vllm", "serve"], so emitting the flags alone produced
+    # `vllm serve serve MODEL` and the container never reached the engine.
+    assert c["command"][:2] == ["vllm", "serve"], c["command"][:3]
+    assert "args" not in c, "args would be appended to the image entrypoint, not replace it"
     assert "google.com/tpu" in c["resources"]["limits"]
 
 
