@@ -100,7 +100,6 @@ def test_the_engine_fit_names_is_the_engine_run_starts():
     recommending software to install that cannot be installed, on the CLI, the
     MCP server and the SDK alike.
     """
-    from clickllm.engines import adapter_for
     from clickllm.plan import Requirements, Workload, _pick_engine
 
     shapes = [
@@ -187,7 +186,6 @@ def test_recommend_runtime_warns_on_cpu_only_hardware():
     """
     cpu = _hw(48, kind="cpu", bw=50.0)
     named, why = fit.recommend_runtime(cpu, 8192, 1)
-    from clickllm.engines import adapter_for
 
     assert adapter_for(named) is not None
     assert "no accelerator" in why.lower(), why
