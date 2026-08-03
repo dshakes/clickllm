@@ -10,6 +10,11 @@ This does the same for vLLM and SGLang. It cannot run on a Mac — neither engin
 builds there — so it runs on Linux in CI (`.github/workflows/engine-flags.yml`)
 and for free on any developer machine where the engine happens to be installed.
 
+No GPU is needed for either, which took a while to establish: vLLM's CUDA image
+dies at `Failed to infer device type` before printing help, and that was read as
+"vLLM cannot be asked without a GPU". The device check belongs to the image's
+platform plugin, so the same binary in `vllm/vllm-tpu:latest` answers fine.
+
 ## The skip is the dangerous part
 
 `installed_flags` returns `None` for "could not ask", which is deliberately not

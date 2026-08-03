@@ -156,11 +156,14 @@ __all__ = [
 #: changelog because the flags drift and the next person needs to know what to
 #: re-check rather than what to trust.
 SOURCES = {
-    # Docs only. `vllm serve --help` initialises hardware before printing, so
-    # it cannot be interrogated on a GPU-less CI runner — the flags below are
-    # NOT verified against the binary the way MLX's are. Run
-    # `CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py -k vllm`
-    # on a GPU box to close that gap.
+    # Docs, and now the binary too. This comment used to say vLLM "cannot be
+    # interrogated on a GPU-less CI runner", which was true of the CUDA image
+    # and false of vLLM: the device check is the image's platform plugin, not
+    # the CLI. `vllm/vllm-tpu:latest` answers `vllm serve --help=all` with no
+    # accelerator, so engine-flags.yml asks it on every relevant PR.
+    # Remaining gap, and it is small: that is a different *build* of vLLM. On a
+    # GPU box, `CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py
+    # -k vllm` checks the CUDA build itself.
     "vllm": "https://docs.vllm.ai/en/stable/configuration/engine_args.html (checked 2026-07-27)",
     "sglang": "https://docs.sglang.io/advanced_features/server_arguments.html (checked 2026-07-27)",
     # Not a docs page. `mlx_lm.server --help` on the installed wheel, which is the
