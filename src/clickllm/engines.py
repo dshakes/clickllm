@@ -702,7 +702,11 @@ class LlamaCppAdapter(Adapter):
                     if isinstance(value, dict)
                     else value
                 )
-                if not isinstance(draft, str) or not draft or draft in DRAFT_REQUIRED | {"mtp", "off"}:
+                if (
+                    not isinstance(draft, str)
+                    or not draft
+                    or draft in DRAFT_REQUIRED | {"mtp", "off"}
+                ):
                     return Unsupported(
                         setting,
                         f"llama.cpp speculation needs a draft GGUF: --model-draft takes a "

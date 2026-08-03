@@ -267,6 +267,8 @@ def test_an_engine_with_no_verified_dialect_refuses_with_a_way_forward():
     undialected = [str(e) for e in Engine if adapter_for(str(e)) is None]
     assert not undialected, f"planner can pick these and launch cannot build them: {undialected}"
     assert adapter_for("not-an-engine") is None, "adapter_for must still refuse the unknown"
+
+
 def test_an_unpublished_quant_is_refused_with_the_ones_that_exist(tmp_path):
     with pytest.raises(ValueError, match="q3"):
         launch.plan("qwen3-30b-a3b", quant="q3", hw=M4, cache=tmp_path / "w.json")
@@ -771,7 +773,9 @@ def test_a_repo_cached_by_older_resolver_logic_is_not_served_by_the_new_one():
         assert isinstance(out, launch.Resolved), out
         # The quant is tagged onto the repo (`--hf-repo` selects the file with
         # it), so the bare repo id is a prefix, not the whole answer.
-        assert out.repo.split(":")[0].endswith("-GGUF"), f"served a stale non-GGUF answer: {out.repo}"
+        assert out.repo.split(":")[0].endswith("-GGUF"), (
+            f"served a stale non-GGUF answer: {out.repo}"
+        )
         assert out.repo.endswith(":Q4_K_M"), f"lost the quant tag: {out.repo}"
         assert asked, "trusted the stale entry instead of re-resolving"
 
@@ -866,14 +870,19 @@ def test_ollama_resolution_refuses_rather_than_fabricating_a_tag(tmp_path):
     have `_healthy` poll a model name Ollama was never asked to serve, and the
     printed command would start a bare `ollama serve` with nothing telling
     anyone what to request from it."""
+    # Dimensions that actually fit: at the defaults this model does not, and the
+    # sizing refusal fires first — so the test passed through a branch that says
+    # nothing about tags.
     out = launch.plan(
         "llama-3.1-8b",
         engine="ollama",
         hw=M4,
+        context=8192,
+        concurrency=1,
         cache=tmp_path / "w.json",
     )
-    assert isinstance(out, launch.Refusal)
-    assert "not an Ollama tag" in out.reason
+    assert isinstance(out, launch.Refusal), out
+    assert "not an Ollama tag" in out.reason, out.reason
     assert "--tag" in out.next_step
 
 
