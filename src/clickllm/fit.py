@@ -265,39 +265,72 @@ def where(model: ModelSpec, context: int, concurrency: int = 1) -> list[Placemen
 
 
 def recommend_runtime(hw: Hardware, context: int, concurrency: int) -> tuple[str, str]:
-    """(runtime, why). Encodes the tradeoffs that aren't obvious from docs."""
-    if hw.kind == "apple":
-        if concurrency >= 4:
-            return (
-                "vllm-mlx",
-                f"continuous batching on Metal; at concurrency {concurrency} aggregate "
-                "throughput dominates, despite ~15% lower single-stream than llama.cpp",
-            )
-        if context >= 65536:
-            return ("mlc-llm", "paged KV holds throughput steadiest at 64K+ context")
+    """(engine, why) — the engine `clickllm run` would actually start here.
+
+    This used to carry its own table, and the two disagreed. On Apple silicon at
+    concurrency 8, `clickllm fit` printed `runtime -> vllm-mlx` while `clickllm
+    run` on the same box started `mlx` and explained that "the CUDA engines
+    cannot run here at all" — refuting the first command's advice in the second
+    command's output.
+
+    Worse, the table named engines that do not exist: there is no `vllm-mlx`
+    (vLLM has no Metal backend at all), and `mlc-llm`, `llama.cpp (Metal)` and
+    `llm-d + GAIE` have no adapter, so nothing in this codebase can configure or
+    launch any of them. A first-touch command was recommending software a user
+    cannot install, on the CLI, the MCP server and the SDK alike.
+
+    So there is one selector now, and it is the one that has to be right because
+    it produces the command: `plan._pick_engine`. A recommendation that cannot
+    become a running server is not a recommendation.
+    """
+    # Deferred: `plan` imports this module, so a top-level import would cycle.
+    from .engines import adapter_for
+    from .plan import Requirements, Workload, _pick_engine
+
+    engine, why = _pick_engine(hw, Requirements(Workload.INTERACTIVE, concurrency, context))
+    name = str(engine)
+    if adapter_for(name) is None:
+        # `_pick_engine` answers "what is structurally best here", which is not
+        # always "what this tool can launch". On Apple silicon at the DEFAULT
+        # concurrency it picks llama.cpp — correct, and `clickllm run` then
+        # refuses it for want of a verified flag dialect. Recommending it in
+        # silence made the product's first two commands contradict each other on
+        # the most common developer machine.
+        alt = _launchable_alternative(hw, context, concurrency)
+        if alt is None:
+            return (name, f"{why} NOTE: clickllm cannot launch {name} — no verified flag dialect.")
+        alt_name, alt_why = alt
         return (
-            "llama.cpp (Metal)",
-            "best single-stream decode and widest model support; "
-            "mlx-lm is the alternative if you want speculative decoding",
+            alt_name,
+            f"{alt_why} (Structurally {name} suits this workload better, but clickllm "
+            f"has no verified flag dialect for it, so it could not be launched — "
+            f"`clickllm run` would refuse. Recommending what will actually start.)",
         )
-    if hw.kind == "nvidia":
-        if hw.devices > 1:
-            return (
-                "llm-d + GAIE",
-                f"{hw.devices} GPUs: disaggregated prefill/decode with KV-cache-aware "
-                "routing (measured 3x output tok/s, 2x TTFT reduction)",
-            )
-        if concurrency >= 8:
-            return (
-                "sglang",
-                "RadixAttention reuses shared prefixes — the win case for agent traffic "
-                "with a fixed system prompt",
-            )
-        return (
-            "vllm",
-            "broadest hardware and feature support; enable EAGLE-3 spec-decode",
-        )
-    return ("llama.cpp (CPU)", "no accelerator — expect single-digit tok/s")
+    return (name, why)
+
+
+def _launchable_alternative(hw: Hardware, context: int, concurrency: int):
+    """The best engine for this hardware that clickllm can actually configure.
+
+    Asks the planner again with the concurrency that changes its mind, rather
+    than hard-coding a second table — the whole defect being fixed here was a
+    second table.
+    """
+    from .engines import adapter_for
+    from .plan import PREFIX_SHARING_FOR_RADIX, Requirements, Workload, _pick_engine
+
+    for conc in (max(concurrency, 4), 8, 64):
+        engine, why = _pick_engine(hw, Requirements(Workload.INTERACTIVE, conc, context))
+        if adapter_for(str(engine)) is not None:
+            return (str(engine), why)
+    for req in (
+        Requirements(Workload.INTERACTIVE, 8, context, prefix_sharing=PREFIX_SHARING_FOR_RADIX),
+        Requirements(Workload.BATCH, 64, context),
+    ):
+        engine, why = _pick_engine(hw, req)
+        if adapter_for(str(engine)) is not None:
+            return (str(engine), why)
+    return None
 
 
 def demo() -> None:
@@ -343,10 +376,21 @@ def demo() -> None:
     assert max_concurrency(q3, "q4", m4, 4096) > max_concurrency(q3, "q4", m4, 32768)
     assert max_context(q3, "q4", m4, 1) <= q3.max_context, "must respect model's own limit"
 
-    # Runtime choice must flip on workload shape, not just hardware.
-    assert recommend_runtime(m4, 8192, 16)[0] == "vllm-mlx"
-    assert recommend_runtime(m4, 8192, 1)[0] == "llama.cpp (Metal)"
-    assert recommend_runtime(m4, 131072, 1)[0] == "mlc-llm"
+    # The engine named here must be the engine `run` starts, and must be one we
+    # can actually configure. The old table asserted "vllm-mlx" and "mlc-llm",
+    # neither of which exists — the assertions kept the defect in place.
+    from .engines import adapter_for
+    from .plan import Requirements, Workload, _pick_engine
+
+    for conc, ctx in ((16, 8192), (1, 8192), (1, 131072)):
+        named, why = recommend_runtime(m4, ctx, conc)
+        # Never name an engine `run` cannot start — that was the defect.
+        assert adapter_for(named) is not None, f"recommended {named}, which has no adapter"
+        best, _ = _pick_engine(m4, Requirements(Workload.INTERACTIVE, conc, ctx))
+        if adapter_for(str(best)) is not None:
+            assert named == str(best), f"fit says {named}, run starts {best}"
+        else:
+            assert str(best) in why, f"substituted {named} for {best} without saying so"
 
     feasible, rejected = rank(m4, 32768, 1)
     assert feasible and rejected

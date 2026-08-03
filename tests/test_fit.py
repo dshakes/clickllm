@@ -84,21 +84,51 @@ def test_quant_preference_caps_at_8bit():
     assert fit.quant_preference(("q4",)) == ["q4"]
 
 
-def test_runtime_recommendation_follows_workload_not_just_hardware():
-    apple = _hw(96)
-    assert fit.recommend_runtime(apple, 8192, 32)[0] == "vllm-mlx"
-    assert fit.recommend_runtime(apple, 8192, 1)[0] == "llama.cpp (Metal)"
-    assert fit.recommend_runtime(apple, 131072, 1)[0] == "mlc-llm"
+def test_the_engine_fit_names_is_the_engine_run_starts():
+    """These were two separate tables and they disagreed.
 
-    single = _hw(80, kind="nvidia", bw=None)
-    assert fit.recommend_runtime(single, 8192, 1)[0] == "vllm"
-    assert fit.recommend_runtime(single, 8192, 16)[0] == "sglang"
-    assert (
-        fit.recommend_runtime(_hw(320, kind="nvidia", bw=None, devices=4), 8192, 1)[0]
-        == "llm-d + GAIE"
-    )
+    On Apple silicon at concurrency 8, `clickllm fit` printed
+    `runtime -> vllm-mlx` while `clickllm run` on the same box started `mlx` and
+    explained that "the CUDA engines cannot run here at all" — the second command
+    refuting the first in its own output. Three of four hardware/workload shapes
+    disagreed.
 
-    assert all(why for _, why in [fit.recommend_runtime(apple, 8192, n) for n in (1, 8)])
+    The old assertions are why it survived: they pinned `vllm-mlx` and `mlc-llm`,
+    so the suite defended the wrong answer. Neither name exists — vLLM has no
+    Metal backend, and no adapter in this repo can configure either, so `fit` was
+    recommending software to install that cannot be installed, on the CLI, the
+    MCP server and the SDK alike.
+    """
+    from clickllm.engines import adapter_for
+    from clickllm.plan import Requirements, Workload, _pick_engine
+
+    shapes = [
+        (_hw(96), 8192, 32),
+        (_hw(96), 8192, 1),
+        (_hw(96), 131072, 1),
+        (_hw(80, kind="nvidia", bw=None), 8192, 1),
+        (_hw(80, kind="nvidia", bw=None), 8192, 16),
+        (_hw(320, kind="nvidia", bw=None, devices=4), 8192, 1),
+    ]
+    for hw, ctx, conc in shapes:
+        named, why = fit.recommend_runtime(hw, ctx, conc)
+        assert why, "a recommendation with no reason is not one"
+
+        # 1. Never name something that cannot become a running server. This is
+        #    the whole point: `clickllm run` refuses an engine with no verified
+        #    flag dialect, so naming one guarantees the next command fails.
+        assert adapter_for(named) is not None, (
+            f"recommended {named!r}, which has no adapter — `run` would refuse it"
+        )
+
+        # 2. Where the planner's choice IS launchable, the two must agree — no
+        #    second opinion, which is what made them drift apart before.
+        best, _ = _pick_engine(hw, Requirements(Workload.INTERACTIVE, conc, ctx))
+        if adapter_for(str(best)) is not None:
+            assert named == str(best), f"{hw.kind} c={conc}: fit {named}, run {best}"
+        else:
+            # 3. And where it is not, say so rather than quietly substituting.
+            assert str(best) in why, f"substituted {named} for {best} without saying so"
 
 
 def test_max_context_and_concurrency_trade_off():
