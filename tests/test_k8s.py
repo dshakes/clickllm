@@ -456,3 +456,24 @@ def test_the_module_entrypoint_runs_the_loop_not_the_self_check():
     assert "main()" in tail and "demo()" not in tail
     # The self-check is still reachable, just not the default.
     assert "--self-check" in inspect.getsource(mod.main)
+
+
+def test_every_engine_is_pointed_at_an_image_that_runs_its_own_argv():
+    """The image has to be one where the argv we emit has a binary to be.
+
+    llm-d is the case that got this wrong: it inherits vLLM's dialect, so its
+    Deployment says `vllm serve …`, but the image was `ghcr.io/llm-d/llm-d`
+    — a reference that issues no anonymous pull token, so the user got
+    ImagePullBackOff. Tying the image to the dialect means the next person to
+    change one has to look at the other.
+    """
+    from clickllm.engines import adapter_for
+    from clickllm.k8s.reconcile import IMAGES
+    from clickllm.plan import Engine
+
+    assert IMAGES[Engine.LLMD] == IMAGES[Engine.VLLM], (
+        "llm-d's data plane is vLLM, so it must run vLLM's image; "
+        "if that stops being true, its dialect has to change too"
+    )
+    # And the dialect that justifies it is still vLLM's.
+    assert adapter_for("llm-d").help_argv[0] == "vllm"

@@ -52,7 +52,18 @@ IMAGES = {
     Engine.VLLM: "vllm/vllm-openai:latest",
     Engine.VLLM_TPU: "vllm/vllm-tpu:latest",
     Engine.SGLANG: "lmsysorg/sglang:latest",
-    Engine.LLMD: "ghcr.io/llm-d/llm-d:latest",
+    # llm-d's model server is vLLM, so this is vLLM's image — the same one
+    # `Engine.VLLM` gets, because the argv we emit for llm-d is vLLM's argv and
+    # it has to land somewhere `vllm` is the binary.
+    #
+    # It used to be `ghcr.io/llm-d/llm-d:latest`, which nobody can pull: that
+    # package issues no anonymous token at all, so a user following our
+    # Deployment got ImagePullBackOff and no explanation. There is no llm-d
+    # model-server image to point at instead — llm-d's own guides carry a
+    # `REPLACE_MODEL_SERVER_IMAGE` placeholder you patch with a vLLM image,
+    # which is exactly what this now is. (`llm-d-inference-scheduler` is the
+    # scheduler, not the server; `llm-d-dev` has only sha-/pr- tags.)
+    Engine.LLMD: "vllm/vllm-openai:latest",
 }
 
 #: Engines whose argv starts with the binary rather than `python3 -m`.
