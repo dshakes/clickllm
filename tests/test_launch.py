@@ -17,6 +17,7 @@ import json
 import os
 import signal
 import sys
+import tempfile
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -138,7 +139,11 @@ def test_a_confirmed_resolution_is_remembered_so_the_second_run_is_offline(tmp_p
     again = launch.resolve_weights(llama, "q8", "mlx", exists=never, cache=cache)
     assert isinstance(again, launch.Resolved)
     assert again.repo == REAL and again.from_cache
-    assert json.loads(cache.read_text())["mlx:llama-3.1-8b:q8"] == REAL
+    # The key carries the resolver's version, so match on the suffix rather than
+    # pinning a literal that a resolver bump would break for no real reason.
+    stored = json.loads(cache.read_text())
+    key = next(k for k in stored if k.endswith("mlx:llama-3.1-8b:q8"))
+    assert stored[key] == REAL
 
 
 def test_the_cache_lives_outside_the_catalogue(tmp_path, monkeypatch):
@@ -247,20 +252,21 @@ def test_the_default_bind_address_is_loopback(tmp_path):
     assert any("unauthenticated" in n for n in wide.notes)
 
 
-def test_an_engine_with_no_verified_dialect_refuses_with_a_way_forward(tmp_path):
-    """On Apple at concurrency 1 the planner picks llama.cpp, which has no
-    dialect here. The alternative is computed by re-planning, not tabulated."""
-    out = launch.plan(
-        "qwen3-30b-a3b",
-        hw=M4,
-        context=8192,
-        concurrency=1,
-        exists=only("mlx-community/Qwen3-30B-A3B-8bit"),
-        cache=tmp_path / "w.json",
-    )
-    assert isinstance(out, launch.Refusal)
-    assert "llama.cpp" in out.reason
-    assert "--concurrency" in out.next_step and "mlx" in out.next_step
+def test_an_engine_with_no_verified_dialect_refuses_with_a_way_forward():
+    """Every engine in `Engine` now has a dialect, so `launch.plan` can no longer
+    reach its refusal branch through the planner.
+
+    The branch stays: the next engine added to the enum will hit it before its
+    adapter exists, and refusing beats emitting another engine's flags. What
+    changes is that this test asserts the invariant that made the branch
+    unreachable, rather than pretending to exercise a path it cannot get to.
+    """
+    from clickllm.engines import adapter_for
+    from clickllm.plan import Engine
+
+    undialected = [str(e) for e in Engine if adapter_for(str(e)) is None]
+    assert not undialected, f"planner can pick these and launch cannot build them: {undialected}"
+    assert adapter_for("not-an-engine") is None, "adapter_for must still refuse the unknown"
 
 
 def test_an_unpublished_quant_is_refused_with_the_ones_that_exist(tmp_path):
@@ -732,3 +738,201 @@ def test_no_module_writes_json_through_a_shared_scratch_file():
         "these build a scratch filename that another process will pick too — "
         "use clickllm.atomicio instead:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_a_repo_cached_by_older_resolver_logic_is_not_served_by_the_new_one():
+    """Proved the hard way while building the llama.cpp adapter.
+
+    Its first cut proposed the transformers repo for llama.cpp. That answer was
+    cached, and after the GGUF fix landed the resolver kept serving
+    `meta-llama/Llama-3.1-8B-Instruct` to `llama-server`, which cannot load it —
+    a command that fails on start-up, produced by corrected code.
+
+    A cached repo is a fact about (model, quant, engine) AND about the logic
+    that proposed it. A wrong answer that outlives the bug which made it is
+    worse than no cache: upgrading does not clear it and nothing says why.
+    """
+    import json
+
+    from clickllm import catalog
+
+    with tempfile.TemporaryDirectory() as d:
+        cache = Path(d) / "w.json"
+        # A resolution written by an older resolver, under the old key shape.
+        cache.write_text(json.dumps({"llama.cpp:llama-3.1-8b:q4": "meta-llama/Llama-3.1-8B"}))
+
+        asked: list[str] = []
+
+        def only_gguf(repo: str) -> bool:
+            asked.append(repo)
+            return repo.endswith("-GGUF")
+
+        out = launch.resolve_weights(
+            catalog.get("llama-3.1-8b"), "q4", "llama.cpp", exists=only_gguf, cache=cache
+        )
+        assert isinstance(out, launch.Resolved), out
+        # The quant is tagged onto the repo (`--hf-repo` selects the file with
+        # it), so the bare repo id is a prefix, not the whole answer.
+        assert out.repo.split(":")[0].endswith("-GGUF"), (
+            f"served a stale non-GGUF answer: {out.repo}"
+        )
+        assert out.repo.endswith(":Q4_K_M"), f"lost the quant tag: {out.repo}"
+        assert asked, "trusted the stale entry instead of re-resolving"
+
+
+def test_llamacpp_is_offered_gguf_repos_and_ollama_is_offered_none():
+    """llama.cpp does not load a transformers repo; Ollama has its own registry
+    and pulls on first use, so there is no Hub repo to confirm at all."""
+    from clickllm import catalog
+
+    m = catalog.get("llama-3.1-8b")
+    gguf = launch.candidates(m, "q4", "llama.cpp")
+    assert gguf and all(c.endswith("-GGUF") for c in gguf), gguf
+    assert launch.candidates(m, "q4", "ollama") == ()
+
+
+# --- hardware compatibility for a forced engine ---------------------------------
+
+H100 = Hardware(
+    kind="nvidia",
+    name="H100 80GB",
+    total_bytes=80 * GB,
+    usable_bytes=76 * GB,
+    bandwidth_gbps=3350.0,
+    cores=132,
+)
+
+TPU_V6E = Hardware(
+    kind="tpu",
+    name="TPU v6e Trillium (8 chips)",
+    total_bytes=256 * GB,
+    usable_bytes=240 * GB,
+    bandwidth_gbps=11384.0,
+    cores=8,
+    devices=8,
+)
+
+
+def test_forcing_a_cuda_only_engine_onto_apple_hardware_refuses(tmp_path):
+    """--engine bypasses `_pick_engine`, which is the only place hardware ever
+    gated an engine choice — so `plan()` has to check it itself, or a caller can
+    force sglang onto a Mac and get a command that cannot start."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="sglang",
+        hw=M4,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal)
+    assert "sglang" in out.reason
+    assert "apple" in out.reason
+    assert "--engine" in out.next_step
+
+
+def test_forcing_ollama_onto_tpu_hardware_refuses(tmp_path):
+    """`ENGINE_HARDWARE` once listed Ollama as TPU-compatible — a copy-paste
+    leftover contradicting `plan._pick_engine`'s own rule that vLLM's TPU
+    backend is the only engine that runs there (it lowers through JAX; Ollama
+    has no such path). `--engine ollama` on a TPU host must refuse, not pass
+    the gate and hand back a command that cannot start."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        hw=TPU_V6E,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal)
+    assert "ollama" in out.reason
+    assert "tpu" in out.reason
+    assert "--engine" in out.next_step
+
+
+def test_forcing_an_engine_the_hardware_actually_runs_does_not_refuse(tmp_path):
+    """The gate must not reject a legitimate forced choice — only a mismatch."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        quant="q4",
+        engine="vllm",
+        hw=H100,
+        context=8192,
+        exists=only("meta-llama/Llama-3.1-8B-Instruct"),
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.LaunchPlan), out
+    assert out.engine == "vllm"
+
+
+# --- Ollama: real tags in, real concurrency checked -----------------------------
+
+
+def test_ollama_resolution_refuses_rather_than_fabricating_a_tag(tmp_path):
+    """The catalogue id is not an Ollama tag. Returning it as `Resolved` would
+    have `_healthy` poll a model name Ollama was never asked to serve, and the
+    printed command would start a bare `ollama serve` with nothing telling
+    anyone what to request from it."""
+    # Dimensions that actually fit: at the defaults this model does not, and the
+    # sizing refusal fires first — so the test passed through a branch that says
+    # nothing about tags.
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        hw=M4,
+        context=8192,
+        concurrency=1,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal), out
+    assert "not an Ollama tag" in out.reason, out.reason
+    assert "--tag" in out.next_step
+
+
+def test_ollama_resolution_accepts_an_explicit_tag(tmp_path):
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        tag="llama3.1:8b-instruct-q4_K_M",
+        hw=M4,
+        context=8192,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.LaunchPlan), out
+    assert out.repo == "llama3.1:8b-instruct-q4_K_M"
+
+
+def test_ollama_is_fit_checked_at_the_planners_padded_slot_count_not_requested_concurrency(
+    tmp_path,
+):
+    """Interactive concurrency=1 becomes MAX_CONCURRENT=32 in the planner, and
+    OLLAMA_NUM_PARALLEL carries that padded count — not the concurrency the fit
+    was originally checked at. Proves the same re-solve guard llama.cpp has
+    also covers Ollama."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        tag="llama3.1:8b-instruct-q4_K_M",
+        quant="q4",
+        concurrency=1,
+        context=8192,
+        hw=M4,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.LaunchPlan), out
+    assert out.fit.concurrency == 32
+    assert ("OLLAMA_NUM_PARALLEL", "32") in out.env
+
+
+def test_ollama_refuses_rather_than_launch_more_parallelism_than_was_checked(tmp_path):
+    """Same guard, its refusal side: a machine that fits one stream but not the
+    32 the planner pads interactive workloads to must not silently approve."""
+    out = launch.plan(
+        "llama-3.1-8b",
+        engine="ollama",
+        tag="llama3.1:8b-instruct-q4_K_M",
+        quant="q4",
+        concurrency=1,
+        context=8192,
+        hw=AIR,
+        cache=tmp_path / "w.json",
+    )
+    assert isinstance(out, launch.Refusal), out
+    assert "short by" in out.reason and "GB" in out.reason

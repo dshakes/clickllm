@@ -202,3 +202,147 @@ if __name__ == "__main__":
     # one nobody can tell has narrowed.
     for label, engine, argv in cases():
         print(f"[{engine}] {label}\n  {' '.join(argv)}\n")
+
+
+# --- the two most-installed runtimes -------------------------------------------
+
+
+def test_llamacpp_divides_context_among_slots_so_we_multiply_it():
+    """`--ctx-size` is the TOTAL context llama.cpp shares across `--parallel`
+    slots, not the per-sequence figure the planner means.
+
+    Passed straight through, every slot silently gets a fraction of what was
+    asked for: request 8192 across 4 slots and each sequence has 2048. The
+    model would serve, answer, and truncate long prompts — the quiet kind of
+    wrong, since nothing errors.
+    """
+    from clickllm.engines import Setting, adapter_for
+
+    a = adapter_for("llama.cpp")
+    assert a is not None
+    argv, _ = a.command("/m.gguf", {Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 4})
+    assert "--ctx-size" in argv
+    assert argv[argv.index("--ctx-size") + 1] == "32768", f"per-slot context was not scaled: {argv}"
+    assert argv[argv.index("--parallel") + 1] == "4"
+
+    # One slot needs no multiplication, and must not get one.
+    solo, _ = a.command("/m.gguf", {Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 1})
+    assert solo[solo.index("--ctx-size") + 1] == "8192"
+
+
+def test_ollama_is_configured_by_environment_and_says_so():
+    """`ollama serve` has exactly one flag — `--help`. Everything it can be told
+    is told through OLLAMA_*, so an adapter that only speaks argv would have to
+    call every setting unsupported, which would be false: Ollama honours
+    concurrency and context as well as any engine here.
+    """
+    from clickllm.engines import Setting, adapter_for
+
+    a = adapter_for("ollama")
+    assert a is not None
+    argv, gaps = a.command("llama3.1:8b", {Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 4})
+    line = " ".join(argv)
+    assert line == "ollama serve", line
+    assert not gaps, [g.reason for g in gaps]
+
+    # The settings are honoured through the environment, which is a separate
+    # channel from argv — this assertion used to demand they were IN argv, which
+    # is not runnable and is the defect both reviewers caught.
+    assert a.environment({Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 4}) == (
+        ("OLLAMA_CONTEXT_LENGTH", "8192"),
+        ("OLLAMA_NUM_PARALLEL", "4"),
+    )
+    # And the model is NOT on the command line: `serve` starts a daemon and the
+    # model is requested by name over the API. Emitting it would not run.
+    assert "llama3.1:8b" not in line
+
+
+@pytest.mark.parametrize("engine", ["llama.cpp", "ollama"])
+def test_the_new_adapters_emit_only_flags_their_real_binary_accepts(engine):
+    """The discipline that caught `--speculative-config eagle3`: ask the binary,
+    do not trust a table in this file. Skipped where the engine is absent unless
+    CLICKLLM_REQUIRE_ENGINES makes that a failure."""
+    from clickllm.engines import Setting, adapter_for, unknown_flags
+
+    a = adapter_for(engine)
+    assert a is not None
+    argv, _ = a.command(
+        "m",
+        {
+            Setting.CONTEXT_LENGTH: 8192,
+            Setting.MAX_CONCURRENT: 4,
+            Setting.PREFIX_REUSE: True,
+        },
+    )
+    bad = unknown_flags(a, argv)
+    if bad is None:
+        if os.environ.get("CLICKLLM_REQUIRE_ENGINES"):
+            pytest.fail(f"{engine} could not be interrogated and that was required")
+        pytest.skip(f"{engine} is not installed here")
+    assert bad == [], f"{engine} rejects: {bad}"
+
+
+def test_quantisation_is_refused_by_both_because_it_is_baked_into_the_file():
+    """GGUF is already Q4_K_M on disk and an Ollama tag already names its
+    precision. A serve-time `--quantization` flag would be invented, which is
+    the failure this adapter layer exists to prevent."""
+    from clickllm.engines import Setting, Unsupported, adapter_for
+
+    for engine, word in (("llama.cpp", "gguf"), ("ollama", "tag")):
+        a = adapter_for(engine)
+        out = a.translate(Setting.QUANTIZATION, "q4")
+        assert isinstance(out, Unsupported), f"{engine} claimed to convert at start-up"
+        assert word in out.reason.lower(), out.reason
+
+
+def test_ollama_env_is_never_argv_because_argv_gets_executed():
+    """Both reviewers caught this, and the docstring was the tell: it claimed the
+    output was "native, standalone and pasteable" and the code backed none of it.
+
+    The first cut returned `["OLLAMA_CONTEXT_LENGTH=8192", "ollama", "serve"]`.
+    `subprocess.Popen` would try to exec a binary named
+    `OLLAMA_CONTEXT_LENGTH=8192`; the printed form `shlex.quote`s each element,
+    so a paste into bash gives `command not found`. Right-looking, runnable
+    neither way.
+    """
+    from clickllm.engines import Setting, adapter_for
+
+    a = adapter_for("ollama")
+    st = {Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 4}
+    argv, _ = a.command("llama3.1:8b", st)
+
+    assert argv[0] == "ollama", f"argv[0] must be executable, got {argv[0]!r}"
+    assert not any("=" in tok for tok in argv), f"environment leaked into argv: {argv}"
+    assert a.environment(st) == (
+        ("OLLAMA_CONTEXT_LENGTH", "8192"),
+        ("OLLAMA_NUM_PARALLEL", "4"),
+    )
+    # Flag-driven engines have no environment, and must not grow one by accident.
+    assert adapter_for("llama.cpp").environment(st) == ()
+    assert adapter_for("vllm").environment(st) == ()
+
+
+def test_llamacpp_never_emits_another_engines_kv_cache_spelling():
+    """The planner speaks vLLM's KV vocabulary. `llama-server --help` allows
+    f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1 — and nothing named
+    fp8. Passed straight through, the server rejects it at start-up: the
+    cross-dialect leak this whole layer exists to prevent, committed inside the
+    layer itself.
+    """
+    from clickllm.engines import LLAMACPP_KV_DTYPE, Setting, Translated, Unsupported, adapter_for
+
+    a = adapter_for("llama.cpp")
+    allowed = {"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
+
+    # Whatever the planner asks for, we either emit something llama.cpp accepts
+    # or refuse — never a passthrough.
+    for asked in ("fp8_e4m3", "fp8_e5m2", "fp8", "auto", "fp16", "int8", "nonsense_dtype"):
+        out = a.translate(Setting.KV_CACHE_DTYPE, asked)
+        if isinstance(out, Unsupported):
+            continue
+        assert isinstance(out, Translated)
+        emitted = out.argv[1]
+        assert emitted in allowed, f"{asked!r} became {emitted!r}, which llama.cpp rejects"
+
+    assert set(LLAMACPP_KV_DTYPE.values()) <= allowed
+    assert isinstance(a.translate(Setting.KV_CACHE_DTYPE, "nonsense_dtype"), Unsupported)

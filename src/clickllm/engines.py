@@ -200,6 +200,17 @@ class Translated:
 
     argv: tuple[str, ...]
     note: str = ""
+    #: Environment this setting requires, as (name, value) pairs.
+    #:
+    #: Added for Ollama, which has exactly one flag — `--help`. Everything it
+    #: can be told is told through OLLAMA_NUM_PARALLEL, OLLAMA_CONTEXT_LENGTH
+    #: and their siblings. Without this field every Ollama setting would have to
+    #: translate to `Unsupported`, which would be a lie: it supports
+    #: concurrency and context perfectly well, just not through argv.
+    #:
+    #: Rendered as a shell prefix (`OLLAMA_NUM_PARALLEL=4 ollama serve`), which
+    #: is native, standalone, and pasteable — not a wrapper script (NFR-4).
+    env: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +240,10 @@ class Adapter:
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         """Argv for one setting, or why there is none."""
         raise NotImplementedError
+
+    def environment(self, settings: dict[Setting, object]) -> tuple[tuple[str, str], ...]:
+        """Environment this configuration needs. Empty for flag-driven engines."""
+        return ()
 
     def command(
         self, model: str, settings: dict[Setting, object]
@@ -601,9 +616,355 @@ class MlxAdapter(Adapter):
         return argv, gaps
 
 
+#: The planner speaks vLLM's KV-cache vocabulary; llama.cpp has its own, and the
+#: allowed set is read off `llama-server --help`. 8-bit maps to q8_0 because
+#: that is the nearest thing llama.cpp actually implements — there is no fp8
+#: KV type at all, so an unmapped request is refused rather than approximated
+#: into something the binary rejects on start-up.
+LLAMACPP_KV_DTYPE: dict[str, str] = {
+    "fp8": "q8_0",
+    "fp8_e4m3": "q8_0",
+    "fp8_e5m2": "q8_0",
+    "int8": "q8_0",
+    "q8_0": "q8_0",
+    "fp16": "f16",
+    "f16": "f16",
+    "bf16": "bf16",
+    "fp32": "f32",
+    "f32": "f32",
+    "auto": "f16",
+}
+
+
+class LlamaCppAdapter(Adapter):
+    """llama.cpp's `llama-server`. Flags verified against the binary in [`SOURCES`].
+
+    The most widely installed way to run open weights, and the one this repo
+    recommended for eighteen releases without being able to launch it: the
+    planner picks llama.cpp for single-stream work on Apple silicon — correctly,
+    it is the most predictable Metal option — and `clickllm run` then refused for
+    want of a dialect. `clickllm fit` had to apologise for its own advice.
+
+    Two things make this dialect unlike the CUDA servers.
+
+    **Quantisation is in the file.** llama.cpp serves GGUF, and a GGUF is already
+    Q4_K_M or Q8_0 by the time it reaches disk. There is no serve-time
+    conversion, so `QUANTIZATION` is a setting that has been spent — the same
+    shape as MLX, for the same reason, and the fix is the same: choose the right
+    file, do not pass a flag.
+
+    **Offload is the memory knob.** There is no VRAM fraction to reserve. What
+    exists is `--n-gpu-layers`: how much of the model lives on the accelerator.
+    A memory *fraction* does not translate into a layer *count* without knowing
+    the layer sizes, and inventing that mapping would be exactly the kind of
+    plausible arithmetic this repo refuses elsewhere.
+    """
+
+    name = "llama.cpp"
+    help_argv = ("llama-server", "--help")
+
+    def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
+        match setting:
+            case Setting.CONTEXT_LENGTH:
+                # Total across all slots, not per slot: llama.cpp divides
+                # --ctx-size by --parallel to size each sequence. The planner
+                # means per-sequence, so the multiplication happens in command()
+                # where both numbers are in scope. Alone, this is honest.
+                return Translated(("--ctx-size", str(value)))
+            case Setting.MAX_CONCURRENT:
+                # --cont-batching is on by default in current builds; passing it
+                # would imply we turned something on. --parallel is the slot count.
+                return Translated(("--parallel", str(value)))
+            case Setting.PREFILL_CHUNK:
+                if not value:
+                    return Unsupported(
+                        setting, "llama-server always batches prefill; there is no off switch"
+                    )
+                # The physical batch is the prefill chunk; --batch-size is the
+                # logical one and is a different quantity.
+                return Translated(("--ubatch-size", str(value)))
+            case Setting.PREFIX_REUSE:
+                if not value:
+                    return Unsupported(setting, "no flag disables the prompt cache")
+                # --cache-reuse takes a minimum chunk length rather than a
+                # boolean; 256 is llama.cpp's own documented starting point.
+                return Translated(
+                    ("--cache-prompt", "--cache-reuse", "256"),
+                    "reuses a cached prefix in chunks of >=256 tokens",
+                )
+            case Setting.SPECULATIVE:
+                # A dict names its draft explicitly; a bare string IS the draft —
+                # a path or a Hugging Face repo id, e.g. from the Python SDK
+                # (`Requirements(speculative="my_draft.gguf")`). Only a known
+                # method name is rejected, the same shape as MlxAdapter below.
+                draft = (
+                    (value.get("model") or value.get("draft_model"))
+                    if isinstance(value, dict)
+                    else value
+                )
+                if (
+                    not isinstance(draft, str)
+                    or not draft
+                    or draft in DRAFT_REQUIRED | {"mtp", "off"}
+                ):
+                    return Unsupported(
+                        setting,
+                        f"llama.cpp speculation needs a draft GGUF: --model-draft takes a "
+                        f"file, not a method name like {draft!r}",
+                    )
+                return Translated(("--model-draft", draft, "--draft-max", "16"))
+            case Setting.STRUCTURED_OUTPUT:
+                return Translated(
+                    (),
+                    "llama-server accepts a JSON schema per request "
+                    "(response_format, or --json-schema to fix one for the server)",
+                )
+            case Setting.KV_CACHE_DTYPE:
+                # llama.cpp's own vocabulary, read off `--help`:
+                #   f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+                # The planner speaks vLLM's, and passing `fp8_e4m3` straight
+                # through is rejected by the binary at start-up — exactly the
+                # cross-dialect leak this layer exists to prevent, committed
+                # inside the layer itself.
+                mapped = LLAMACPP_KV_DTYPE.get(str(value))
+                if mapped is None:
+                    return Unsupported(
+                        setting,
+                        f"llama.cpp has no {value!r} KV type; it takes one of "
+                        f"{', '.join(sorted(set(LLAMACPP_KV_DTYPE.values())))}",
+                    )
+                return Translated(("--cache-type-k", mapped, "--cache-type-v", mapped))
+            case Setting.QUANTIZATION:
+                return Unsupported(
+                    setting,
+                    f"llama.cpp serves GGUF, which is already quantised on disk: fetch a "
+                    f"{value}-flavoured .gguf rather than converting at start-up",
+                )
+            case Setting.MEMORY_FRACTION:
+                return Unsupported(
+                    setting,
+                    "no VRAM fraction; --n-gpu-layers decides how much of the model is "
+                    "offloaded, and a fraction does not become a layer count without "
+                    "knowing the layer sizes",
+                )
+            case Setting.TENSOR_PARALLEL:
+                return Unsupported(
+                    setting,
+                    "no tensor-parallel degree; --split-mode and --tensor-split distribute "
+                    "across devices by a different scheme",
+                )
+            case Setting.LORA_FLEET:
+                if isinstance(value, LoraFleet) and value.adapters:
+                    if len(value.adapters) > 1:
+                        return Unsupported(
+                            setting,
+                            f"--lora loads adapters into one server but they are not "
+                            f"selectable per request; {len(value.adapters)} were asked for",
+                        )
+                    return Translated(("--lora", value.adapters[0][1]))
+                return Unsupported(setting, "no adapters given")
+        return Unsupported(setting, f"no mapping defined for {setting}")
+
+    def command(
+        self, model: str, settings: dict[Setting, object]
+    ) -> tuple[list[str], list[Unsupported]]:
+        # `--model` is a LOCAL file; `--hf-repo` fetches from the Hub. Passing a
+        # repo id to --model emits a command that fails on start-up, which is
+        # what the first cut of this adapter did.
+        locator = (
+            ["--hf-repo", model]
+            if "/" in model and not model.startswith((".", "/"))
+            else [
+                "--model",
+                model,
+            ]
+        )
+        argv: list[str] = ["llama-server", *locator]
+        gaps: list[Unsupported] = []
+
+        # --ctx-size is the TOTAL context divided among --parallel slots, so a
+        # per-sequence intent has to be multiplied or every slot silently gets a
+        # fraction of what was asked for. This is the one place the two settings
+        # are both in scope, which is why it happens here rather than in
+        # translate() where each is seen alone.
+        ctx = settings.get(Setting.CONTEXT_LENGTH)
+        slots = settings.get(Setting.MAX_CONCURRENT)
+        rest = dict(settings)
+        try:
+            ctx_val = int(ctx) if ctx is not None else None
+            slots_val = int(slots) if slots is not None else None
+        except (TypeError, ValueError):
+            ctx_val, slots_val = None, None
+        if isinstance(ctx_val, int) and isinstance(slots_val, int) and slots_val > 1:
+            rest[Setting.CONTEXT_LENGTH] = ctx_val * slots_val
+
+        for setting, value in rest.items():
+            out = self.translate(setting, value)
+            if isinstance(out, Unsupported):
+                gaps.append(out)
+            else:
+                argv.extend(out.argv)
+        return argv, gaps
+
+
+class OllamaAdapter(Adapter):
+    """Ollama. Configured by environment, verified against `ollama serve --help`.
+
+    The most installed way to run open weights on a laptop, and the one engine
+    here that cannot be configured by flags at all:
+
+        $ ollama serve --help
+        Flags:
+          -h, --help   help for serve
+
+        Environment Variables:
+              OLLAMA_HOST                IP Address for the ollama server
+              OLLAMA_CONTEXT_LENGTH      Context length to use unless otherwise specified
+              OLLAMA_NUM_PARALLEL        Maximum number of parallel requests
+              OLLAMA_MAX_LOADED_MODELS   Maximum number of loaded models per GPU
+              OLLAMA_MAX_QUEUE           Maximum number of queued requests
+              OLLAMA_KEEP_ALIVE          The duration that models stay loaded in memory
+
+    That is why `Translated` carries `env`. Mapping these to `Unsupported` would
+    have been the easy read of the existing interface and a false one — Ollama
+    honours concurrency and context as well as any engine here, through a
+    different channel. An adapter layer that can only describe one channel does
+    not abstract engines; it abstracts engines that resemble vLLM.
+
+    Ollama is also the only engine here that fetches and names models itself.
+    `ollama serve` starts a daemon and the model is pulled on first use, so the
+    model argument is not part of the launch command at all — the generated
+    command starts the server and the caller asks for a model by name over the
+    API, which is the shape Ollama's own docs use.
+    """
+
+    name = "ollama"
+    help_argv = ("ollama", "serve", "--help")
+
+    def environment(self, settings: dict[Setting, object]) -> tuple[tuple[str, str], ...]:
+        """The environment this configuration needs, as (name, value) pairs.
+
+        Separate from `command()` on purpose. The first cut returned
+        `["OLLAMA_CONTEXT_LENGTH=8192", "ollama", "serve"]` as argv, which reads
+        correctly and is not runnable either way: `subprocess.Popen` would try to
+        exec a binary named `OLLAMA_CONTEXT_LENGTH=8192`, and the printed form
+        `shlex.quote`s each element so a paste into bash gives `command not
+        found: OLLAMA_CONTEXT_LENGTH=8192`. The docstring claimed "native,
+        standalone and pasteable" and the code backed none of it.
+        """
+        out: list[tuple[str, str]] = []
+        for setting, value in settings.items():
+            got = self.translate(setting, value)
+            if isinstance(got, Translated):
+                out.extend(got.env)
+        return tuple(sorted(set(out)))
+
+    def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
+        match setting:
+            case Setting.CONTEXT_LENGTH:
+                return Translated((), env=(("OLLAMA_CONTEXT_LENGTH", str(value)),))
+            case Setting.MAX_CONCURRENT:
+                return Translated((), env=(("OLLAMA_NUM_PARALLEL", str(value)),))
+            case Setting.PREFIX_REUSE:
+                if not value:
+                    return Unsupported(setting, "no switch disables Ollama's prompt cache")
+                return Translated(
+                    (), "ollama reuses a cached prefix by default; there is nothing to enable"
+                )
+            case Setting.STRUCTURED_OUTPUT:
+                return Translated(
+                    (),
+                    "ollama takes a JSON schema per request in the `format` field; "
+                    "there is no server-wide setting",
+                )
+            case Setting.QUANTIZATION:
+                return Unsupported(
+                    setting,
+                    f"ollama bakes precision into the tag: pull `:{value}` "
+                    f"(e.g. llama3.1:8b-instruct-q8_0) rather than converting at start-up",
+                )
+            case Setting.PREFILL_CHUNK:
+                return Unsupported(setting, "no prefill-batch control is exposed")
+            case Setting.MEMORY_FRACTION:
+                return Unsupported(
+                    setting,
+                    "no VRAM fraction; OLLAMA_MAX_LOADED_MODELS bounds how many models "
+                    "share a GPU, which is a different quantity",
+                )
+            case Setting.TENSOR_PARALLEL:
+                return Unsupported(setting, "no tensor-parallel degree is exposed")
+            case Setting.KV_CACHE_DTYPE:
+                return Unsupported(
+                    setting,
+                    "OLLAMA_KV_CACHE_TYPE exists in some builds and is not in this one's "
+                    "documented set, so it is not emitted",
+                )
+            case Setting.SPECULATIVE:
+                return Unsupported(setting, "no draft-model or speculative setting is exposed")
+            case Setting.LORA_FLEET:
+                return Unsupported(
+                    setting,
+                    "adapters are baked in with a Modelfile ahead of time, not selected "
+                    "at serve time",
+                )
+        return Unsupported(setting, f"no mapping defined for {setting}")
+
+    def command(
+        self, model: str, settings: dict[Setting, object]
+    ) -> tuple[list[str], list[Unsupported]]:
+        """`ollama serve`, with the environment it needs.
+
+        The model is deliberately absent: `serve` starts a daemon and a model is
+        requested by name over the API, so putting it on the command line would
+        emit something that does not run.
+        """
+        argv: list[str] = ["ollama", "serve"]
+        gaps: list[Unsupported] = []
+        for setting, value in settings.items():
+            out = self.translate(setting, value)
+            if isinstance(out, Unsupported):
+                gaps.append(out)
+            else:
+                argv.extend(out.argv)
+        return argv, gaps
+
+
+class LlmdAdapter(VllmAdapter):
+    """llm-d. Its data plane *is* vLLM, so its dialect is vLLM's.
+
+    The last engine without a dialect, and the reason was a misunderstanding
+    rather than a gap. llm-d is not a server: it is a Kubernetes control plane
+    that schedules vLLM pods behind an `InferencePool` and a Gateway API
+    endpoint picker. The thing inside the container is `vllm serve`, with vLLM's
+    flags, which this repo already translates.
+
+    So this subclasses rather than reimplements. Two independent tables for one
+    flag vocabulary is exactly how `clickllm fit` came to recommend an engine
+    that does not exist; inheriting means a vLLM flag correction reaches llm-d
+    on the same commit.
+
+    What is genuinely llm-d's own is the *surrounding* Kubernetes objects — the
+    InferencePool, the endpoint picker, the prefill/decode split across
+    Deployments. Those belong to `clickllm.k8s.reconcile`, not to an argv
+    dialect, and building them here would be the wrapper NFR-4 forbids.
+
+    Inherits vLLM's verification status, which is worth stating plainly: those
+    flags are documented rather than interrogated, because CI has no GPU to run
+    `vllm serve --help` on. See [`SOURCES`].
+    """
+
+    name = "llm-d"
+    # Deliberately vLLM's binary: that is what the container runs, so that is
+    # whose flags must be right, and it is what to ask if a GPU appears.
+    help_argv = ("vllm", "serve", "--help")
+
+
 _ADAPTERS: dict[str, Adapter] = {
     "vllm": VllmAdapter(),
     "mlx": MlxAdapter(),
+    "llama.cpp": LlamaCppAdapter(),
+    "ollama": OllamaAdapter(),
+    "llm-d": LlmdAdapter(),
     # vLLM's TPU backend is a different engine (JAX lowering via tpu-inference)
     # wearing the same CLI, so it shares the dialect. Registered explicitly
     # rather than by prefix match: if the CLIs ever diverge this is the line
@@ -756,7 +1117,7 @@ def demo() -> None:
 
     # No adapter is better than the wrong adapter.
     assert adapter_for("vllm") is not None
-    assert adapter_for("llama.cpp") is None
+    assert adapter_for("llama.cpp") is not None
 
     print("engines: ok")
 

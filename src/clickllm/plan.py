@@ -139,6 +139,7 @@ class Engine(StrEnum):
     LLMD = "llm-d"
     LLAMA_CPP = "llama.cpp"
     MLX = "mlx"
+    OLLAMA = "ollama"
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +233,20 @@ class Plan:
             )
         argv, gaps = adapter.command(model, self.settings())
         return argv, tuple(f"{g.setting}: {g.reason}" for g in gaps)
+
+    def environment(self) -> tuple[tuple[str, str], ...]:
+        """Environment this plan's engine needs beyond argv. Empty for most engines.
+
+        Ollama has exactly one flag (`--help`); everything else — concurrency,
+        context — is told through `OLLAMA_*` variables. `command()`'s argv alone
+        is not a runnable Ollama deployment without this.
+        """
+        from clickllm.engines import adapter_for
+
+        adapter = adapter_for(self.engine.value)
+        if adapter is None:
+            return ()
+        return adapter.environment(self.settings())
 
     def explain(self) -> str:
         """Every choice with its reason, in the order it was decided."""
@@ -659,6 +674,7 @@ def plan(
     req: Requirements,
     model: ModelSpec | None = None,
     quant: str | None = None,
+    force_engine: Engine | None = None,
 ) -> Plan:
     """Pick an engine and its settings for `req` on `hw`.
 
@@ -669,6 +685,10 @@ def plan(
             knobs are decidable without it, and memory knobs say so when it is
             absent rather than inventing a figure.
         quant: quantisation, when a model is given.
+        force_engine: bypass `_pick_engine` and use this one. Some engines have
+            no hardware signature to be auto-selected by — Ollama runs equally
+            well anywhere, and llm-d needs a workload a caller may not be
+            asking for — so this is their only way in.
 
     Returns:
         A [`Plan`]. Check [`Plan.warnings`] before trusting the flags: a plan
@@ -680,7 +700,10 @@ def plan(
         if model is not None
         else None
     )
-    engine, why = _pick_engine(hw, req)
+    if force_engine is not None:
+        engine, why = force_engine, f"{force_engine.value} was explicitly requested"
+    else:
+        engine, why = _pick_engine(hw, req)
 
     knobs: list[Knob] = [
         Knob(

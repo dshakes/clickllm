@@ -9,6 +9,7 @@ from a stated reason rather than a preference.
 from __future__ import annotations
 
 from dataclasses import replace
+from enum import StrEnum
 
 import pytest
 
@@ -231,9 +232,27 @@ def test_a_plan_emits_a_real_command_and_reports_what_it_could_not_express():
 
 
 def test_an_engine_with_no_verified_dialect_refuses_rather_than_improvising():
-    argv, gaps = plan(MAC, Requirements(Workload.INTERACTIVE)).command("m")
-    assert argv == []
-    assert gaps and "cannot run" in gaps[0]
+    """Emitting another engine's flags produces a command that cannot start, so
+    `Plan.command` returns nothing and says why.
+
+    Every engine in `Engine` now has a dialect, so this branch is no longer
+    reachable through the planner — which is why it is driven directly. The
+    previous version asserted that *some* engine lacked one and failed loudly
+    when that stopped being true, which is what it was built to do and what it
+    just did. The branch stays because the next engine added to the enum will
+    reach it before its adapter exists; a test that could only fire through the
+    enum would have gone quietly dead instead.
+    """
+    from clickllm.engines import adapter_for
+
+    class Unknown(StrEnum):
+        MADE_UP = "not-an-engine"
+
+    assert adapter_for("not-an-engine") is None
+    p = replace(plan(H100, Requirements(Workload.INTERACTIVE)), engine=Unknown.MADE_UP)
+    argv, gaps = p.command("m")
+    assert argv == [], f"improvised flags for an unknown engine: {argv}"
+    assert gaps and "cannot run" in gaps[0], gaps
 
 
 def test_prefix_reuse_is_never_translated_into_its_opposite():
@@ -754,3 +773,55 @@ def test_a_cuda_only_engine_is_never_chosen_for_amd_hardware():
         assert picked is Engine.VLLM, f"amd got a CUDA-only engine: {picked}"
         # And it says the better stack was ruled out, not never considered.
         assert "CUDA-only" in why and "amd" in why, why
+
+
+def test_every_engine_the_planner_can_pick_has_a_dialect():
+    """The planner chose engines this codebase could not configure, and the two
+    halves drifted for eighteen releases: `clickllm fit` recommended llama.cpp
+    on the default Mac path and `clickllm run` refused it; `deployment_for`
+    returned an empty Deployment for llm-d and the k8s target was skipped.
+
+    A planner that selects what nothing can build is not planning.
+    """
+    from clickllm.engines import adapter_for
+
+    missing = [str(e) for e in Engine if adapter_for(str(e)) is None]
+    assert not missing, f"the planner can pick these and nothing can configure them: {missing}"
+
+
+def test_llmd_emits_a_real_deployment_rather_than_an_empty_one():
+    """llm-d is a Kubernetes control plane, not a server: its pods run `vllm
+    serve`. Treating it as an engine without a dialect meant `deployment_for`
+    returned `{}` and `clickllm box` skipped the target entirely — for the
+    deployment shape a cluster user most wants.
+    """
+    from clickllm.k8s.reconcile import deployment_for
+
+    hw = replace(H100, name="H100 x8", devices=8, usable_bytes=608 * 2**30)
+    p = plan(hw, Requirements(Workload.BATCH, concurrency=256, context=8192))
+    assert p.engine is Engine.LLMD, p.engine
+
+    dep, gaps = deployment_for("llama", "prod", "meta-llama/Llama-3.3-70B-Instruct", p)
+    assert dep, f"llm-d produced no Deployment; gaps: {gaps}"
+
+    container = dep["spec"]["template"]["spec"]["containers"][0]
+    args = container["args"]
+    # The pod runs vLLM's flags, because the pod runs vLLM.
+    assert "--max-model-len" in args and "--max-num-seqs" in args, args
+    assert container["resources"]["limits"]["nvidia.com/gpu"] == "8"
+    assert not gaps, [str(g) for g in gaps]
+
+
+def test_llmd_inherits_vllms_dialect_rather_than_copying_it():
+    """Two independent tables for one flag vocabulary is how `clickllm fit` came
+    to recommend an engine that does not exist. Inheriting means a vLLM flag
+    correction reaches llm-d on the same commit."""
+    from clickllm.engines import LlmdAdapter, Setting, VllmAdapter, adapter_for
+
+    a = adapter_for("llm-d")
+    assert isinstance(a, LlmdAdapter) and isinstance(a, VllmAdapter)
+
+    same = {Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 64}
+    llmd_argv, _ = a.command("m", same)
+    vllm_argv, _ = adapter_for("vllm").command("m", same)
+    assert llmd_argv == vllm_argv, "the dialects have diverged, which is the bug being prevented"

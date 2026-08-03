@@ -66,10 +66,10 @@ from pathlib import Path
 from . import catalog, fit, hardware
 from .atomicio import update_json
 from .catalog import ModelSpec
-from .engines import adapter_for, unknown_flags
+from .engines import Setting, adapter_for, unknown_flags
 from .fit import Fit
 from .hardware import Hardware
-from .plan import Requirements, Workload
+from .plan import Engine, Requirements, Workload
 from .plan import plan as configure
 
 __all__ = [
@@ -95,6 +95,15 @@ MODEL_URL = "https://huggingface.co/api/models/{repo}"
 #: chose is part of which repo we are looking for.
 #: `fp8` maps to `8bit` because MLX publishes no fp8 — 8-bit integer is the
 #: nearest thing that exists, and pretending otherwise would resolve nothing.
+#: GGUF quantisation spellings. llama.cpp's own naming, not ours: Q4_K_M is the
+#: community default at 4-bit and Q8_0 at 8-bit.
+GGUF_SUFFIX = {"q4": "Q4_K_M", "q8": "Q8_0", "fp16": "F16"}
+
+#: Bumped whenever `candidates()` changes what it proposes, so answers cached by
+#: the old logic are ignored rather than trusted. Costs one HTTP call per model
+#: after an upgrade; buys never serving a repo the current resolver would reject.
+_RESOLVER_VERSION = "r2"
+
 MLX_SUFFIX = {
     "q3": "3bit",
     "q4": "4bit",
@@ -114,12 +123,29 @@ INSTALL_HINT = {
     "vllm": "pip install vllm",
     "vllm-tpu": "pip install vllm  # plus the tpu-inference plugin",
     "sglang": "pip install 'sglang[all]'",
+    "ollama": "https://ollama.com/download",
 }
 
 #: Concurrency levels re-planned when the chosen engine has no dialect we can
 #: drive, to find the smallest one that does. Probed rather than tabulated —
 #: the engine choice stays in `plan._pick_engine`, where it belongs.
 _CONCURRENCY_PROBES = (2, 4, 8, 16, 32, 64)
+
+#: Hardware each engine's build actually runs on. vLLM wraps CUDA kernels and
+#: also ships a ROCm build; SGLang and llm-d are CUDA-only; the vLLM TPU build
+#: lowers through JAX instead of either. MLX is Metal-only. llama.cpp and
+#: Ollama both ship CPU/Metal/CUDA builds, so they run anywhere.
+#: `_pick_engine` never emits a mismatch — hardware gates its branches — but
+#: `--engine`/`force_engine` bypasses that gate, so `plan()` checks it here.
+ENGINE_HARDWARE: dict[Engine, tuple[str, ...]] = {
+    Engine.VLLM: ("nvidia", "amd"),
+    Engine.SGLANG: ("nvidia",),
+    Engine.LLMD: ("nvidia",),
+    Engine.VLLM_TPU: ("tpu",),
+    Engine.MLX: ("apple",),
+    Engine.LLAMA_CPP: ("apple", "nvidia", "amd", "cpu"),
+    Engine.OLLAMA: ("apple", "nvidia", "amd", "cpu"),
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -181,6 +207,10 @@ class LaunchPlan:
     gaps: tuple[str, ...] = ()
     tried: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+    #: Environment this engine needs beyond argv — see `Plan.environment`.
+    #: Ollama's whole configuration lives here; `argv` alone would start it
+    #: with its defaults, silently ignoring what was solved for.
+    env: tuple[tuple[str, str], ...] = ()
 
     @property
     def base(self) -> str:
@@ -188,8 +218,13 @@ class LaunchPlan:
 
     @property
     def command(self) -> str:
-        """The argv as you would type it. Quoted: some flags carry JSON."""
-        return " ".join(shlex.quote(a) for a in self.argv)
+        """The argv as you would type it, environment prefix included.
+
+        Quoted: some flags carry JSON, and an env value could carry anything.
+        """
+        prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in self.env)
+        rest = " ".join(shlex.quote(a) for a in self.argv)
+        return f"{prefix} {rest}" if prefix else rest
 
     def render(self) -> str:
         f = self.fit
@@ -456,7 +491,34 @@ def candidates(model: ModelSpec, quant: str, engine: str) -> tuple[str, ...]:
     pre-quantised repo under its own name — so that goes first and is usually
     the whole list. MLX cannot: the precision is in the weights, so the search
     is over `mlx-community` spellings at the right bit-width.
+
+    llama.cpp cannot either, and for a sharper reason: it does not load a
+    transformers repo at all. It loads GGUF. Handing `llama-server --model` a
+    repo id like `meta-llama/Llama-3.1-8B-Instruct` produces a command that
+    fails on start-up — which is exactly the class of unrunnable output this
+    resolver exists to prevent, and is what the first cut of the llama.cpp
+    adapter emitted.
+
+    Ollama is different again: it has its own registry and its own names, so
+    there is no Hugging Face repo to confirm. `ollama serve` starts a daemon and
+    pulls on first use, so the resolution is a tag rather than a repo, and there
+    is nothing here to check it against.
     """
+    if engine == "ollama":
+        # Its registry, its names, its pull. Nothing to resolve against the Hub.
+        return ()
+    if engine == "llama.cpp":
+        bits = GGUF_SUFFIX.get(quant)
+        if bits is None:
+            return ()
+        # The community publishes GGUF under two long-standing conventions, and
+        # which one a given model uses is not predictable — so both are proposed
+        # and each is existence-checked before it is printed.
+        out = [f"{org}/{stem}-GGUF" for stem in _stems(model) for org in ("bartowski", "TheBloke")]
+        if model.repo:
+            out.insert(0, f"{model.repo}-GGUF")
+        return tuple(dict.fromkeys(out))
+
     if engine != "mlx":
         return (model.repo,) if model.repo else ()
 
@@ -477,6 +539,7 @@ def resolve_weights(
     quant: str,
     engine: str,
     *,
+    tag: str | None = None,
     exists: Callable[[str], bool] | None = None,
     cache: Path | None = None,
 ) -> Resolved | Refusal:
@@ -487,6 +550,9 @@ def resolve_weights(
         quant: the quantisation the solver picked. Part of the repo identity on
             MLX, so it is not optional.
         engine: engine id, as `adapter_for` spells it.
+        tag: the Ollama tag to pull, e.g. `llama3.1:8b-instruct-q8_0`. Ollama's
+            registry names do not follow the catalogue's ids or the Hugging
+            Face repo, so this only ever comes from the caller — see below.
         exists: existence check, injected. Defaults to [`hf_exists`]. Injected
             rather than mocked so the test suite never opens a socket.
         cache: where confirmed resolutions are remembered. Defaults to
@@ -496,9 +562,37 @@ def resolve_weights(
         A [`Resolved`], or a [`Refusal`] listing every candidate checked. Never a
         name that was not confirmed.
     """
+    if engine == "ollama":
+        # Its own registry, its own names — see `candidates`. The catalogue id
+        # (e.g. `llama-3.1-8b`) is not an Ollama tag, and guessing one and
+        # calling it Resolved is exactly the fabrication this function exists
+        # to refuse elsewhere: `_healthy` would then poll a model name Ollama
+        # was never asked to serve, and the printed command would start a bare
+        # `ollama serve` with no way to know what to request from it.
+        if not tag:
+            return Refusal(
+                reason=(
+                    f"ollama has its own registry and its own names; {model.id!r} is "
+                    f"a catalogue id, not an Ollama tag, so there is nothing here to "
+                    f"confirm without one"
+                ),
+                next_step=(
+                    f"clickllm run {model.id} --engine ollama --tag <ollama-tag>, e.g. "
+                    f"--tag llama3.1:8b-instruct-{quant}"
+                ),
+            )
+        return Resolved(tag, ())
+
     check = exists or hf_exists
     path = _cache_path(cache)
-    key = f"{engine}:{model.id}:{quant}"
+    # The resolver's own version is part of the key. A cached repo is a fact
+    # about (model, quant, engine) AND about the logic that proposed it — and
+    # this was proved the hard way: the first cut of the llama.cpp branch
+    # proposed the transformers repo, cached it, and kept serving
+    # `meta-llama/Llama-3.1-8B-Instruct` to llama-server after the GGUF fix
+    # landed. A wrong answer that outlives the bug that made it is worse than no
+    # cache, because upgrading does not clear it and nothing says why.
+    key = f"{_RESOLVER_VERSION}:{engine}:{model.id}:{quant}"
 
     if (hit := _cache_read(path).get(key)) is not None:
         return Resolved(hit, (hit,), from_cache=True)
@@ -535,8 +629,16 @@ def resolve_weights(
             found = check(repo)
             checked.append(repo)
             if found:
-                _cache_write(path, key, repo)
-                return Resolved(repo, tuple(checked))
+                final = repo
+                if engine == "llama.cpp":
+                    # `--hf-repo` takes an optional `:quant` suffix that selects
+                    # the file inside the repo; the bare repo id lets
+                    # llama-server default to Q4_K_M regardless of what the
+                    # solver actually sized. `tried` is non-empty only when
+                    # `quant` has a GGUF_SUFFIX entry, so this is always a hit.
+                    final = f"{repo}:{GGUF_SUFFIX[quant]}"
+                _cache_write(path, key, final)
+                return Resolved(final, tuple(checked))
     except OSError as e:
         return Refusal(
             reason=(
@@ -612,6 +714,8 @@ def plan(
     concurrency: int = 4,
     port: int = 8000,
     host: str = "127.0.0.1",
+    engine: str | None = None,
+    tag: str | None = None,
     hw: Hardware | None = None,
     exists: Callable[[str], bool] | None = None,
     cache: Path | None = None,
@@ -630,6 +734,11 @@ def plan(
         port: port to bind.
         host: bind address. Loopback by default — an inference endpoint has no
             authentication, and binding it wider is a decision, not a default.
+        engine: force this engine rather than letting the planner pick one.
+            Some engines have no hardware signature to be auto-selected by —
+            Ollama runs equally well anywhere — so this is their only way in.
+        tag: the Ollama tag to pull, e.g. `llama3.1:8b-instruct-q8_0`. Required
+            when `engine="ollama"` — see [`resolve_weights`]. Ignored otherwise.
         hw: the machine. Detected when omitted.
         exists: repo existence check, forwarded to [`resolve_weights`].
         cache: resolution cache path, forwarded to [`resolve_weights`].
@@ -641,13 +750,27 @@ def plan(
 
     Raises:
         KeyError: the model id is not in the catalogue.
-        ValueError: `quant` is not one this model publishes.
+        ValueError: `quant` is not one this model publishes, or `engine` names
+            no known engine.
     """
     model = catalog.get(model_id)
     machine = hw or hardware.detect()
 
     if quant is not None and quant not in model.quants:
         raise ValueError(f"{model.id} does not publish {quant!r}; it has {', '.join(model.quants)}")
+    forced = Engine(engine) if engine is not None else None
+
+    if forced is not None:
+        compatible = ENGINE_HARDWARE[forced]
+        if machine.kind not in compatible:
+            return Refusal(
+                reason=(
+                    f"{forced.value} only runs on {'/'.join(compatible)}; this machine is "
+                    f"{machine.kind}, so `--engine {forced.value}` would produce a command "
+                    f"that cannot start"
+                ),
+                next_step="drop --engine and let the planner pick one this hardware can run",
+            )
 
     if quant is None:
         best = fit.best_quant(model, machine, context, concurrency)
@@ -660,53 +783,77 @@ def plan(
             return _does_not_fit(model, machine, context, concurrency)
 
     req = Requirements(Workload.INTERACTIVE, concurrency=concurrency, context=context)
-    deployment = configure(machine, req, model, sized.quant)
-    engine = deployment.engine.value
+    deployment = configure(machine, req, model, sized.quant, force_engine=forced)
+    engine_name = deployment.engine.value
 
-    adapter = adapter_for(engine)
+    if engine_name in ("llama.cpp", "ollama"):
+        # Both pre-allocate KV for every parallel slot at start-up rather than
+        # growing it on demand — llama.cpp because --ctx-size is TOTAL across
+        # --parallel slots (LlamaCppAdapter.command multiplies context by it),
+        # Ollama because OLLAMA_NUM_PARALLEL divides the same fixed context
+        # window the same way. Either way the planner's MAX_CONCURRENT knob is
+        # not `concurrency` — interactive workloads round it up for burst
+        # headroom (e.g. 4 becomes 32). Sizing the fit at the caller's
+        # concurrency while launching at the padded slot count would approve a
+        # plan whose own launch command then asks for far more KV than checked.
+        slots = deployment.get(Setting.MAX_CONCURRENT)
+        if slots is not None and isinstance(slots.value, int) and slots.value > concurrency:
+            sized = fit.solve(model, sized.quant, machine, context, slots.value)
+            if not sized.feasible:
+                return _does_not_fit(model, machine, context, slots.value)
+
+    adapter = adapter_for(engine_name)
     if adapter is None:
         alt = _launchable_alternative(machine, req)
         return Refusal(
             reason=(
-                f"the planner chose {engine} for this workload, and there is no "
+                f"the planner chose {engine_name} for this workload, and there is no "
                 f"verified flag dialect for it — emitting another engine's flags "
                 f"would produce a command that cannot start"
             ),
             next_step=(
                 f"--concurrency {alt[0]} selects {alt[1]}, which this can launch"
                 if alt
-                else f"`clickllm build` prints the reasoning for a {engine} deployment "
+                else f"`clickllm build` prints the reasoning for a {engine_name} deployment "
                 f"you run yourself"
             ),
         )
 
-    resolved = resolve_weights(model, sized.quant, engine, exists=exists, cache=cache)
+    resolved = resolve_weights(model, sized.quant, engine_name, tag=tag, exists=exists, cache=cache)
     if isinstance(resolved, Refusal):
         return resolved
 
     argv, gaps = deployment.command(resolved.repo)
-    # All three dialects spell the bind address the same way, which is why this
-    # is appended here rather than becoming a `Setting`: there is no translation
-    # to do, and a knob with one spelling is a knob that earns nothing.
-    argv += ["--host", host, "--port", str(port)]
+    env = list(deployment.environment())
+    if engine_name == "ollama":
+        # `ollama serve --help` has exactly one flag, `--help`; there is no
+        # --host/--port to append, only OLLAMA_HOST, so the bind address goes
+        # through the same channel as everything else this engine is told.
+        env.append(("OLLAMA_HOST", f"{host}:{port}"))
+    else:
+        # All the flag-driven dialects spell the bind address the same way,
+        # which is why this is appended here rather than becoming a `Setting`:
+        # there is no translation to do, and a knob with one spelling earns
+        # nothing.
+        argv += ["--host", host, "--port", str(port)]
 
     rejected = unknown_flags(adapter, argv)
     if rejected:
         return Refusal(
             reason=(
-                f"the installed {engine} does not accept {', '.join(rejected)}. "
+                f"the installed {engine_name} does not accept {', '.join(rejected)}. "
                 f"Its own --help is the authority, and handing back a command that "
                 f"cannot start is worse than not handing one back"
             ),
             tried=(" ".join(argv),),
-            next_step=f"upgrade {engine}, or file this — the dialect in `engines` has drifted",
+            next_step=f"upgrade {engine_name}, or file this — the dialect in `engines` has drifted",
         )
 
     notes: list[str] = list(deployment.warnings) + list(deployment.notes)
     if rejected is None:
         notes.append(
-            f"{engine} is not installed here, so its flags could not be checked "
-            f"against the binary — install it with `{INSTALL_HINT.get(engine, engine)}`"
+            f"{engine_name} is not installed here, so its flags could not be checked "
+            f"against the binary — install it with `{INSTALL_HINT.get(engine_name, engine_name)}`"
         )
     if resolved.from_cache:
         notes.append("weights repo came from the local cache; nothing was fetched to plan this")
@@ -721,7 +868,7 @@ def plan(
         model=model,
         quant=sized.quant,
         repo=resolved.repo,
-        engine=engine,
+        engine=engine_name,
         engine_why=deployment.engine_why,
         argv=tuple(argv),
         host=host,
@@ -730,6 +877,7 @@ def plan(
         gaps=gaps,
         tried=resolved.tried,
         notes=tuple(notes),
+        env=tuple(sorted(set(env))),
     )
 
 
@@ -821,7 +969,10 @@ def serve(
     try:
         # No new session: an interactive Ctrl-C must reach the child too, or
         # stopping the launcher would leave the engine holding the GPU.
-        proc = subprocess.Popen(launch_plan.argv)  # noqa: S603 — argv is generated, not user text
+        proc = subprocess.Popen(  # noqa: S603 — argv is generated, not user text
+            launch_plan.argv,
+            env={**os.environ, **dict(launch_plan.env)},
+        )
     except FileNotFoundError as e:
         raise FileNotFoundError(
             f"{launch_plan.argv[0]} is not installed — "
