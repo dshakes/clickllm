@@ -282,55 +282,48 @@ def recommend_runtime(hw: Hardware, context: int, concurrency: int) -> tuple[str
     So there is one selector now, and it is the one that has to be right because
     it produces the command: `plan._pick_engine`. A recommendation that cannot
     become a running server is not a recommendation.
+
+    When the structural pick has no adapter, the alternative is found by asking
+    `launch._launchable_alternative` — the exact function `clickllm run`'s own
+    refusal uses to word its `NEXT` step — rather than a second search over
+    concurrency. Substituting an engine that only appears at a *higher*
+    concurrency must say so: at the concurrency actually asked for, nothing here
+    can be launched at all, and hiding that behind "recommending what will
+    actually start" was its own way of naming software `run` refuses.
     """
-    # Deferred: `plan` imports this module, so a top-level import would cycle.
+    # Deferred: `plan` and `launch` both import this module, so top-level
+    # imports would cycle.
     from .engines import adapter_for
+    from .launch import _launchable_alternative
     from .plan import Requirements, Workload, _pick_engine
 
-    engine, why = _pick_engine(hw, Requirements(Workload.INTERACTIVE, concurrency, context))
+    req = Requirements(Workload.INTERACTIVE, concurrency, context)
+    engine, why = _pick_engine(hw, req)
     name = str(engine)
-    if adapter_for(name) is None:
-        # `_pick_engine` answers "what is structurally best here", which is not
-        # always "what this tool can launch". On Apple silicon at the DEFAULT
-        # concurrency it picks llama.cpp — correct, and `clickllm run` then
-        # refuses it for want of a verified flag dialect. Recommending it in
-        # silence made the product's first two commands contradict each other on
-        # the most common developer machine.
-        alt = _launchable_alternative(hw, context, concurrency)
-        if alt is None:
-            return (name, f"{why} NOTE: clickllm cannot launch {name} — no verified flag dialect.")
-        alt_name, alt_why = alt
-        return (
-            alt_name,
-            f"{alt_why} (Structurally {name} suits this workload better, but clickllm "
-            f"has no verified flag dialect for it, so it could not be launched — "
-            f"`clickllm run` would refuse. Recommending what will actually start.)",
-        )
-    return (name, why)
+    if hw.kind == "cpu":
+        why += " No accelerator on this machine — expect single-digit tok/s."
+    if adapter_for(name) is not None:
+        return (name, why)
 
-
-def _launchable_alternative(hw: Hardware, context: int, concurrency: int):
-    """The best engine for this hardware that clickllm can actually configure.
-
-    Asks the planner again with the concurrency that changes its mind, rather
-    than hard-coding a second table — the whole defect being fixed here was a
-    second table.
-    """
-    from .engines import adapter_for
-    from .plan import PREFIX_SHARING_FOR_RADIX, Requirements, Workload, _pick_engine
-
-    for conc in (max(concurrency, 4), 8, 64):
-        engine, why = _pick_engine(hw, Requirements(Workload.INTERACTIVE, conc, context))
-        if adapter_for(str(engine)) is not None:
-            return (str(engine), why)
-    for req in (
-        Requirements(Workload.INTERACTIVE, 8, context, prefix_sharing=PREFIX_SHARING_FOR_RADIX),
-        Requirements(Workload.BATCH, 64, context),
-    ):
-        engine, why = _pick_engine(hw, req)
-        if adapter_for(str(engine)) is not None:
-            return (str(engine), why)
-    return None
+    # `_pick_engine` answers "what is structurally best here", which is not
+    # always "what this tool can launch". On Apple silicon at the DEFAULT
+    # concurrency it picks llama.cpp — correct, and `clickllm run` then refuses
+    # it for want of a verified flag dialect. Recommending it in silence made
+    # the product's first two commands contradict each other on the most common
+    # developer machine.
+    alt = _launchable_alternative(hw, req)
+    if alt is None:
+        return (name, f"{why} NOTE: clickllm cannot launch {name} — no verified flag dialect.")
+    alt_concurrency, alt_name = alt
+    _, alt_why = _pick_engine(hw, Requirements(Workload.INTERACTIVE, alt_concurrency, context))
+    return (
+        alt_name,
+        f"{alt_why} (Structurally {name} suits concurrency {concurrency} better, but "
+        f"clickllm has no verified flag dialect for it, so `clickllm run` would refuse "
+        f"here — nothing launches at concurrency {concurrency} on this hardware. "
+        f"`clickllm run --concurrency {alt_concurrency}` is what starts {alt_name}; "
+        f"that is a higher concurrency than asked for, not a free substitution.)",
+    )
 
 
 def demo() -> None:
@@ -391,6 +384,54 @@ def demo() -> None:
             assert named == str(best), f"fit says {named}, run starts {best}"
         else:
             assert str(best) in why, f"substituted {named} for {best} without saying so"
+
+    # A substitution is not honest just because `_pick_engine` agrees with it —
+    # the structural pick and its launchable substitute can need *different*
+    # concurrencies, which `_pick_engine` alone cannot see. Checked here against
+    # the real launch path: at concurrency 1, `run` must still refuse, and the
+    # recommendation must have said so rather than implying `mlx` starts now.
+    import tempfile
+    from pathlib import Path
+
+    from . import launch as _launch
+
+    named, why = recommend_runtime(m4, 8192, 1)
+    assert named == "mlx" and "nothing launches at concurrency 1" in why, why
+    with tempfile.TemporaryDirectory() as tmp:
+        weights_cache = Path(tmp) / "weights.json"
+        refused = _launch.plan(
+            "qwen3-30b-a3b",
+            hw=m4,
+            context=8192,
+            concurrency=1,
+            exists=lambda r: True,
+            cache=weights_cache,
+        )
+        assert isinstance(refused, _launch.Refusal), refused
+        started = _launch.plan(
+            "qwen3-30b-a3b",
+            hw=m4,
+            context=8192,
+            concurrency=4,
+            exists=lambda r: True,
+            cache=weights_cache,
+        )
+        assert isinstance(started, _launch.LaunchPlan) and started.engine == named, started
+
+    # CPU-only hardware lost its explicit warning when the old table was
+    # replaced by `_pick_engine` — restored here rather than in the shared
+    # selector, since the rest of `plan` has no CPU-specific reasoning to give.
+    cpu = HW(
+        kind="cpu",
+        name="CPU box",
+        total_bytes=64 * GB,
+        usable_bytes=48 * GB,
+        bandwidth_gbps=50.0,
+        cores=8,
+    )
+    cpu_named, cpu_why = recommend_runtime(cpu, 8192, 1)
+    assert adapter_for(cpu_named) is not None
+    assert "no accelerator" in cpu_why.lower(), cpu_why
 
     feasible, rejected = rank(m4, 32768, 1)
     assert feasible and rejected
