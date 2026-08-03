@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .atomicio import atomic_write_json
 from .catalog import ModelSpec
 
 #: Where a model's real architecture lives.
@@ -357,9 +358,7 @@ def apply_proposals(proposals: list[Proposal], path: Path | None = None) -> int:
         updated += 1
 
     if updated:
-        tmp = target.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(raw, indent=2) + "\n")
-        tmp.replace(target)
+        atomic_write_json(target, raw)
     return updated
 
 

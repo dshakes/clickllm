@@ -64,6 +64,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import catalog, fit, hardware
+from .atomicio import update_json
 from .catalog import ModelSpec
 from .engines import adapter_for, unknown_flags
 from .fit import Fit
@@ -375,61 +376,20 @@ def _cache_read(path: Path) -> dict[str, str]:
 
 
 def _cache_write(path: Path, key: str, repo: str) -> None:
-    """Remember one resolution. Written beside the old file and renamed.
-
-    A failure here is not a failure to launch — the answer is already in hand,
-    and a read-only home should not stop a server from starting.
+    """Remember one resolution.
 
     Two `clickllm run` invocations resolving different models at once used to
-    lose one of the two entries, in two separate ways:
+    lose one of the two entries — an unlocked read-modify-write plus a scratch
+    filename both processes shared. Forty concurrent resolutions kept seven.
 
-    * **Lost update.** Both read the same dict, both added their own key, both
-      wrote the whole thing back — last writer wins and the other resolution is
-      gone. The read-modify-write now happens under an exclusive lock.
-    * **Shared scratch file.** The temp was a fixed `weights.json.tmp`, so both
-      processes wrote the *same* path and renamed it. One could rename a file
-      the other was still writing, publishing a truncated cache. The temp name
-      now carries the pid.
+    That fix lived here, and the identical defect stayed in `cache.py` and
+    `catalog_update.py` for another release, because fixing one instance of a
+    duplicated bug is not fixing the bug. All three now call one implementation.
 
-    Neither corrupts anything a reader cannot recover from — `_cache_read`
-    treats a bad file as empty — but a silently dropped entry costs an HTTP
-    round trip on a later run and looks like the resolver forgetting.
+    A failure is not a failure to launch: the answer is already in hand, and a
+    read-only home should not stop a server from starting.
     """
-    lock = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lock = _cache_lock(path)
-        data = _cache_read(path) | {key: repo}
-        tmp = path.with_suffix(f".{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-        tmp.replace(path)
-    except OSError:
-        pass  # ponytail: the cache is an optimisation; losing it costs one HTTP call
-    finally:
-        if lock is not None:
-            with contextlib.suppress(OSError):
-                lock.close()
-
-
-def _cache_lock(path: Path):
-    """An exclusive lock held for the read-modify-write, or None if unavailable.
-
-    `fcntl` is POSIX-only and this repo has no runtime dependencies, so a
-    platform without it degrades to the unique-temp behaviour rather than
-    failing — which is still strictly better than what was here, and does not
-    make the lock a reason a server will not start.
-    """
-    try:
-        import fcntl
-    except ImportError:  # pragma: no cover — Windows
-        return None
-    handle = (path.parent / f"{path.name}.lock").open("w")
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-    except OSError:
-        handle.close()
-        return None
-    return handle
+    update_json(path, lambda cur: {**(cur if isinstance(cur, dict) else {}), key: repo}, default={})
 
 
 def hf_exists(repo: str, timeout: float = 10.0) -> bool:
