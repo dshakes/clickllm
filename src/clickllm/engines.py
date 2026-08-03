@@ -913,11 +913,42 @@ class OllamaAdapter(Adapter):
         return argv, gaps
 
 
+class LlmdAdapter(VllmAdapter):
+    """llm-d. Its data plane *is* vLLM, so its dialect is vLLM's.
+
+    The last engine without a dialect, and the reason was a misunderstanding
+    rather than a gap. llm-d is not a server: it is a Kubernetes control plane
+    that schedules vLLM pods behind an `InferencePool` and a Gateway API
+    endpoint picker. The thing inside the container is `vllm serve`, with vLLM's
+    flags, which this repo already translates.
+
+    So this subclasses rather than reimplements. Two independent tables for one
+    flag vocabulary is exactly how `clickllm fit` came to recommend an engine
+    that does not exist; inheriting means a vLLM flag correction reaches llm-d
+    on the same commit.
+
+    What is genuinely llm-d's own is the *surrounding* Kubernetes objects — the
+    InferencePool, the endpoint picker, the prefill/decode split across
+    Deployments. Those belong to `clickllm.k8s.reconcile`, not to an argv
+    dialect, and building them here would be the wrapper NFR-4 forbids.
+
+    Inherits vLLM's verification status, which is worth stating plainly: those
+    flags are documented rather than interrogated, because CI has no GPU to run
+    `vllm serve --help` on. See [`SOURCES`].
+    """
+
+    name = "llm-d"
+    # Deliberately vLLM's binary: that is what the container runs, so that is
+    # whose flags must be right, and it is what to ask if a GPU appears.
+    help_argv = ("vllm", "serve", "--help")
+
+
 _ADAPTERS: dict[str, Adapter] = {
     "vllm": VllmAdapter(),
     "mlx": MlxAdapter(),
     "llama.cpp": LlamaCppAdapter(),
     "ollama": OllamaAdapter(),
+    "llm-d": LlmdAdapter(),
     # vLLM's TPU backend is a different engine (JAX lowering via tpu-inference)
     # wearing the same CLI, so it shares the dialect. Registered explicitly
     # rather than by prefix match: if the CLIs ever diverge this is the line

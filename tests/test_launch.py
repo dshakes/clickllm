@@ -253,29 +253,20 @@ def test_the_default_bind_address_is_loopback(tmp_path):
 
 
 def test_an_engine_with_no_verified_dialect_refuses_with_a_way_forward():
-    """The refusal path itself, which must survive engines gaining dialects.
+    """Every engine in `Engine` now has a dialect, so `launch.plan` can no longer
+    reach its refusal branch through the planner.
 
-    This used to reach the branch through llama.cpp on Apple at concurrency 1.
-    llama.cpp now HAS a dialect, so that route is gone — and a test pinned to
-    the old route would have quietly stopped covering the branch while still
-    passing, which is the shape of a test that guards nothing.
-
-    llm-d is the remaining engine the planner can choose and this cannot launch,
-    so the branch is exercised directly rather than through whichever engine
-    happens to lack a dialect this month.
+    The branch stays: the next engine added to the enum will hit it before its
+    adapter exists, and refusing beats emitting another engine's flags. What
+    changes is that this test asserts the invariant that made the branch
+    unreachable, rather than pretending to exercise a path it cannot get to.
     """
     from clickllm.engines import adapter_for
     from clickllm.plan import Engine
 
-    undialected = [e for e in Engine if adapter_for(str(e)) is None]
-    assert undialected, (
-        "every engine now has a dialect — delete this test and the refusal branch "
-        "it covers, rather than leaving a branch nothing can reach"
-    )
-    for engine in undialected:
-        assert adapter_for(str(engine)) is None
-
-
+    undialected = [str(e) for e in Engine if adapter_for(str(e)) is None]
+    assert not undialected, f"planner can pick these and launch cannot build them: {undialected}"
+    assert adapter_for("not-an-engine") is None, "adapter_for must still refuse the unknown"
 def test_an_unpublished_quant_is_refused_with_the_ones_that_exist(tmp_path):
     with pytest.raises(ValueError, match="q3"):
         launch.plan("qwen3-30b-a3b", quant="q3", hw=M4, cache=tmp_path / "w.json")
