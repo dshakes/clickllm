@@ -1040,6 +1040,26 @@ def test_bumping_a_file_with_several_patterns_keeps_all_of_them(tmp_path, monkey
     assert set(bump.current().values()) == {"2.0.0"}
 
 
+FICTIONAL_ENGINES = ("vllm-mlx", "mlc-llm")
+
+
+def _fictional_engine_offenders(root: Path, surfaces: list[Path]) -> list[str]:
+    """Every surface that names a `FICTIONAL_ENGINES` entry, case-insensitively.
+
+    Lower-cased before matching: `MLC-LLM` is exactly as fictional as
+    `mlc-llm`, and a reader does not care which case rendered it.
+    """
+    offenders = []
+    for p in surfaces:
+        if not p.exists():
+            continue
+        text = p.read_text().lower()
+        for name in FICTIONAL_ENGINES:
+            if name in text:
+                offenders.append(f"{p.relative_to(root)} names {name!r}")
+    return offenders
+
+
 def test_no_published_surface_names_an_engine_that_does_not_exist():
     """The diagrams outlived the code by a release.
 
@@ -1052,7 +1072,6 @@ def test_no_published_surface_names_an_engine_that_does_not_exist():
     explains what it used to print, and that sentence has to name it.
     """
     root = Path(__file__).resolve().parents[1]
-    fictional = ("vllm-mlx", "mlc-llm")
     surfaces = (
         list((root / "docs").rglob("*.md"))
         + list((root / "docs" / "assets").glob("*.svg"))
@@ -1060,15 +1079,21 @@ def test_no_published_surface_names_an_engine_that_does_not_exist():
         + [root / "site" / "index.html", root / "site" / "docs" / "index.html",
            root / "README.md"]
     )
-    offenders = []
-    for p in surfaces:
-        if not p.exists():
-            continue
-        text = p.read_text()
-        for name in fictional:
-            if name in text:
-                offenders.append(f"{p.relative_to(root)} names {name!r}")
+    offenders = _fictional_engine_offenders(root, surfaces)
     assert not offenders, (
         "published surfaces name engines that do not exist and cannot be "
         "launched:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_fictional_engine_scan_is_case_insensitive(tmp_path):
+    """Regression for the guard missing `MLC-LLM` while only scanning `mlc-llm`.
+
+    Published prose capitalises engine names (`MLC-LLM`), while the fictional
+    tuple is lower-case. A scan that compares case-sensitively passes on a page
+    that still recommends the fictional engine, just spelled with a capital M.
+    """
+    doc = tmp_path / "verdict.md"
+    doc.write_text("Apple Silicon, 64K+ context -> MLC-LLM\n")
+    offenders = _fictional_engine_offenders(tmp_path, [doc])
+    assert offenders, "uppercase MLC-LLM must be caught, not just lowercase mlc-llm"

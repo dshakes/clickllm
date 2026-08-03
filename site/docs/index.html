@@ -767,12 +767,12 @@ eval result moves production traffic without a human.</pre>
     <tr><td><strong>llm-d</strong></td><td>CUDA, multi-node</td><td>disaggregated prefill/decode + KV-cache-aware routing at fleet scale</td></tr>
     <tr><td><strong>llama.cpp</strong></td><td>everything</td><td>best single-stream, widest model coverage, runs anywhere</td></tr>
     <tr><td><strong>mlx</strong></td><td>Apple Metal</td><td>continuous batching on Apple Silicon</td></tr>
-    <tr><td><strong>MLC-LLM</strong></td><td>broad</td><td>steadiest throughput at 64K+ context</td></tr>
+    <tr><td><strong>Ollama</strong></td><td>everything</td><td>zero-config daemon, configured by environment rather than flags</td></tr>
   </tbody>
 </table></div>
 <div class="note stop">
   <p><b>vLLM, SGLang and llm-d do not run on Apple Silicon.</b> They are CUDA/ROCm-first. On a Mac
-  the real options are mlx, llama.cpp, and MLC-LLM. Any guide telling a Mac user to
+  the real options are mlx, llama.cpp, and Ollama. Any guide telling a Mac user to
   <code>pip install vllm</code> has not checked.</p>
 </div>
 

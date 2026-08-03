@@ -82,7 +82,7 @@ Plus **regret analysis**: the named, clustered tasks where open loses — so you
 
 ### ⑤ Deploy — generated, not wrapped
 Emit **native** config for the chosen target, tuned by ③:
-- **Local Mac** → mlx (concurrency) or llama.cpp Metal (single-stream) or MLC-LLM (long context), with mlx-lm spec-decode
+- **Local Mac** → mlx (concurrency) or llama.cpp Metal (single-stream) or Ollama (zero-config), with mlx-lm spec-decode
 - **Single GPU box** → vLLM + EAGLE-3 (`num_speculative_tokens` tuned to observed concurrency — flat gains ~1.3–1.8× at realistic load, not the 2–3× single-stream marketing number)
 - **k8s** → KServe `InferenceService` or llm-d + GAIE `InferencePool` with prefix-cache-aware EPP
 - Quantization chosen by ③'s memory solve and validated by ④ (never quantize without re-proving)
