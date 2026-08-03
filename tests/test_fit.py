@@ -169,11 +169,14 @@ def test_recommend_runtime_substitution_matches_the_real_launch_path():
             substituted += 1
             assert str(best) in why, f"substituted {named} for {best} without saying so"
 
-    # If nothing substitutes any more, the branch is dead and should be deleted
-    # rather than left as code nothing reaches.
+    # Every engine now has a dialect, so nothing substitutes and the branch is
+    # unreachable through the planner. It stays as a guard for the next engine
+    # added to the enum before its adapter exists — the same reasoning as the
+    # sibling refusal branches in plan.py and launch.py. What is asserted is the
+    # invariant that made it unreachable, which is the thing worth defending.
     if not substituted:
-        assert any(adapter_for(str(e)) is None for e in Engine), (
-            "every engine has a dialect — remove the substitution branch"
+        assert all(adapter_for(str(e)) is not None for e in Engine), (
+            "an engine lost its dialect and fit did not substitute for it"
         )
 
 
