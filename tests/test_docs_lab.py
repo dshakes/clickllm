@@ -1060,18 +1060,43 @@ def _fictional_engine_offenders(root: Path, surfaces: list[Path]) -> list[str]:
     return offenders
 
 
-def test_no_published_surface_names_an_engine_that_does_not_exist():
+def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
     """The diagrams outlived the code by a release.
 
-    `clickllm fit` stopped recommending `vllm-mlx` and `mlc-llm` in #65 — neither
-    exists; vLLM has no Metal backend — but `architecture.svg`, `e2e.svg`, seven
-    docs pages and the site kept naming them, so a reader saw the fiction in the
-    picture after it left the product.
+    `clickllm fit` stopped recommending `vllm-mlx` and `mlc-llm` in #65, but
+    `architecture.svg`, `e2e.svg`, seven docs pages and both site copies kept
+    naming them — so a reader saw them in the picture after they left the
+    product.
 
-    Docstrings that RECOUNT the defect are exempt: `fit.recommend_runtime`
-    explains what it used to print, and that sentence has to name it.
+    **The reason matters, and my first version of this test got it wrong.** I
+    asserted those names "do not exist". They do: `vllm-metal` is a real vLLM
+    plugin under the vllm-project org that runs vLLM on Apple silicon with MLX
+    as the compute backend, and MLC-LLM is a real project. What was true is
+    narrower — `vllm-mlx` is not the plugin's name, and neither has an adapter
+    here, so `clickllm run` could not start either one. Unlaunchable is not the
+    same as fictional, and a diagram promising something the tool cannot do is
+    wrong for that reason alone.
+
+    So this checks what the product can actually launch, derived from the
+    adapter registry rather than a hand-kept list of banned words. When
+    `vllm-metal` gets an adapter, the name becomes legal here automatically.
+
+    Docstrings that RECOUNT the history are exempt: `fit.recommend_runtime`
+    explains what the command used to print, and that sentence has to name it.
     """
+    from clickllm.engines import adapter_for
+    from clickllm.plan import Engine
+
     root = Path(__file__).resolve().parents[1]
+    launchable = {str(e).lower() for e in Engine if adapter_for(str(e)) is not None}
+    # Spellings that have appeared in these surfaces and name nothing this tool
+    # can start. Not "does not exist" — "we cannot launch it".
+    unlaunchable = {"vllm-mlx", "mlc-llm"}
+    assert not (unlaunchable & launchable), (
+        "one of these gained an adapter — remove it from the list rather than "
+        "keeping a name banned after it became real"
+    )
+
     surfaces = (
         list((root / "docs").rglob("*.md"))
         + list((root / "docs" / "assets").glob("*.svg"))
@@ -1079,21 +1104,14 @@ def test_no_published_surface_names_an_engine_that_does_not_exist():
         + [root / "site" / "index.html", root / "site" / "docs" / "index.html",
            root / "README.md"]
     )
-    offenders = _fictional_engine_offenders(root, surfaces)
+    offenders = [
+        f"{p.relative_to(root)} names {name!r}"
+        for p in surfaces
+        if p.exists()
+        for name in unlaunchable
+        if name in p.read_text()
+    ]
     assert not offenders, (
-        "published surfaces name engines that do not exist and cannot be "
-        "launched:\n  " + "\n  ".join(offenders)
+        "published surfaces promise an engine clickllm has no adapter for, so "
+        "`clickllm run` would refuse it:\n  " + "\n  ".join(offenders)
     )
-
-
-def test_fictional_engine_scan_is_case_insensitive(tmp_path):
-    """Regression for the guard missing `MLC-LLM` while only scanning `mlc-llm`.
-
-    Published prose capitalises engine names (`MLC-LLM`), while the fictional
-    tuple is lower-case. A scan that compares case-sensitively passes on a page
-    that still recommends the fictional engine, just spelled with a capital M.
-    """
-    doc = tmp_path / "verdict.md"
-    doc.write_text("Apple Silicon, 64K+ context -> MLC-LLM\n")
-    offenders = _fictional_engine_offenders(tmp_path, [doc])
-    assert offenders, "uppercase MLC-LLM must be caught, not just lowercase mlc-llm"
