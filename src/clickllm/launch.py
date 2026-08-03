@@ -95,6 +95,15 @@ MODEL_URL = "https://huggingface.co/api/models/{repo}"
 #: chose is part of which repo we are looking for.
 #: `fp8` maps to `8bit` because MLX publishes no fp8 — 8-bit integer is the
 #: nearest thing that exists, and pretending otherwise would resolve nothing.
+#: GGUF quantisation spellings. llama.cpp's own naming, not ours: Q4_K_M is the
+#: community default at 4-bit and Q8_0 at 8-bit.
+GGUF_SUFFIX = {"q4": "Q4_K_M", "q8": "Q8_0", "fp16": "F16"}
+
+#: Bumped whenever `candidates()` changes what it proposes, so answers cached by
+#: the old logic are ignored rather than trusted. Costs one HTTP call per model
+#: after an upgrade; buys never serving a repo the current resolver would reject.
+_RESOLVER_VERSION = "r2"
+
 MLX_SUFFIX = {
     "q3": "3bit",
     "q4": "4bit",
@@ -456,7 +465,34 @@ def candidates(model: ModelSpec, quant: str, engine: str) -> tuple[str, ...]:
     pre-quantised repo under its own name — so that goes first and is usually
     the whole list. MLX cannot: the precision is in the weights, so the search
     is over `mlx-community` spellings at the right bit-width.
+
+    llama.cpp cannot either, and for a sharper reason: it does not load a
+    transformers repo at all. It loads GGUF. Handing `llama-server --model` a
+    repo id like `meta-llama/Llama-3.1-8B-Instruct` produces a command that
+    fails on start-up — which is exactly the class of unrunnable output this
+    resolver exists to prevent, and is what the first cut of the llama.cpp
+    adapter emitted.
+
+    Ollama is different again: it has its own registry and its own names, so
+    there is no Hugging Face repo to confirm. `ollama serve` starts a daemon and
+    pulls on first use, so the resolution is a tag rather than a repo, and there
+    is nothing here to check it against.
     """
+    if engine == "ollama":
+        # Its registry, its names, its pull. Nothing to resolve against the Hub.
+        return ()
+    if engine == "llama.cpp":
+        bits = GGUF_SUFFIX.get(quant)
+        if bits is None:
+            return ()
+        # The community publishes GGUF under two long-standing conventions, and
+        # which one a given model uses is not predictable — so both are proposed
+        # and each is existence-checked before it is printed.
+        out = [f"{org}/{stem}-GGUF" for stem in _stems(model) for org in ("bartowski", "TheBloke")]
+        if model.repo:
+            out.insert(0, f"{model.repo}-GGUF")
+        return tuple(dict.fromkeys(out))
+
     if engine != "mlx":
         return (model.repo,) if model.repo else ()
 
@@ -498,7 +534,14 @@ def resolve_weights(
     """
     check = exists or hf_exists
     path = _cache_path(cache)
-    key = f"{engine}:{model.id}:{quant}"
+    # The resolver's own version is part of the key. A cached repo is a fact
+    # about (model, quant, engine) AND about the logic that proposed it — and
+    # this was proved the hard way: the first cut of the llama.cpp branch
+    # proposed the transformers repo, cached it, and kept serving
+    # `meta-llama/Llama-3.1-8B-Instruct` to llama-server after the GGUF fix
+    # landed. A wrong answer that outlives the bug that made it is worse than no
+    # cache, because upgrading does not clear it and nothing says why.
+    key = f"{_RESOLVER_VERSION}:{engine}:{model.id}:{quant}"
 
     if (hit := _cache_read(path).get(key)) is not None:
         return Resolved(hit, (hit,), from_cache=True)

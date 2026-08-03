@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from clickllm import catalog, cli, fit, hardware, launch, sdk
+from clickllm import catalog, cli, fit, hardware, sdk
 from clickllm.engines import adapter_for
 from clickllm.hardware import Hardware
 
@@ -131,48 +131,50 @@ def test_the_engine_fit_names_is_the_engine_run_starts():
             assert str(best) in why, f"substituted {named} for {best} without saying so"
 
 
-def test_recommend_runtime_substitution_matches_the_real_launch_path(tmp_path):
-    """The regression Codex found: comparing against `_pick_engine` plus
-    `adapter_for` is not the same as comparing against what `clickllm run`
-    actually does, because the structural pick and the launchable substitute
-    can require *different concurrencies* — and `_pick_engine` alone cannot see
-    that.
+def test_recommend_runtime_substitution_matches_the_real_launch_path():
+    """The substitution branch, and the reason it is now nearly unreachable.
 
-    On Apple silicon at concurrency 1, `_pick_engine` chooses `llama.cpp`
-    (no adapter), and the old substitution silently re-asked the planner at
-    concurrency 4 and returned `mlx` as if it were what `clickllm run` starts
-    right now. It is not: `launch.plan` at the *same* concurrency 1 still
-    refuses, because concurrency 1 never selects `mlx` at all. Only a higher
-    concurrency does.
+    Codex caught the original: comparing against `_pick_engine` plus
+    `adapter_for` is not the same as comparing against what `clickllm run` does,
+    because the structural pick and the launchable substitute can need
+    *different concurrencies*. On Apple at concurrency 1 the planner chose
+    llama.cpp, which had no dialect, and the substitution returned `mlx` as
+    though `run` would start it — which it would not, since concurrency 1 never
+    selects mlx.
+
+    llama.cpp has a dialect now, so that exact route is closed and Apple at
+    concurrency 1 launches what it recommends. The invariant is unchanged and is
+    what this asserts: for every engine the planner can pick, `fit` either names
+    it (because it is launchable) or names a substitute AND says the structural
+    pick could not be launched. Written against the engine list rather than one
+    hardware shape, so it keeps covering the branch as dialects are added.
     """
-    hw = _hw(96, kind="apple", bw=546.0)
-    named, why = fit.recommend_runtime(hw, 8192, 1)
-    assert named == "mlx", named
-    # The recommendation must say a higher concurrency is required — never
-    # imply that `clickllm run` at the concurrency asked for will start it.
-    assert "concurrency 4" in why, why
-    assert "nothing launches at concurrency 1" in why, why
+    from clickllm.engines import adapter_for
+    from clickllm.plan import Engine, Requirements, Workload, _pick_engine
 
-    weights_cache = tmp_path / "weights.json"
-    refused = launch.plan(
-        "qwen3-30b-a3b",
-        hw=hw,
-        context=8192,
-        concurrency=1,
-        exists=lambda r: True,
-        cache=weights_cache,
-    )
-    assert isinstance(refused, launch.Refusal), refused
+    shapes = [
+        (_hw(96, kind="apple", bw=546.0), 8192, 1),
+        (_hw(96, kind="apple", bw=546.0), 8192, 8),
+        (_hw(80, kind="nvidia", bw=3350.0), 8192, 1),
+        (_hw(80, kind="nvidia", bw=3350.0), 8192, 64),
+    ]
+    substituted = 0
+    for hw, ctx, conc in shapes:
+        named, why = fit.recommend_runtime(hw, ctx, conc)
+        assert adapter_for(named) is not None, f"named {named}, which cannot launch"
+        best, _ = _pick_engine(hw, Requirements(Workload.INTERACTIVE, conc, ctx))
+        if adapter_for(str(best)) is not None:
+            assert named == str(best), f"{hw.kind} c={conc}: fit {named}, run {best}"
+        else:
+            substituted += 1
+            assert str(best) in why, f"substituted {named} for {best} without saying so"
 
-    started = launch.plan(
-        "qwen3-30b-a3b",
-        hw=hw,
-        context=8192,
-        concurrency=4,
-        exists=lambda r: True,
-        cache=weights_cache,
-    )
-    assert isinstance(started, launch.LaunchPlan) and started.engine == named, started
+    # If nothing substitutes any more, the branch is dead and should be deleted
+    # rather than left as code nothing reaches.
+    if not substituted:
+        assert any(adapter_for(str(e)) is None for e in Engine), (
+            "every engine has a dialect — remove the substitution branch"
+        )
 
 
 def test_recommend_runtime_warns_on_cpu_only_hardware():

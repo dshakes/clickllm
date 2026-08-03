@@ -231,9 +231,27 @@ def test_a_plan_emits_a_real_command_and_reports_what_it_could_not_express():
 
 
 def test_an_engine_with_no_verified_dialect_refuses_rather_than_improvising():
-    argv, gaps = plan(MAC, Requirements(Workload.INTERACTIVE)).command("m")
-    assert argv == []
-    assert gaps and "cannot run" in gaps[0]
+    """Emitting another engine's flags would produce a command that cannot start,
+    so `Plan.command` returns nothing and says why.
+
+    This used to reach the branch via MAC at default concurrency, where the
+    planner picked llama.cpp and no dialect existed. llama.cpp is supported now,
+    so that route is gone — and a test still pointed at it would pass while
+    covering nothing, which is the shape of a test that guards nothing.
+
+    Driven off whichever engines actually lack a dialect, so it keeps covering
+    the branch as they are added, and fails loudly when the branch is dead.
+    """
+    from clickllm.engines import adapter_for
+
+    orphans = [e for e in Engine if adapter_for(str(e)) is None]
+    assert orphans, "every engine has a dialect — delete this branch, do not leave it unreachable"
+
+    for engine in orphans:
+        p = replace(plan(H100, Requirements(Workload.INTERACTIVE)), engine=engine)
+        argv, gaps = p.command("m")
+        assert argv == [], f"{engine} improvised: {argv}"
+        assert gaps and "cannot run" in gaps[0], gaps
 
 
 def test_prefix_reuse_is_never_translated_into_its_opposite():
