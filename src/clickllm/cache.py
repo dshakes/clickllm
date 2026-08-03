@@ -50,6 +50,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .atomicio import atomic_write_json
+
 __all__ = [
     "Entry",
     "Plan",
@@ -487,9 +489,7 @@ def save_state(state: State, path: Path | None = None, root: Path | None = None)
         "pinned": sorted(state.pinned),
         "budget_bytes": state.budget_bytes,
     }
-    tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(body, indent=2) + "\n")
-    tmp.replace(p)
+    atomic_write_json(p, body)
 
 
 def pin(repo: str, path: Path | None = None, root: Path | None = None) -> State:

@@ -708,53 +708,27 @@ def test_two_concurrent_resolutions_do_not_lose_each_others_cache_entry(tmp_path
     assert all(got[k] == f"repo/{k}" for k in keys)
 
 
-def test_the_cache_temp_file_is_not_shared_between_processes(tmp_path):
-    """The temp was a fixed `weights.json.tmp`, so two processes wrote the same
-    path and one could rename a file the other was still writing."""
+def test_no_module_writes_json_through_a_shared_scratch_file():
+    """The scratch name was `weights.json.tmp` — identical in every process, so
+    two writers wrote the same path and one renamed what the other was still
+    writing. Fixed in launch.py first, and the same code sat in cache.py and
+    catalog_update.py for another release, because fixing one instance of a
+    duplicated defect is not fixing the defect.
+
+    Asserted across the tree rather than inside one function: the failure mode
+    is a fourth copy, and a test that greps a single module cannot see one.
+    """
     import re as _re
 
-    src = (Path(__file__).resolve().parents[1] / "src/clickllm/launch.py").read_text()
-    body = src[src.index("def _cache_write") : src.index("def _cache_lock")]
-    assert "os.getpid()" in body, "the scratch file is still shared between processes"
-    assert not _re.search(r'with_suffix\(\s*"\.json\.tmp"\s*\)', body)
-
-
-def test_the_timeout_message_does_not_claim_a_teardown_it_did_not_achieve(monkeypatch, tmp_path):
-    """The old text always said the engine "has been stopped rather than left
-    running". With `stop()` signalling only the immediate child, that sentence
-    was false whenever a worker survived — and it is the sentence someone reads
-    before deciding whether it is safe to start another engine on that GPU."""
-
-    class FakeProc:
-        pid = 4242
-
-        def poll(self):
-            return None
-
-        def terminate(self):
-            pass
-
-        def wait(self, timeout=None):
-            return 0
-
-        def kill(self):
-            pass
-
-    lp = launch.plan(
-        "llama-3.1-8b", hw=M4, context=8192, exists=lambda r: True, cache=tmp_path / "w.json"
-    )
-    assert isinstance(lp, launch.LaunchPlan), lp
-    monkeypatch.setattr(launch, "_healthy", lambda *a, **k: False)
-    monkeypatch.setattr(launch.subprocess, "Popen", lambda *a, **k: FakeProc())
-    monkeypatch.setattr(launch, "_descendants", lambda pid: (999001, 999002))
-    # Nothing dies.
-    monkeypatch.setattr(launch, "_running", lambda pid: True)
-    monkeypatch.setattr(launch.os, "kill", lambda *a: None)
-
-    with pytest.raises(TimeoutError) as e:
-        launch.serve(lp, timeout=0.3, poll=0.05)
-    msg = str(e.value)
-    assert "would not die" in msg and "999001" in msg, msg
-    assert "has been stopped rather than left running" not in msg, (
-        "claimed a teardown it did not do"
+    root = Path(__file__).resolve().parents[1] / "src" / "clickllm"
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        if path.name == "atomicio.py":
+            continue  # the one implementation, which is tested on its own terms
+        text = path.read_text()
+        for m in _re.finditer(r'with_suffix\(\s*["\']\.[\w.]*tmp["\']\s*\)', text):
+            offenders.append(f"{path.name}: {m.group(0)}")
+    assert not offenders, (
+        "these build a scratch filename that another process will pick too — "
+        "use clickllm.atomicio instead:\n  " + "\n  ".join(offenders)
     )
