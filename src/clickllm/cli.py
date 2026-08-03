@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import pathlib
@@ -374,8 +375,63 @@ def cmd_run(args: argparse.Namespace) -> int:
     ep = launch.serve(p)
     print(f"\n  ready in {ep.ready_seconds:.0f}s — {ep.base}/v1  (pid {ep.pid})")
     print(f"  curl {ep.base}/v1/models")
-    print("  ctrl-c to stop\n")
-    return ep.wait()
+    print("  ctrl-c to stop\n", flush=True)
+    return _serve_until_signalled(ep)
+
+
+def _serve_until_signalled(ep) -> int:
+    """Block until the engine exits or we are told to stop — then actually stop it.
+
+    `stop()` was correct and nothing called it. This function exited straight
+    into `ep.wait()`, so a signal killed clickllm and left the engine serving,
+    holding the GPU, with the port still open. Measured against a real run:
+    clickllm gone, `mlx_lm` alive, endpoint still answering.
+
+    Interactive Ctrl-C hid it for as long as it existed. A tty sends SIGINT to
+    the whole foreground process group, so the engine received its own signal
+    from the terminal rather than from us — and `serve()` deliberately keeps the
+    child in that group for exactly this reason. Every other way of stopping a
+    process reaches clickllm alone: `kill`, systemd, `docker stop`, a Kubernetes
+    pod eviction. Those are also the ways it gets stopped when nobody is
+    watching, which is when an engine still holding a GPU costs the most.
+
+    Signal policy lives here rather than in `launch`, because a library that
+    installs process-wide handlers surprises whoever imports it.
+    """
+    import signal as _signal
+
+    stopping = False
+
+    def teardown(signum, _frame):
+        nonlocal stopping
+        if stopping:  # a second Ctrl-C: let the default handler have it
+            raise KeyboardInterrupt
+        stopping = True
+        name = _signal.Signals(signum).name
+        print(f"\n  {name} — stopping {ep.model}...", flush=True)
+        survivors = ep.stop()
+        if survivors:
+            pids = ", ".join(str(x) for x in survivors)
+            print(f"  WARNING  {len(survivors)} process(es) would not die: {pids}")
+            print("           they may still hold the device.", flush=True)
+        else:
+            print("  stopped.", flush=True)
+
+    previous = {}
+    for sig in (_signal.SIGINT, _signal.SIGTERM):
+        # Not the main thread → signal() raises; the handler is a nicety, not a
+        # requirement, and failing to install it must not stop a server running.
+        with contextlib.suppress(ValueError, OSError):
+            previous[sig] = _signal.signal(sig, teardown)
+    try:
+        return ep.wait()
+    except KeyboardInterrupt:
+        ep.stop()
+        return 130
+    finally:
+        for sig, handler in previous.items():
+            with contextlib.suppress(ValueError, OSError):
+                _signal.signal(sig, handler)
 
 
 def cmd_host(args: argparse.Namespace) -> int:
