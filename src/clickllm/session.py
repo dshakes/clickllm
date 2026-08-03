@@ -360,6 +360,12 @@ class Session:
         p = self._plan()
         assert p is not None
         argv, gaps = p.command(catalog.get(best.model.id).repo or best.model.id)
+        env = p.environment()
+        # Ollama's whole configuration is environment, not argv — printing argv
+        # alone here would claim a command that starts with its defaults,
+        # silently ignoring what was just planned for it.
+        prefix = " ".join(f"{k}={v}" for k, v in env)
+        run_line = f"{prefix} {' '.join(argv)}".strip()
 
         out = [
             f"MODEL     {best.model.name} @ {best.quant}   ({_fmt_gb(best.total_bytes)})",
@@ -367,7 +373,7 @@ class Session:
             f"ENGINE    {p.engine.value}   {p.engine_why}",
             "",
             "RUN",
-            "  " + " ".join(argv) if argv else "  (no verified flag dialect for this engine)",
+            "  " + run_line if run_line else "  (no verified flag dialect for this engine)",
         ]
         if gaps:
             out += ["", "NOT EXPRESSED"] + [f"  · {g}" for g in gaps]

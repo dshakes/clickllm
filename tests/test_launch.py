@@ -778,7 +778,10 @@ def test_a_repo_cached_by_older_resolver_logic_is_not_served_by_the_new_one():
             catalog.get("llama-3.1-8b"), "q4", "llama.cpp", exists=only_gguf, cache=cache
         )
         assert isinstance(out, launch.Resolved), out
-        assert out.repo.endswith("-GGUF"), f"served a stale non-GGUF answer: {out.repo}"
+        # The quant is tagged onto the repo (`--hf-repo` selects the file with
+        # it), so the bare repo id is a prefix, not the whole answer.
+        assert out.repo.split(":")[0].endswith("-GGUF"), f"served a stale non-GGUF answer: {out.repo}"
+        assert out.repo.endswith(":Q4_K_M"), f"lost the quant tag: {out.repo}"
         assert asked, "trusted the stale entry instead of re-resolving"
 
 

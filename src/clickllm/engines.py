@@ -693,15 +693,22 @@ class LlamaCppAdapter(Adapter):
                     "reuses a cached prefix in chunks of >=256 tokens",
                 )
             case Setting.SPECULATIVE:
-                spec = value if isinstance(value, dict) else {}
-                draft = spec.get("model") or spec.get("draft_model")
-                if not draft:
+                # A dict names its draft explicitly; a bare string IS the draft —
+                # a path or a Hugging Face repo id, e.g. from the Python SDK
+                # (`Requirements(speculative="my_draft.gguf")`). Only a known
+                # method name is rejected, the same shape as MlxAdapter below.
+                draft = (
+                    (value.get("model") or value.get("draft_model"))
+                    if isinstance(value, dict)
+                    else value
+                )
+                if not isinstance(draft, str) or not draft or draft in DRAFT_REQUIRED | {"mtp", "off"}:
                     return Unsupported(
                         setting,
                         f"llama.cpp speculation needs a draft GGUF: --model-draft takes a "
-                        f"file, not a method name like {spec.get('method', value)!r}",
+                        f"file, not a method name like {draft!r}",
                     )
-                return Translated(("--model-draft", str(draft), "--draft-max", "16"))
+                return Translated(("--model-draft", draft, "--draft-max", "16"))
             case Setting.STRUCTURED_OUTPUT:
                 return Translated(
                     (),
@@ -779,8 +786,13 @@ class LlamaCppAdapter(Adapter):
         ctx = settings.get(Setting.CONTEXT_LENGTH)
         slots = settings.get(Setting.MAX_CONCURRENT)
         rest = dict(settings)
-        if isinstance(ctx, int) and isinstance(slots, int) and slots > 1:
-            rest[Setting.CONTEXT_LENGTH] = ctx * slots
+        try:
+            ctx_val = int(ctx) if ctx is not None else None
+            slots_val = int(slots) if slots is not None else None
+        except (TypeError, ValueError):
+            ctx_val, slots_val = None, None
+        if isinstance(ctx_val, int) and isinstance(slots_val, int) and slots_val > 1:
+            rest[Setting.CONTEXT_LENGTH] = ctx_val * slots_val
 
         for setting, value in rest.items():
             out = self.translate(setting, value)

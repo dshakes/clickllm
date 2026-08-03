@@ -362,6 +362,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         port=args.port,
         host=args.host,
+        engine=args.engine,
     )
     print()
     print(p.render())
@@ -1259,6 +1260,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     r.add_argument("--host", default="127.0.0.1", help="bind address (loopback by default)")
     r.add_argument("--port", type=int, default=8000)
+    r.add_argument(
+        "--engine",
+        help="force this engine rather than letting the planner pick one "
+        "(e.g. ollama, which has no hardware signature to be auto-selected by)",
+    )
     r.add_argument(
         "--dry-run",
         action="store_true",
