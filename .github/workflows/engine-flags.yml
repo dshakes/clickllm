@@ -57,23 +57,31 @@ jobs:
           # unfixable by pinning wheels. The vendors already ship an image where
           # the binary works; using it makes the check answerable rather than
           # making the failure quieter.
-          # vLLM is NOT here, and that is a finding rather than an omission.
-          # `vllm serve --help` initialises hardware before printing anything and
-          # dies on a GPU-less runner:
+          # vLLM IS here now, and the reason it was not is worth keeping,
+          # because the true half of it is still true and the false half is how
+          # it stayed out for three rounds.
           #
-          #   RuntimeError: Failed to infer device type
+          # True: in `vllm/vllm-openai:latest`, `vllm serve --help` initialises
+          # hardware before printing anything and dies on a GPU-less runner with
+          # `RuntimeError: Failed to infer device type`.
           #
-          # So its flags cannot be checked without a GPU, at any price of CI
-          # plumbing — three rounds went into proving that, and the reason is
-          # recorded here so a fourth does not. To check them, run on a machine
-          # with a GPU:
+          # False, and this file used to assert it: that its flags therefore
+          # "cannot be checked without a GPU, at any price of CI plumbing". The
+          # device check belongs to the image's *platform plugin*, not to the
+          # CLI. `vllm/vllm-tpu:latest` ships the same `vllm` binary behind a
+          # platform that tolerates a missing accelerator, and answers
+          # `vllm serve --help=all` on a laptop — 360 flags, no device.
+          #
+          # It is also 2.4 GB against the CUDA image's 8.9 GB.
+          #
+          # The caveat, stated rather than buried: this is a different *build*
+          # of vLLM. `EngineArgs` is platform-independent, so a flag accepted
+          # here is accepted on CUDA, but that is an argument, not a
+          # measurement. On a GPU box the stronger check is one command:
           #
           #   CLICKLLM_REQUIRE_ENGINES=1 pytest tests/test_engine_flags.py -k vllm
-          #
-          # `tests/test_engine_flags.py` still parametrises vllm, so anyone with
-          # the hardware gets the check for free and everyone else gets a skip
-          # that names the reason. What is NOT claimed anywhere is that vLLM's
-          # flags have been verified against the binary. They have not.
+          - engine: vllm
+            image: vllm/vllm-tpu:latest
           - engine: sglang
             image: lmsysorg/sglang:latest
     runs-on: ubuntu-latest

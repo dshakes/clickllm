@@ -261,7 +261,11 @@ class VllmAdapter(Adapter):
     """vLLM. Flags verified against the source in [`SOURCES`]."""
 
     name = "vllm"
-    help_argv = ("vllm", "serve", "--help")
+    # `--help=all`, not `--help`. Since vLLM sectioned its help, plain `--help`
+    # prints a summary that names one flag — `--help` itself — so asking it
+    # yields a one-element set and every flag we emit reads as drift. The
+    # failure would have been blamed on the dialect; the dialect was fine.
+    help_argv = ("vllm", "serve", "--help=all")
 
     def translate(self, setting: Setting, value: object) -> Translated | Unsupported:
         match setting:
@@ -948,15 +952,15 @@ class LlmdAdapter(VllmAdapter):
     Deployments. Those belong to `clickllm.k8s.reconcile`, not to an argv
     dialect, and building them here would be the wrapper NFR-4 forbids.
 
-    Inherits vLLM's verification status, which is worth stating plainly: those
-    flags are documented rather than interrogated, because CI has no GPU to run
-    `vllm serve --help` on. See [`SOURCES`].
+    Inherits vLLM's verification status, which is now interrogated rather than
+    documented: `vllm/vllm-tpu:latest` answers `vllm serve --help=all` on a
+    GPU-less runner, so CI asks the binary. See [`SOURCES`].
     """
 
     name = "llm-d"
     # Deliberately vLLM's binary: that is what the container runs, so that is
-    # whose flags must be right, and it is what to ask if a GPU appears.
-    help_argv = ("vllm", "serve", "--help")
+    # whose flags must be right.
+    help_argv = ("vllm", "serve", "--help=all")
 
 
 _ADAPTERS: dict[str, Adapter] = {
