@@ -269,3 +269,37 @@ def test_mcnemar_survives_more_than_1024_discordant_pairs():
     assert mcnemar(5, 2000).p_value < 1e-6
     # An even split at scale is no evidence at all.
     assert mcnemar(1000, 1000).p_value == pytest.approx(1.0, abs=0.05)
+
+
+@pytest.mark.parametrize(("passed", "total"), [(45, 45), (100, 100), (1, 1), (0, 40), (0, 3)])
+def test_the_posterior_point_estimate_lies_inside_its_own_interval(passed, total):
+    """A point outside its own interval is not a number with a confidence.
+
+    `point` is the unshrunk weighted mean, so an all-pass cluster gives exactly
+    1.0. The bounds are percentiles of `Beta(k + ½, n - k + ½)` draws, and that
+    posterior has support on the OPEN interval (0, 1) — its 97.5th percentile is
+    strictly below 1.0 for every finite n. Two estimators, nothing reconciling
+    them, so `weighted_posterior([(wilson(45, 45), 1.0)])` returned point=1.0
+    against high=0.999985944. The mirror case, 0 of n, put the point below `low`.
+
+    Invisible at the 0 d.p. these render at, which is why it survived — and
+    exactly the kind of thing a downstream `low <= point <= high` check would
+    trip over. Boundary cases only, because the boundary is where the two
+    estimators are guaranteed to disagree.
+    """
+    iv = weighted_posterior([(wilson(passed, total), 1.0)])
+    assert iv.low <= iv.point <= iv.high, (
+        f"{passed}/{total}: point={iv.point!r} outside [{iv.low!r}, {iv.high!r}]"
+    )
+
+
+def test_widening_for_coherence_never_narrows_an_interval():
+    """The negative control for the above: the fix must only ever widen.
+
+    Clamping the bounds to contain the point is safe precisely because it cannot
+    make a claim more confident. A mid-range cluster, where the two estimators
+    already agree, must come back untouched.
+    """
+    iv = weighted_posterior([(wilson(30, 40), 1.0)])
+    assert iv.low < iv.point < iv.high, "a mid-range interval should not be clamped at all"
+    assert iv.low > 0.0 and iv.high < 1.0, "clamping must not have pushed the bounds to 0/1"

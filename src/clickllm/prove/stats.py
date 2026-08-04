@@ -437,6 +437,23 @@ def weighted_posterior(
     )
     lo = sampled[max(0, math.floor(alpha / 2 * draws))]
     hi = sampled[min(draws - 1, math.ceil((1 - alpha / 2) * draws) - 1)]
+    # `point` and the bounds come from two different estimators, and at the
+    # boundary they disagree by construction. `point` is the unshrunk weighted
+    # mean, so an all-pass cluster gives exactly 1.0; the bounds are percentiles
+    # of Beta(k + ½, n - k + ½) draws, and that posterior has support on the OPEN
+    # interval (0, 1) — its 97.5th percentile is strictly below 1.0 for every
+    # finite n. So `weighted_posterior([(wilson(45, 45), 1.0)])` returned
+    # point=1.0 against high=0.999985944: a point estimate outside its own
+    # interval. The mirror case, 0 of n, put it below `low`.
+    #
+    # Widened rather than re-estimated. The alternative — taking `point` from the
+    # same draws (the posterior median) — would guarantee coherence too, but it
+    # redefines the headline this module documents as `Σ wₖ pₖ / Σ wₖ` and would
+    # print 45/45 as 99%. Widening only ever makes the interval more
+    # conservative, never narrower, and leaves every rendered figure unchanged:
+    # the corrections here are ~1.4e-5, far below the 0 d.p. these render at.
+    lo = min(lo, point)
+    hi = max(hi, point)
     return Interval(
         passed=sum(i.passed for i, _ in usable),
         total=sum(i.total for i, _ in usable),
