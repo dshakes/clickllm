@@ -907,3 +907,43 @@ def test_a_longer_context_costs_more_per_token_at_the_same_concurrency():
     short = fit.solve(m, "q8", hw, 8192, 16).aggregate_tokens_per_sec
     long = fit.solve(m, "q8", hw, 65536, 16).aggregate_tokens_per_sec
     assert long < short, f"8x the context did not slow decode: {short} -> {long}"
+
+
+def test_throughput_falls_as_context_grows_because_decode_reads_the_kv_cache():
+    """Decode reads the weights *and* the KV cache, every token.
+
+    The model counted weights only, so it returned the same tok/s at 2k and at
+    128k — which is not a rounding error but a missing term: attention cannot
+    run without reading the cache. The error is one-directional, always
+    *over*-predicting, and worst exactly where people push context hardest.
+
+    Measured on an M4 Max (Llama 3.1 8B q8, `llama-bench`), generation at 8k
+    cache depth was materially slower than at depth 0 in every run taken — the
+    magnitude varied with machine load (see #80) but the direction never did.
+    This asserts the direction, which is the part that is certain.
+    """
+    from clickllm import catalog
+    from clickllm.fit import solve
+    from clickllm.hardware import Hardware
+
+    hw = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * 2**30,
+        usable_bytes=96 * 2**30,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    model = catalog.get("llama-3.1-8b")
+    rates = [solve(model, "q8", hw, ctx, 1).tokens_per_sec for ctx in (2048, 8192, 32768, 131072)]
+
+    assert all(r is not None for r in rates)
+    assert rates == sorted(rates, reverse=True), (
+        f"throughput must fall as context grows, got {[round(r) for r in rates]}"
+    )
+    # And by a real amount, not a rounding artefact: at this model's KV size a
+    # 64x context increase moves the KV term from negligible to dominant.
+    assert rates[0] > rates[-1] * 2, (
+        f"2k={rates[0]:.0f} vs 128k={rates[-1]:.0f} tok/s — the KV term is not "
+        f"actually in the denominator"
+    )

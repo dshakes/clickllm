@@ -110,11 +110,15 @@ class Fit:
             f"  {'headroom':<50}{self.headroom_bytes / GB:6.1f} GB",
         ]
         if self.tokens_per_sec:
-            read = m.active_b * 1e9 * QUANT_BITS[self.quant] / 8
+            weights_read = m.active_b * 1e9 * QUANT_BITS[self.quant] / 8
+            kv_read = m.kv_bytes_per_token() * self.context
             lines += [
                 "",
-                f"  decode is bandwidth-bound: {read / GB:.1f} GB read/token"
-                f" ({m.active_b:g}B active) at {BANDWIDTH_EFFICIENCY:.0%} of peak",
+                "  decode is bandwidth-bound, and reads both:",
+                f"    weights  {weights_read / GB:5.1f} GB/token  ({m.active_b:g}B active)",
+                f"    kv cache {kv_read / GB:5.1f} GB/token  (the whole cache, every token)",
+                f"    total    {(weights_read + kv_read) / GB:5.1f} GB/token"
+                f" at {BANDWIDTH_EFFICIENCY:.0%} of peak",
                 f"  ~{self.tokens_per_sec:.0f} tok/s single-stream"
                 "  (roofline estimate, not measured)",
             ]
@@ -132,7 +136,21 @@ def solve(model: ModelSpec, quant: str, hw: Hardware, context: int, concurrency:
     kv = model.kv_bytes_per_token() * context * concurrency
     tps = None
     if hw.bandwidth_gbps:
+        # Decode reads the weights AND the KV cache, every token — attention
+        # cannot run without the cache. This counted weights only, which is
+        # short by kv_bytes_per_token x context and therefore *over*-predicted,
+        # worst exactly where users push context hardest. On an M4 Max serving
+        # Llama 3.1 8B q8 at 8k that omission is ~12% of the traffic.
+        #
+        # Full context rather than half: a decode loop at its configured ceiling
+        # is the case worth quoting, and over-predicting throughput is how
+        # someone buys hardware that cannot reach the number.
+        #
+        # Single-stream, matching the label this figure is printed under — the
+        # batched case amortises weights across the batch and needs its own
+        # derivation, not a factor bolted on here.
         read_per_token = model.active_b * 1e9 * QUANT_BITS[quant] / 8
+        read_per_token += model.kv_bytes_per_token() * context
         tps = (hw.bandwidth_gbps * 1e9 * BANDWIDTH_EFFICIENCY) / read_per_token
     return Fit(model, quant, context, concurrency, w, kv, _overhead(w), hw.usable_bytes, tps)
 
