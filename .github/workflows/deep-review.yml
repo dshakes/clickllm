@@ -93,16 +93,31 @@ jobs:
 
             The repo's invariants are in CLAUDE.md. Read it first.
 
-            Post your findings as a GitHub issue titled
-            "deep review: ${{ github.event.inputs.path }}", labelled `agent:review`.
-            If you find nothing, say so in the issue — an unreviewed file and a
-            reviewed-clean file must never look the same from the outside, which
-            is the whole reason this workflow exists.
+            FILING — follow this exactly, it is the step that keeps failing.
+
+            1. Write the full findings to `findings.md` with the Write tool.
+            2. File them with precisely this command, and no other shape:
+
+                gh issue create --title "deep review: ${{ github.event.inputs.path }}" --label agent:review --body-file findings.md
+
+            Do NOT pass the body with `--body`, a heredoc, or `$(...)`. The
+            sandbox permits `gh issue create` and the Write tool and nothing
+            else, so a body assembled any other way is refused. Four reviews
+            were performed in full and then lost that way — the files were read,
+            the defects were found, and the findings never reached anyone.
+
+            Do not file a placeholder first and plan to edit it. There is no
+            `gh issue edit` here; a placeholder is permanent, and it makes an
+            unreviewed file look reviewed.
+
+            If you find nothing, say so in `findings.md` and file it anyway — an
+            unreviewed file and a reviewed-clean file must never look the same
+            from the outside, which is the whole reason this workflow exists.
           claude_args: |
             --model sonnet
             --max-turns 60
             --max-budget-usd 3.00
-            --allowedTools "Read,Grep,Glob,Bash(gh issue create:*),Bash(git log:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(gh issue create:*),Bash(git log:*)"
 
       # The review step reports success whether or not it filed anything. Five
       # dispatches produced four issues — host.py and collect.py read their files
@@ -112,6 +127,32 @@ jobs:
       # A reviewer that produces no finding and no issue is indistinguishable
       # from one that found nothing, which is the single equivalence this
       # workflow exists to break. So the artifact is verified, not assumed.
+      # Four dispatches died with 3-12 permission denials each, well inside
+      # budget and turns, and the run summary said only "failure". Diagnosing it
+      # meant pulling raw logs per run. The denial count is the single number
+      # that separates "reviewed and could not file" from "ran out of money", so
+      # it is printed rather than dug for.
+      - name: what the sandbox refused, if anything
+        if: always()
+        run: |
+          set -uo pipefail
+          out=/home/runner/work/_temp/claude-execution-output.json
+          [ -f "$out" ] || { echo "no execution output to read"; exit 0; }
+          python3 - "$out" <<'PY'
+          import json, sys
+          try:
+              blob = json.load(open(sys.argv[1]))
+          except Exception as e:
+              print(f"could not parse execution output: {e}"); raise SystemExit(0)
+          rec = blob[-1] if isinstance(blob, list) else blob
+          d = rec.get("permission_denials_count", 0)
+          print(f"denials={d} turns={rec.get('num_turns')} cost=${rec.get('total_cost_usd', 0):.2f}")
+          if d:
+              print(f"::warning::the sandbox refused {d} tool call(s). If no issue was "
+                    f"filed, the review was performed and the findings were lost — widen "
+                    f"allowedTools rather than re-running into the same wall.")
+          PY
+
       - name: an issue must exist for this path, or the review did not happen
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
