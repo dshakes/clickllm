@@ -331,3 +331,43 @@ def test_every_decision_carries_a_specific_reason(kwargs):
     assert d.render()
     # No decision may report a bare verdict with nothing behind it.
     assert d.reason.strip() != d.action.value
+
+
+def test_the_gate_never_advances_when_every_scored_cluster_is_pinned():
+    """An empty evidence set is the one input the gate must not read as yes.
+
+    `decide()` filters `readings` into `live` (unpinned clusters) and decides on
+    `live` — but the no-evidence guard checked `readings`. So once every scored
+    cluster was pinned to the incumbent, the guard passed while the set actually
+    being judged was empty. `_advance_blocked` then iterated over nothing, every
+    check was vacuously satisfied, and the gate proposed ADVANCE with a reason
+    that refutes itself:
+
+        "0% of traffic is proven at or above the 90% bar;
+         shadow -> canary 5% is supported."
+
+    One cluster scoring 2/40 against a 0.90 bar — already pinned, i.e. already
+    refused — was enough to clear the whole ladder. Invariant 8.
+
+    The existing pinning test kept one live cluster alongside the pinned one, so
+    `live` never emptied and this path was never reached.
+    """
+    for pinned_n in (1, 2, 3):
+        readings = [reading(f"c{i}", 2, 40, share=1.0 / pinned_n) for i in range(pinned_n)]
+        d = decide(
+            readings,
+            Stage("shadow", 0),
+            pinned=frozenset(r.cluster for r in readings),
+        )
+        assert d.action is Action.HOLD, (
+            f"{pinned_n} cluster(s), all pinned -> {d.action}: {d.reason}"
+        )
+        assert "pinned" in d.reason
+
+
+def test_a_proven_live_cluster_still_advances_when_others_are_pinned():
+    """The negative control for the above: holding on an empty live set must not
+    turn into holding whenever anything at all is pinned."""
+    readings = [reading("bad", 2, 40, share=0.2), reading("good", 400, 400, share=0.8)]
+    d = decide(readings, Stage("shadow", 0), pinned=frozenset(["bad"]))
+    assert d.action is Action.ADVANCE, f"{d.action}: {d.reason}"

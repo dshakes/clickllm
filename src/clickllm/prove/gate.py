@@ -391,6 +391,26 @@ def decide(
     # 4. Nothing is wrong. Is anything proven enough to move?
     if not readings:
         return Decision(Action.HOLD, "no evidence gathered yet")
+    # `live`, not `readings`. Everything below decides on `live`, so a guard on
+    # `readings` passes while the set actually being judged is empty — which is
+    # the ordinary outcome once every scored cluster is pinned to the incumbent.
+    # `_advance_blocked` then iterates over nothing, every check is vacuously
+    # satisfied, and the gate proposed ADVANCE with a self-refuting reason:
+    #
+    #   "0% of traffic is proven at or above the 90% bar;
+    #    shadow -> canary 5% is supported."
+    #
+    # Reproduced on one pinned cluster scoring 2/40 against a 0.90 bar — a
+    # cluster we had already refused to trust was enough to clear the ladder.
+    # The gate exists to say no; an empty evidence set is the one input it must
+    # never read as yes.
+    if not live:
+        return Decision(
+            Action.HOLD,
+            f"every scored cluster is pinned to the incumbent ({len(readings)} "
+            f"of {len(readings)}) — nothing is proven that could move traffic",
+            clusters=tuple(r.cluster for r in readings),
+        )
 
     nxt = _next_stage(stage)
     if nxt is None:
