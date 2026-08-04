@@ -172,7 +172,11 @@ def max_context(model: ModelSpec, quant: str, hw: Hardware, concurrency: int = 1
     spare = hw.usable_bytes - w - _overhead(w)
     if spare <= 0:
         return 0
-    per_tok = model.kv_bytes_per_token() * concurrency
+    # `concurrency=0` divided by zero. The CLI clamps before it gets here, so
+    # this was only reachable from the library and the SDK — which is exactly
+    # who would hit it, since a caller computing a ceiling is likelier to pass a
+    # loop variable than a validated flag.
+    per_tok = model.kv_bytes_per_token() * max(1, concurrency)
     return min(model.max_context, int(spare / per_tok))
 
 
@@ -181,7 +185,8 @@ def max_concurrency(model: ModelSpec, quant: str, hw: Hardware, context: int) ->
     spare = hw.usable_bytes - w - _overhead(w)
     if spare <= 0:
         return 0
-    return int(spare / (model.kv_bytes_per_token() * context))
+    # Same guard as `max_context`: `context=0` divided by zero.
+    return int(spare / (model.kv_bytes_per_token() * max(1, context)))
 
 
 def quant_preference(quants: tuple[str, ...]) -> list[str]:
@@ -231,9 +236,18 @@ def rank(
                 else ""
             )
         else:
+            # The OVERAGE, not the whole KV figure. This printed `kv_bytes`
+            # under the words "more than available", which reads as the
+            # shortfall and is not: for qwen3-32b @ q4 on a 36 GB budget it
+            # said "needs 32 GB more" when the real overage was 16 GB — 2x,
+            # enough to make someone dismiss a machine that nearly fits. KV is
+            # still named because it is usually the dominant term, but overhead
+            # is in the total too and the number now says what it means.
+            over = (f.total_bytes - f.usable_bytes) / GB
             why = (
                 f"weights fit ({f.weight_bytes / GB:.0f} GB) but KV at {context:,} ctx "
-                f"x{concurrency} needs {f.kv_bytes / GB:.0f} GB more than available"
+                f"x{concurrency} ({f.kv_bytes / GB:.0f} GB) puts it "
+                f"{over:.0f} GB over the {f.usable_bytes / GB:.0f} GB available"
             )
         rejected.append((m, why))
 
@@ -421,7 +435,24 @@ def demo() -> None:
     q3 = catalog.get("qwen3-32b")
     f = solve(q3, "q4", m4, 32768, 1)
     assert f.feasible
-    assert f.total_bytes == f.weight_bytes + f.kv_bytes + f.overhead_bytes
+    # NOT `total == weights + kv + overhead`. That re-derives `total_bytes` from
+    # the exact expression the property is defined with, so it cannot fail for
+    # any input and would still pass with all three components wrong. It looked
+    # like a sizing check and verified that Python adds the same way twice.
+    #
+    # Re-deriving each component from its own formula has the same defect one
+    # level down, so these are pinned literals, observed once and written here.
+    # They fail if the catalogue entry, the quantisation table or the arithmetic
+    # moves — which is the whole point.
+    #
+    # Note 18.45 GB rather than 16.4: `QUANT_BITS["q4"]` is 4.5, not 4, because
+    # a 4-bit checkpoint still carries scales. Writing this check is what
+    # surfaced that; the tautological version could not have.
+    assert f.weight_bytes == 18_449_999_999, f.weight_bytes
+    assert f.kv_bytes == 8_589_934_592, f.kv_bytes  # 262,144 B/tok x 32,768
+    assert f.overhead_bytes == 3_086_612_735, f.overhead_bytes
+    assert f.total_bytes == 30_126_547_326, f.total_bytes
+    assert f.headroom_bytes == f.usable_bytes - f.total_bytes
 
     # KV must scale linearly in both context and concurrency.
     a = solve(q3, "q4", m4, 8192, 1)
