@@ -950,8 +950,11 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   usable                                              96.0 GB
   headroom                                            39.8 GB
 
-  decode is bandwidth-bound: 3.1 GB read/token (3.3B active) at 72% of peak
-  ~119 tok/s single-stream  <span class="c">(roofline estimate, not measured)</span>
+  decode is bandwidth-bound, and reads both:
+    weights    3.1 GB/token  (3.3B active)
+    kv cache   3.0 GB/token  (the whole cache, every token)
+    total      6.1 GB/token at 72% of peak
+  ~60 tok/s single-stream  <span class="c">(roofline estimate, not measured)</span>
 
   <span class="g">verdict: FITS</span></pre>
 
@@ -1003,7 +1006,7 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   <span class="k">ENGINE</span>    mlx   <span class="c">Apple silicon: the CUDA engines cannot run here at all. MLX has
                   the better batching story of the two Metal options.</span>
   <span class="k">ENDPOINT</span>  http://127.0.0.1:8000/v1
-  <span class="k">SPEED</span>     ~119 tok/s single-stream   <span class="c">(roofline estimate, not measured)</span>
+  <span class="k">SPEED</span>     ~60 tok/s single-stream   <span class="c">(roofline estimate, not measured)</span>
 
   <span class="k">RUN</span>
     mlx_lm.server --model mlx-community/Qwen3-30B-A3B-8bit --decode-concurrency 32 --prompt-concurrency 32 --prefill-step-size 2048 --host 127.0.0.1 --port 8000
@@ -1140,11 +1143,11 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 
   <span class="k">TARGETS</span>
     linux-cuda    vllm @ q8 on NVIDIA H100 80 GB SXM
-                  ~731 tok/s single-stream — roofline estimate, not measured
+                  ~370 tok/s single-stream — roofline estimate, not measured
     linux-rocm    vllm @ q8 on AMD MI300X 192 GB
-                  ~1156 tok/s single-stream — roofline estimate, not measured
+                  ~585 tok/s single-stream — roofline estimate, not measured
     darwin-metal  mlx @ q8 on Apple M4 Max 128 GB
-                  ~119 tok/s single-stream — roofline estimate, not measured
+                  ~60 tok/s single-stream — roofline estimate, not measured
 
   <span class="k">WEIGHTS</span>
     Qwen/Qwen3-30B-A3B  @ ad44e777bcd1

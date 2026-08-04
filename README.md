@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-983-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-992-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -162,7 +162,7 @@ clickllm run llama-3.1-8b --quant q4
   WEIGHTS   mlx-community/Llama-3.1-8B-Instruct-4bit   (confirmed; 4 candidates checked)
   ENGINE    mlx   Apple silicon: the CUDA engines cannot run here at all
   ENDPOINT  http://127.0.0.1:8000/v1
-  SPEED     ~87 tok/s single-stream   (roofline estimate, not measured)
+  SPEED     ~45 tok/s single-stream   (roofline estimate, not measured)
 
   NOT EXPRESSED
     · context_length: mlx_lm.server takes no context-length flag
@@ -558,10 +558,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 756 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 765 Python
 ```
 
-**983 tests.** 756 Python, 227 Rust. Ten of the Python tests skip on a bare
+**992 tests.** 765 Python, 227 Rust. Ten of the Python tests skip on a bare
 machine: eight exercise the PyO3 bridge (`maturin develop` in `clickllm-py/`
 turns them on), and two ask vLLM and SGLang for their own flags, which needs
 those engines installed. CI runs both inside the engines' published images, so
