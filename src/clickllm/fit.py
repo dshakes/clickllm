@@ -35,6 +35,17 @@ class Fit:
     overhead_bytes: int
     usable_bytes: int
     tokens_per_sec: float | None
+    #: Bytes/second the decode loop is assumed to actually achieve —
+    #: `bandwidth x BANDWIDTH_EFFICIENCY`, carried rather than recovered.
+    #:
+    #: `aggregate_tokens_per_sec` used to rebuild this by inverting
+    #: `tokens_per_sec`, which meant the read-per-token formula lived in two
+    #: places, forwards in one and backwards in the other. Adding the KV term to
+    #: `solve()` silently falsified the inverse, under-recovering bandwidth by up
+    #: to 68% at 128k context and inflating `$/Mtok` roughly 3x — a bias against
+    #: self-hosting, in the one number this product exists to get right. Both
+    #: reviewers caught it; the fix is that the formula now has one home.
+    effective_bw: float | None = None
 
     @property
     def total_bytes(self) -> int:
@@ -74,17 +85,13 @@ class Fit:
         overhead and compute-bound regimes at very large batch, all of which make
         the true number lower. Named `roofline` wherever it is printed.
         """
-        if self.tokens_per_sec is None or self.concurrency < 1:
+        if self.effective_bw is None or self.concurrency < 1:
             return None
         weight_read = self.model.active_b * 1e9 * QUANT_BITS[self.quant] / 8
         if weight_read <= 0:
             return None
-        # `tokens_per_sec` already carries bandwidth x efficiency / weight_read,
-        # so recover the effective bandwidth rather than re-deriving it from the
-        # Hardware, which this dataclass does not keep.
-        effective_bw = self.tokens_per_sec * weight_read
         kv_read = self.model.kv_bytes_per_token() * self.context
-        return (self.concurrency * effective_bw) / (weight_read + self.concurrency * kv_read)
+        return (self.concurrency * self.effective_bw) / (weight_read + self.concurrency * kv_read)
 
     @property
     def slow(self) -> bool:
@@ -110,11 +117,15 @@ class Fit:
             f"  {'headroom':<50}{self.headroom_bytes / GB:6.1f} GB",
         ]
         if self.tokens_per_sec:
-            read = m.active_b * 1e9 * QUANT_BITS[self.quant] / 8
+            weights_read = m.active_b * 1e9 * QUANT_BITS[self.quant] / 8
+            kv_read = m.kv_bytes_per_token() * self.context
             lines += [
                 "",
-                f"  decode is bandwidth-bound: {read / GB:.1f} GB read/token"
-                f" ({m.active_b:g}B active) at {BANDWIDTH_EFFICIENCY:.0%} of peak",
+                "  decode is bandwidth-bound, and reads both:",
+                f"    weights  {weights_read / GB:5.1f} GB/token  ({m.active_b:g}B active)",
+                f"    kv cache {kv_read / GB:5.1f} GB/token  (the whole cache, every token)",
+                f"    total    {(weights_read + kv_read) / GB:5.1f} GB/token"
+                f" at {BANDWIDTH_EFFICIENCY:.0%} of peak",
                 f"  ~{self.tokens_per_sec:.0f} tok/s single-stream"
                 "  (roofline estimate, not measured)",
             ]
@@ -131,10 +142,28 @@ def solve(model: ModelSpec, quant: str, hw: Hardware, context: int, concurrency:
     w = model.weight_bytes(quant)
     kv = model.kv_bytes_per_token() * context * concurrency
     tps = None
+    effective_bw = None
     if hw.bandwidth_gbps:
+        # Decode reads the weights AND the KV cache, every token — attention
+        # cannot run without the cache. This counted weights only, which is
+        # short by kv_bytes_per_token x context and therefore *over*-predicted,
+        # worst exactly where users push context hardest. On an M4 Max serving
+        # Llama 3.1 8B q8 at 8k that omission is ~12% of the traffic.
+        #
+        # Full context rather than half: a decode loop at its configured ceiling
+        # is the case worth quoting, and over-predicting throughput is how
+        # someone buys hardware that cannot reach the number.
+        #
+        # Single-stream, matching the label this figure is printed under — the
+        # batched case amortises weights across the batch and needs its own
+        # derivation, not a factor bolted on here.
         read_per_token = model.active_b * 1e9 * QUANT_BITS[quant] / 8
-        tps = (hw.bandwidth_gbps * 1e9 * BANDWIDTH_EFFICIENCY) / read_per_token
-    return Fit(model, quant, context, concurrency, w, kv, _overhead(w), hw.usable_bytes, tps)
+        read_per_token += model.kv_bytes_per_token() * context
+        effective_bw = hw.bandwidth_gbps * 1e9 * BANDWIDTH_EFFICIENCY
+        tps = effective_bw / read_per_token
+    return Fit(
+        model, quant, context, concurrency, w, kv, _overhead(w), hw.usable_bytes, tps, effective_bw
+    )
 
 
 def max_context(model: ModelSpec, quant: str, hw: Hardware, concurrency: int = 1) -> int:

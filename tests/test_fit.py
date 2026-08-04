@@ -880,6 +880,8 @@ def test_aggregate_throughput_beats_one_stream_and_then_saturates():
     hw = _hw(96)
     single = fit.solve(m, "q8", hw, 8192, 1)
     assert single.aggregate_tokens_per_sec is not None
+    # At concurrency 1 the aggregate is one stream, no more and no less.
+    assert single.aggregate_tokens_per_sec == pytest.approx(single.tokens_per_sec)
 
     prev = single.aggregate_tokens_per_sec
     ratios = []
@@ -893,8 +895,9 @@ def test_aggregate_throughput_beats_one_stream_and_then_saturates():
     assert ratios[-1] < ratios[0], f"no saturation — scaling never slowed: {ratios}"
     # And it is bounded by bandwidth / KV-read, not unbounded.
     huge = fit.solve(m, "q8", hw, 8192, 100_000).aggregate_tokens_per_sec
-    weight_read = m.active_b * 1e9 * 1  # q8 -> 1 byte per param
-    ceiling = (single.tokens_per_sec * weight_read) / (m.kv_bytes_per_token() * 8192)
+    # From the carried bandwidth, not by inverting tokens_per_sec — that inverse
+    # is what broke when the KV term joined the denominator.
+    ceiling = single.effective_bw / (m.kv_bytes_per_token() * 8192)
     assert huge <= ceiling * 1.01, f"exceeded the bandwidth ceiling: {huge} > {ceiling}"
 
 
@@ -907,3 +910,69 @@ def test_a_longer_context_costs_more_per_token_at_the_same_concurrency():
     short = fit.solve(m, "q8", hw, 8192, 16).aggregate_tokens_per_sec
     long = fit.solve(m, "q8", hw, 65536, 16).aggregate_tokens_per_sec
     assert long < short, f"8x the context did not slow decode: {short} -> {long}"
+
+
+def test_throughput_falls_as_context_grows_because_decode_reads_the_kv_cache():
+    """Decode reads the weights *and* the KV cache, every token.
+
+    The model counted weights only, so it returned the same tok/s at 2k and at
+    128k — which is not a rounding error but a missing term: attention cannot
+    run without reading the cache. The error is one-directional, always
+    *over*-predicting, and worst exactly where people push context hardest.
+
+    Measured on an M4 Max (Llama 3.1 8B q8, `llama-bench`), generation at 8k
+    cache depth was materially slower than at depth 0 in every run taken — the
+    magnitude varied with machine load (see #80) but the direction never did.
+    This asserts the direction, which is the part that is certain.
+    """
+    from clickllm import catalog
+    from clickllm.fit import solve
+    from clickllm.hardware import Hardware
+
+    hw = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * 2**30,
+        usable_bytes=96 * 2**30,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    model = catalog.get("llama-3.1-8b")
+    rates = [solve(model, "q8", hw, ctx, 1).tokens_per_sec for ctx in (2048, 8192, 32768, 131072)]
+
+    assert all(r is not None for r in rates)
+    assert rates == sorted(rates, reverse=True), (
+        f"throughput must fall as context grows, got {[round(r) for r in rates]}"
+    )
+    # And by a real amount, not a rounding artefact: at this model's KV size a
+    # 64x context increase moves the KV term from negligible to dominant.
+    assert rates[0] > rates[-1] * 2, (
+        f"2k={rates[0]:.0f} vs 128k={rates[-1]:.0f} tok/s — the KV term is not "
+        f"actually in the denominator"
+    )
+
+
+def test_aggregate_at_concurrency_one_is_exactly_the_single_stream_figure():
+    """The two throughput figures must agree where they describe the same thing.
+
+    `aggregate_tokens_per_sec` used to rebuild the effective bandwidth by
+    inverting `tokens_per_sec` — so the read-per-token formula lived in two
+    places, forwards in `solve()` and backwards here. Adding the KV term to one
+    silently falsified the other, under-recovering bandwidth by up to 68% at
+    128k context and inflating `$/Mtok` about 3x, against self-hosting.
+
+    Nothing caught it: every existing test checked each function's *shape*
+    (rises with concurrency, saturates, falls with context) and none checked
+    that they agreed. At a batch of one they describe the identical decode loop,
+    so they must return the identical number — which is the cheapest possible
+    tie between them, and it fails the moment either formula moves alone.
+    """
+    m = catalog.get("llama-3.1-8b")
+    hw = _hw(96)
+    for ctx in (2048, 8192, 32768, 131072):
+        f = fit.solve(m, "q8", hw, ctx, 1)
+        assert f.tokens_per_sec is not None and f.aggregate_tokens_per_sec is not None
+        assert f.aggregate_tokens_per_sec == pytest.approx(f.tokens_per_sec, rel=1e-9), (
+            f"at {ctx} ctx, batch-of-one aggregate {f.aggregate_tokens_per_sec:.2f} != "
+            f"single-stream {f.tokens_per_sec:.2f} — the two formulas have drifted apart"
+        )
