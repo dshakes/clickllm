@@ -238,7 +238,24 @@ class Receipt:
         for key in ("proven", "regret", "unproven"):
             body[key] = tuple(Claim(**c) for c in body.get(key, ()))
         r = cls(**body)
-        if (stated := blob.get("digest")) and stated != r.digest():
+        # A MISSING digest is a failure, not a skip. This was
+        # `if (stated := blob.get("digest")) and stated != r.digest()`, so a
+        # falsy digest short-circuited the comparison and the receipt parsed
+        # with no tamper check at all — deleting one line of JSON disabled it.
+        # `guard` and `box --receipt` both act on the parsed object without
+        # re-running the eval, so a receipt forged to claim it passed was
+        # accepted, rendered and used to authorise a cutover (invariant 8).
+        #
+        # Fails closed: no digest means unverifiable, and unverifiable means
+        # refused. Every receipt this repo issues carries one — `to_json` always
+        # emits it — so nothing legitimate loses.
+        stated = blob.get("digest")
+        if not stated:
+            raise ValueError(
+                "receipt carries no digest, so nothing about it can be verified "
+                "— refusing it rather than trusting its claims"
+            )
+        if stated != r.digest():
             raise ValueError(
                 f"receipt digest {stated[:12]} does not match its content "
                 f"{r.digest()[:12]} — it has been altered since it was issued"
