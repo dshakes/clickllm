@@ -1228,3 +1228,39 @@ def test_every_published_throughput_figure_matches_a_real_solve():
             f"{surface} should quote {figure} tok/s for {model_id} {quant} "
             f"@{ctx} x{conc}; the solver moved and the page did not"
         )
+
+
+def test_the_homebrew_formula_is_not_still_a_placeholder():
+    """`brew install` had never worked, for ten releases, silently.
+
+    `Formula/clickllm.rb` shipped with `sha256 "000…0"` and a v0.1.0 URL while
+    the repo released up to v0.1.9. An all-zero digest fails Homebrew's checksum
+    verification on every install, so the formula was not merely stale — it had
+    never once resolved.
+
+    Nothing caught it because the formula is not one of `tools/bump.py`'s
+    fourteen version surfaces, and it cannot be: the tarball sha only exists
+    after the tag does, so a pre-release bump would leave a new URL against an
+    old digest and break it a different way. The release workflow owns it, and
+    that workflow's `gh pr create ... || true` swallowed ten consecutive
+    failures while reporting green.
+
+    This is the assertion that fails on the exact state that shipped: a digest
+    that is still the placeholder means no release has ever populated it.
+    """
+    root = Path(__file__).resolve().parents[1]
+    formula = root / "Formula" / "clickllm.rb"
+    if not formula.exists():
+        pytest.skip("no Homebrew formula in this repo")
+    text = formula.read_text()
+
+    m = re.search(r'sha256\s+"([a-f0-9]{64})"', text)
+    assert m, "formula has no sha256 — brew cannot verify what it downloads"
+    assert set(m.group(1)) != {"0"}, (
+        "formula sha256 is still the all-zero placeholder; `brew install` fails "
+        "checksum verification. The release workflow populates this — if it is "
+        "still zero, that workflow has not succeeded."
+    )
+
+    url = re.search(r"archive/refs/tags/(v[0-9.]+)\.tar\.gz", text)
+    assert url, "formula URL does not point at a release tag"
