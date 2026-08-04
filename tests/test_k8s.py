@@ -481,3 +481,51 @@ def test_every_engine_is_pointed_at_an_image_that_runs_its_own_argv():
     )
     # And the dialect that justifies it is still vLLM's.
     assert adapter_for("llm-d").help_argv[0] == "vllm"
+
+
+def test_every_catalogue_model_yields_a_name_a_service_will_accept():
+    """A Deployment and its Service are named from the same string under two
+    different rules, and only the Service refuses.
+
+    Deployment names are DNS-1123 subdomains (dots legal); Service names are
+    DNS-1035 labels (dots illegal). `Llama-3.1-8B-Instruct` therefore applied as
+    a Deployment with a warning and was rejected as a Service — the pod ran and
+    nothing could reach it. Four of the catalogue's models had a dot in their
+    version. Checked here for all of them, offline, because the server-side
+    dry-run that found it needs a cluster and this does not.
+    """
+    import re
+
+    from clickllm import catalog
+    from clickllm.k8s.reconcile import dns_label
+
+    dns1035 = re.compile(r"^[a-z]([-a-z0-9]*[a-z0-9])?$")
+    for model in catalog.load():
+        raw = (model.repo or model.id).split("/")[-1].lower()
+        name = dns_label(raw)
+        assert dns1035.match(name), f"{model.id}: {raw!r} -> {name!r} is not a DNS-1035 label"
+        assert len(name) <= 63, f"{model.id}: {name!r} exceeds the 63-char limit"
+
+
+def test_the_generated_service_and_deployment_agree_on_the_name():
+    """The Service selects on the Deployment's labels and shares its name. If the
+    sanitiser reached one object and not the other, the Service would resolve to
+    no pods — which looks healthy and serves nothing."""
+    from clickllm import catalog
+    from clickllm.hardware import Hardware
+    from clickllm.k8s.reconcile import deployment_for
+    from clickllm.plan import Requirements, Workload, plan
+
+    hw = Hardware(
+        kind="nvidia",
+        name="H100 80GB",
+        total_bytes=80 * 2**30,
+        usable_bytes=76 * 2**30,
+        bandwidth_gbps=3350.0,
+        cores=132,
+    )
+    model = catalog.get("llama-3.1-8b")
+    p = plan(hw, Requirements(Workload.INTERACTIVE, 8), model, "fp16")
+    dep, _ = deployment_for("llama-3.1-8b-instruct", "default", model.repo or model.id, p)
+    assert dep["metadata"]["name"] == "llama-3-1-8b-instruct"
+    assert dep["spec"]["selector"]["matchLabels"] == dep["spec"]["template"]["metadata"]["labels"]

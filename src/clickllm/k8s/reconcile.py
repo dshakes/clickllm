@@ -26,6 +26,7 @@ unproven model and no single layer should be the only thing standing there.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,6 +39,7 @@ __all__ = [
     "Reconciled",
     "demo",
     "deployment_for",
+    "dns_label",
     "reconcile",
     "select_node",
 ]
@@ -176,6 +178,35 @@ def _requirements(spec: dict[str, Any]) -> Requirements:
     )
 
 
+def dns_label(name: str) -> str:
+    """`name` as a DNS-1035 label, which is what a Service name must be.
+
+    Kubernetes applies two different rules to two objects built from the same
+    string, and only the stricter one refuses. A Deployment name is a DNS-1123
+    *subdomain*, where dots are legal; a Service name is a DNS-1035 *label*,
+    where they are not. So a model repo like `Llama-3.1-8B-Instruct` yields a
+    Deployment that applies with a warning and a Service that is rejected:
+
+        The Service "llama-3.1-8b-instruct" is invalid: metadata.name:
+        a DNS-1035 label must consist of lower case alphanumeric characters…
+
+    The pod then runs and nothing can reach it, which is worse than failing.
+    Four of fourteen catalogue models hit this, including Llama 3.1 and 3.3 —
+    any version number with a dot in it does.
+
+    Also enforced: a leading letter (labels may not start with a digit) and the
+    63-character ceiling, truncated so it cannot end on a dash.
+    """
+    out = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
+    out = re.sub(r"-{2,}", "-", out)
+    if not out or not out[0].isalpha():
+        # A name starting with a digit is rejected outright. Prefixing is the
+        # only option that keeps it recognisable; truncating the digits would
+        # silently rename someone's model.
+        out = f"m-{out}" if out else "model"
+    return out[:63].rstrip("-")
+
+
 def deployment_for(
     name: str, namespace: str, model: str, p: Plan, replicas: int = 1
 ) -> tuple[dict[str, Any], list[str]]:
@@ -184,7 +215,13 @@ def deployment_for(
     The container args come from the engine adapter, so they are the *engine's
     own* flags — a config that runs with clickllm uninstalled (NFR-4). Nothing
     here wraps an engine.
+
+    The name is normalised here rather than in the callers: both the box and the
+    operator funnel through this function, and the Service built alongside takes
+    its name from the Deployment, so one sanitiser at the funnel is what stops a
+    name that only one of the two objects accepts.
     """
+    name = dns_label(name)
     argv, gaps = p.command(model)
     if not argv:
         return {}, list(gaps)
