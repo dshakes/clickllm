@@ -183,10 +183,27 @@ jobs:
           git checkout -b "$branch"
           git commit -aqm "chore(release): pin $VERSION + tarball sha in the Homebrew formula"
           git push -f origin "$branch"
-          gh pr create --base main --head "$branch" \
-            --title "chore(release): Homebrew formula -> $VERSION" \
-            --body "Automated formula bump for **$VERSION** (url + tarball \`sha256 $sha\`). Auto-merges once checks pass, so \`brew install\` never lags a release." \
-            || gh pr edit "$branch" --body "Automated formula bump for $VERSION (sha256 $sha)." || true
+          # `|| ... || true` used to swallow every outcome here. It swallowed ten
+          # of them: v0.1.0 through v0.1.9 each pushed a `release/formula-*`
+          # branch and opened NO pull request, while the release job stayed
+          # green. The formula on main sat at v0.1.0 with a placeholder
+          # `sha256 000…0`, so `brew install` had never once worked — under a
+          # comment promising it "never lags a release".
+          #
+          # A push with no PR is the failure this step exists to prevent, so it
+          # is now fatal. If a PR already exists for this branch, that is the
+          # only tolerated non-creation, and it is checked for rather than
+          # assumed.
+          if ! gh pr create --base main --head "$branch" \
+                --title "chore(release): Homebrew formula -> $VERSION" \
+                --body "Automated formula bump for **$VERSION** (url + tarball \`sha256 $sha\`). Auto-merges once checks pass, so \`brew install\` never lags a release."; then
+            existing="$(gh pr list --head "$branch" --state open --json number --jq 'length')"
+            if [ "$existing" = "0" ]; then
+              echo "::error::pushed $branch but could not open a PR, and none exists. The formula bump for $VERSION is stranded on a branch — brew will stay on the previous release. This was silent for ten releases; it is fatal now."
+              exit 1
+            fi
+            gh pr edit "$branch" --body "Automated formula bump for $VERSION (sha256 $sha)."
+          fi
           # Close the loop: land the bump automatically once required checks pass, so a
           # forgotten manual merge can't leave brew on a stale release. Tolerant — if the
           # repo hasn't enabled auto-merge, the CI drift guard on main still flags it.
