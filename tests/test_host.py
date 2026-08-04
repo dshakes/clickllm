@@ -541,11 +541,18 @@ def test_a_shape_that_does_not_fit_its_own_parallelism_is_dropped_not_quoted():
     `_rescored_for_parallelism` used to `return rescored or f` — falling back to
     the aggregate Fit, which is the exact number it exists to correct.
 
-    `plan._tensor_parallel` decides TP=1 by comparing weights alone against the
-    per-device share; it never looks at KV or overhead. So at high context x
-    concurrency it narrows to one device that the full footprint cannot fit, and
-    the row then carried four-device throughput and price beside a
+    `plan._tensor_parallel` USED to decide TP=1 by comparing weights alone
+    against the per-device share, never looking at KV or overhead. So at high
+    context x concurrency it narrowed to one device the full footprint could not
+    fit, and the row carried four-device throughput and price beside a
     `--tensor-parallel-size 1` command that would not start.
+
+    That root cause is fixed (the guard now compares `total_bytes`), which is
+    why this test's original premise — "the planner narrows this to one device"
+    — no longer holds and is asserted the other way round below. The downstream
+    protection in `_rescored_for_parallelism` is kept and still exercised: two
+    independent layers for one failure is the arrangement this repo wants on
+    anything that can quote a price beside a command that cannot start.
 
     Real case, not contrived: Llama 3.1 8B on 4x H100 at 32k context, 64
     concurrent — 266 GB of 288 GB aggregate, quoted at 1,066 tok/s.
@@ -566,13 +573,26 @@ def test_a_shape_that_does_not_fit_its_own_parallelism_is_dropped_not_quoted():
     knob = configure(
         hw, Requirements(Workload.INTERACTIVE, concurrency=conc, context=ctx), m, "q8"
     ).get(Setting.TENSOR_PARALLEL)
-    assert knob and knob.value == 1, "the premise: the planner narrows this to one device"
+    # The root fix: the full footprint does not fit one device, so the planner
+    # must NOT narrow to one. Before it did, on exactly this shape.
+    assert knob and knob.value == 4, (
+        f"the planner narrowed to {knob.value if knob else None} devices for a "
+        f"{aggregate.total_bytes / 2**30:.0f} GiB footprint that does not fit one"
+    )
 
     offer = host.Offer("h100-x4", "4x H100 80 GB", 11.60)
-    assert host._rescored_for_parallelism(aggregate, offer, m, "q8", ctx, conc) is None, (
-        "it does not fit the parallelism the emitted command uses, so it must be "
-        "dropped — quoting the aggregate figure prices hardware the artifact "
-        "does not configure"
+    # With TP=4 the emitted command matches the footprint, so this shape is
+    # legitimately quotable now — it is no longer dropped, because it is no
+    # longer misconfigured. What must still hold is the anti-flattery property
+    # the drop existed to protect: the quoted throughput may not exceed the
+    # aggregate estimate, because bandwidth aggregates sub-linearly and a row
+    # that quoted more would be pricing hardware the artifact does not deliver.
+    rescored = host._rescored_for_parallelism(aggregate, offer, m, "q8", ctx, conc)
+    assert rescored is not None, "a shape whose command matches its footprint is quotable"
+    assert rescored.tokens_per_sec is not None and aggregate.tokens_per_sec is not None
+    assert rescored.tokens_per_sec <= aggregate.tokens_per_sec + 1e-6, (
+        f"rescoring quoted {rescored.tokens_per_sec:.0f} tok/s against an aggregate "
+        f"estimate of {aggregate.tokens_per_sec:.0f} — sharding cannot beat the roofline"
     )
 
 
