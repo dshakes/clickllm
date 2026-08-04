@@ -342,7 +342,7 @@ def _pick_engine(hw: Hardware, req: Requirements) -> tuple[Engine, str]:
     )
 
 
-def _memory_utilization(fit: Fit | None) -> Knob:
+def _memory_utilization(fit: Fit | None, devices: int = 1, shards: int = 1) -> Knob:
     """Derive the memory fraction from the solver rather than guessing.
 
     An engine's built-in default is chosen without knowing the model. Once
@@ -357,13 +357,28 @@ def _memory_utilization(fit: Fit | None) -> Knob:
             "no sizing available, so this is the engine's own default — a figure "
             "chosen without knowing the model. Re-plan with a model to derive it.",
         )
-    need = fit.weight_bytes + fit.kv_bytes + fit.overhead_bytes
-    frac = min(0.95, need / fit.usable_bytes + MEMORY_SAFETY_MARGIN)
+    # PER DEVICE, not per cluster. `usable_bytes` is the aggregate across every
+    # device, but `--gpu-memory-utilization` is a fraction of ONE device's
+    # memory — so on 4x H100 this computed 153 GiB against 304 GiB and emitted
+    # 0.58, when the same model on one of those cards needs more than all of it.
+    # Sharding divides both sides, which is why the ratio is taken after the
+    # tensor-parallel decision rather than before it.
+    # One device's memory, and one device's share of the model. `usable_bytes`
+    # is the aggregate across every device, but `--gpu-memory-utilization` is a
+    # fraction of ONE card — so the denominator is always `usable / devices`,
+    # whatever the sharding, and the numerator is the model's per-shard share.
+    #
+    # Getting only the numerator right is not enough: with TP=1 on a 4-GPU box
+    # the whole model sits on ONE card, so dividing the need by 1 while leaving
+    # the aggregate underneath still emitted 0.22 where the true figure is 0.88.
+    per_device_usable = fit.usable_bytes / max(1, devices)
+    need = (fit.weight_bytes + fit.kv_bytes + fit.overhead_bytes) / max(1, shards)
+    frac = min(0.95, need / per_device_usable + MEMORY_SAFETY_MARGIN)
     return Knob(
         Setting.MEMORY_FRACTION,
         round(frac, 2),
         f"weights + KV + overhead is {need / 2**30:.1f} GiB of "
-        f"{fit.usable_bytes / 2**30:.1f} GiB usable, plus a "
+        f"{per_device_usable / 2**30:.1f} GiB usable per device, plus a "
         f"{MEMORY_SAFETY_MARGIN:.0%} margin for activation spikes and "
         f"fragmentation. Derived, not the engine's model-blind default.",
     )
@@ -543,7 +558,16 @@ def _tensor_parallel(hw: Hardware, fit: Fit | None) -> Knob | None:
     """
     if hw.devices <= 1:
         return None
-    if fit is not None and fit.feasible and fit.weight_bytes < fit.usable_bytes / hw.devices:
+    # `total_bytes`, not `weight_bytes`. `usable_bytes` is the AGGREGATE across
+    # devices, so the per-device budget is that over `hw.devices` — and what has
+    # to sit inside it is weights AND KV AND overhead, not weights alone.
+    #
+    # 4x H100 (76 GB usable each), llama-3.3-70b q8 @32k x8: weights are 66 GB
+    # so the old test said "fits on one", while the real requirement was 153 GB
+    # — twice the card. That plan is emitted with TENSOR_PARALLEL=1 and a reason
+    # reading "the model fits on one of the 4 devices", and OOMs on boot. KV
+    # dominates at concurrency, which is exactly when someone owns four cards.
+    if fit is not None and fit.feasible and fit.total_bytes < fit.usable_bytes / hw.devices:
         return Knob(
             Setting.TENSOR_PARALLEL,
             1,
@@ -740,11 +764,12 @@ def plan(
         _chunked_prefill(req),
         _prefix_caching(req),
         _speculative(req, fit),
-        _memory_utilization(fit),
     ]
     if (kv := _kv_cache_dtype(req, fit, engine)) is not None:
         knobs.append(kv)
-    if (tp := _tensor_parallel(hw, fit)) is not None:
+    tp = _tensor_parallel(hw, fit)
+    knobs.append(_memory_utilization(fit, hw.devices, tp.value if tp else 1))
+    if tp is not None:
         knobs.append(tp)
     if (sd := _structured(req, engine)) is not None:
         knobs.append(sd)
