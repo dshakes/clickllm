@@ -893,8 +893,9 @@ def test_aggregate_throughput_beats_one_stream_and_then_saturates():
     assert ratios[-1] < ratios[0], f"no saturation — scaling never slowed: {ratios}"
     # And it is bounded by bandwidth / KV-read, not unbounded.
     huge = fit.solve(m, "q8", hw, 8192, 100_000).aggregate_tokens_per_sec
-    weight_read = m.active_b * 1e9 * 1  # q8 -> 1 byte per param
-    ceiling = (single.tokens_per_sec * weight_read) / (m.kv_bytes_per_token() * 8192)
+    # From the carried bandwidth, not by inverting tokens_per_sec — that inverse
+    # is what broke when the KV term joined the denominator.
+    ceiling = single.effective_bw / (m.kv_bytes_per_token() * 8192)
     assert huge <= ceiling * 1.01, f"exceeded the bandwidth ceiling: {huge} > {ceiling}"
 
 
@@ -947,3 +948,29 @@ def test_throughput_falls_as_context_grows_because_decode_reads_the_kv_cache():
         f"2k={rates[0]:.0f} vs 128k={rates[-1]:.0f} tok/s — the KV term is not "
         f"actually in the denominator"
     )
+
+
+def test_aggregate_at_concurrency_one_is_exactly_the_single_stream_figure():
+    """The two throughput figures must agree where they describe the same thing.
+
+    `aggregate_tokens_per_sec` used to rebuild the effective bandwidth by
+    inverting `tokens_per_sec` — so the read-per-token formula lived in two
+    places, forwards in `solve()` and backwards here. Adding the KV term to one
+    silently falsified the other, under-recovering bandwidth by up to 68% at
+    128k context and inflating `$/Mtok` about 3x, against self-hosting.
+
+    Nothing caught it: every existing test checked each function's *shape*
+    (rises with concurrency, saturates, falls with context) and none checked
+    that they agreed. At a batch of one they describe the identical decode loop,
+    so they must return the identical number — which is the cheapest possible
+    tie between them, and it fails the moment either formula moves alone.
+    """
+    m = catalog.get("llama-3.1-8b")
+    hw = _hw(96)
+    for ctx in (2048, 8192, 32768, 131072):
+        f = fit.solve(m, "q8", hw, ctx, 1)
+        assert f.tokens_per_sec is not None and f.aggregate_tokens_per_sec is not None
+        assert f.aggregate_tokens_per_sec == pytest.approx(f.tokens_per_sec, rel=1e-9), (
+            f"at {ctx} ctx, batch-of-one aggregate {f.aggregate_tokens_per_sec:.2f} != "
+            f"single-stream {f.tokens_per_sec:.2f} — the two formulas have drifted apart"
+        )
