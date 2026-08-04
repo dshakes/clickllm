@@ -11,6 +11,18 @@
 # way to aim it.
 #
 # This is that way: dispatch it at a path and it reviews the file as it stands.
+#
+# You cannot test a change to this file on a branch. `claude-code-action`
+# validates that the workflow matches the copy on the default branch and skips
+# itself otherwise:
+#
+#   Skipping action due to workflow validation: the workflow file must exist and
+#   have identical content to the version on the repository's default branch
+#
+# The step still reports success, the review never runs, and only the
+# issue-exists check downstream fails — which reads exactly like the reviewer
+# having found nothing. So a change here is merged first and exercised second,
+# on one path before many. One dispatch was spent learning this.
 name: "deep review (on demand)"
 
 on:
