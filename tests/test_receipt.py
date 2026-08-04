@@ -237,3 +237,82 @@ def test_a_claim_with_no_items_renders_as_unknown_not_as_zero():
     # could do — it converts an absence of evidence into evidence of failure.
     assert Claim("c", "c", 1.0, 0, 0, 0.0, 1.0).render() == "?"
     assert Claim("c", "c", 1.0, 0, 0, 0.0, 1.0).point is None
+
+
+@pytest.mark.parametrize(
+    "sabotage",
+    [
+        pytest.param(lambda b: b.pop("digest", None), id="digest-key-deleted"),
+        pytest.param(lambda b: b.__setitem__("digest", ""), id="digest-empty-string"),
+        pytest.param(lambda b: b.__setitem__("digest", None), id="digest-null"),
+    ],
+)
+def test_a_receipt_without_a_digest_is_refused_not_trusted(sabotage):
+    """Removing the digest used to remove the tamper check with it.
+
+    The check was `if (stated := blob.get("digest")) and stated != r.digest()`.
+    A falsy digest short-circuits the `and`, so the comparison never ran and the
+    receipt parsed clean. Forging a result and deleting one line of JSON was
+    enough: `guard` and `box --receipt` both act on the parsed object without
+    re-running the eval, so the forged claim would authorise a cutover — the
+    thing invariant 8 exists to prevent.
+
+    Fails closed now: no digest means unverifiable, and unverifiable is refused.
+    """
+    import json
+
+    from clickllm.prove.receipt import Claim, Receipt
+
+    real = Receipt(
+        incumbent="gpt-5",
+        candidate="qwen3-30b-a3b",
+        issued="2026-07-27",
+        eval_set="abc123",
+        bar=0.90,
+        proven=(
+            Claim(
+                cluster="support",
+                name="support",
+                share=0.42,
+                passed=95,
+                total=100,
+                low=0.89,
+                high=0.98,
+            ),
+        ),
+        regret=(),
+        unproven=(),
+    )
+    blob = json.loads(real.to_json())
+    blob["receipt"]["proven"][0]["passed"] = 100  # forge the result upward
+    sabotage(blob)
+
+    with pytest.raises(ValueError, match="no digest|does not match"):
+        Receipt.from_json(json.dumps(blob))
+
+
+def test_an_intact_receipt_still_round_trips():
+    """The negative control for the above: the refusal must not eat good ones."""
+    from clickllm.prove.receipt import Claim, Receipt
+
+    real = Receipt(
+        incumbent="gpt-5",
+        candidate="qwen3-30b-a3b",
+        issued="2026-07-27",
+        eval_set="abc123",
+        bar=0.90,
+        proven=(
+            Claim(
+                cluster="support",
+                name="support",
+                share=0.42,
+                passed=95,
+                total=100,
+                low=0.89,
+                high=0.98,
+            ),
+        ),
+        regret=(),
+        unproven=(),
+    )
+    assert Receipt.from_json(real.to_json()).proven[0].passed == 95
