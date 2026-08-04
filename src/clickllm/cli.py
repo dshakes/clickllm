@@ -43,8 +43,35 @@ def cmd_fit(args: argparse.Namespace) -> int:
         f = fit.best_quant(m, hw, ctx, conc) or fit.solve(
             m, min(m.quants, key=lambda q: catalog.QUANT_BITS[q]), hw, ctx, conc
         )
-        print(f"\n{f.explain()}\n")
-        print(f"  verdict: {'FITS' if f.feasible else 'DOES NOT FIT'}\n")
+        # `--explain` returned before the `--json` branch below, so
+        # `fit --explain X --json` printed the human block and ignored the flag
+        # entirely — a flag that silently does nothing is worse than one that
+        # errors, because a script consuming it parses prose as JSON.
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "model": m.id,
+                        "quant": f.quant,
+                        "context": ctx,
+                        "concurrency": conc,
+                        "weight_bytes": f.weight_bytes,
+                        "kv_bytes": f.kv_bytes,
+                        "overhead_bytes": f.overhead_bytes,
+                        "total_bytes": f.total_bytes,
+                        "usable_bytes": f.usable_bytes,
+                        "headroom_bytes": f.headroom_bytes,
+                        "tokens_per_sec": f.tokens_per_sec,
+                        "feasible": f.feasible,
+                        "explain": f.explain(),
+                    },
+                    indent=2,
+                )
+            )
+            return 0 if f.feasible else 1
+        if not getattr(args, "quiet", False):
+            print(f"\n{f.explain()}\n")
+            print(f"  verdict: {'FITS' if f.feasible else 'DOES NOT FIT'}\n")
         return 0 if f.feasible else 1
 
     feasible, rejected = fit.rank(hw, ctx, conc)
@@ -1487,7 +1514,12 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     try:
         return args.fn(args)
-    except (KeyError, ValueError, OSError) as e:
+    # RuntimeError included: `desktop.install()` documents and raises it on any
+    # unsupported platform, and it was not in this tuple — so `clickllm desktop`
+    # on Linux printed a traceback, breaking the convention stated two lines
+    # down. The modules raise it deliberately as "this environment cannot do
+    # what you asked", which is a sentence-and-exit-2, not a crash.
+    except (KeyError, ValueError, OSError, RuntimeError) as e:
         # Convention: a bad path, an altered receipt or an unparseable date is a
         # nonzero exit with a sentence, never a traceback. `json.JSONDecodeError`
         # is a `ValueError`, so malformed input is covered here too.
