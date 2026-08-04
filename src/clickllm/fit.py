@@ -79,11 +79,12 @@ class Fit:
         weight_read = self.model.active_b * 1e9 * QUANT_BITS[self.quant] / 8
         if weight_read <= 0:
             return None
-        # `tokens_per_sec` already carries bandwidth x efficiency / weight_read,
-        # so recover the effective bandwidth rather than re-deriving it from the
-        # Hardware, which this dataclass does not keep.
-        effective_bw = self.tokens_per_sec * weight_read
+        # `tokens_per_sec` already carries bandwidth x efficiency / (weight_read +
+        # kv_read), so recover the effective bandwidth with that same denominator
+        # rather than re-deriving it from the Hardware, which this dataclass does
+        # not keep.
         kv_read = self.model.kv_bytes_per_token() * self.context
+        effective_bw = self.tokens_per_sec * (weight_read + kv_read)
         return (self.concurrency * effective_bw) / (weight_read + self.concurrency * kv_read)
 
     @property

@@ -880,6 +880,8 @@ def test_aggregate_throughput_beats_one_stream_and_then_saturates():
     hw = _hw(96)
     single = fit.solve(m, "q8", hw, 8192, 1)
     assert single.aggregate_tokens_per_sec is not None
+    # At concurrency 1 the aggregate is one stream, no more and no less.
+    assert single.aggregate_tokens_per_sec == pytest.approx(single.tokens_per_sec)
 
     prev = single.aggregate_tokens_per_sec
     ratios = []
@@ -894,7 +896,8 @@ def test_aggregate_throughput_beats_one_stream_and_then_saturates():
     # And it is bounded by bandwidth / KV-read, not unbounded.
     huge = fit.solve(m, "q8", hw, 8192, 100_000).aggregate_tokens_per_sec
     weight_read = m.active_b * 1e9 * 1  # q8 -> 1 byte per param
-    ceiling = (single.tokens_per_sec * weight_read) / (m.kv_bytes_per_token() * 8192)
+    kv_read_single = m.kv_bytes_per_token() * 8192
+    ceiling = (single.tokens_per_sec * (weight_read + kv_read_single)) / kv_read_single
     assert huge <= ceiling * 1.01, f"exceeded the bandwidth ceiling: {huge} > {ceiling}"
 
 
