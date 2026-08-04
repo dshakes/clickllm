@@ -1182,3 +1182,49 @@ def test_every_published_engine_count_matches_the_adapters_that_exist():
         f"only found {seen} published engine counts — the markup moved and this "
         f"check is now watching nothing, which is worse than it failing"
     )
+
+
+def test_every_published_throughput_figure_matches_a_real_solve():
+    """`~N tok/s` in a transcript must be what the solver actually returns.
+
+    The lab test above ties published *memory* figures to `solve()`. Nothing tied
+    the *throughput* ones, so when #81 added the KV-cache term to the decode
+    denominator, six published figures silently kept the old numbers — the
+    README's `run` transcript said 87 where the tool now says 45, and the docs
+    site said 119 where it says 60. Roughly 2x, in the flattering direction, on
+    the page a reader uses to decide whether their hardware is enough.
+
+    Each entry is a transcript that exists in a published surface, with the
+    invocation it shows. If a figure moves, either the docs change or this list
+    does — but the two cannot drift apart in silence.
+    """
+    from clickllm import catalog
+    from clickllm.fit import solve
+    from clickllm.hardware import Hardware
+
+    m4 = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * GB,
+        usable_bytes=96 * GB,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    # (surface, model, quant, context, concurrency) -> the figure it prints.
+    # Contexts are the CLI defaults the transcripts were taken at (32k).
+    transcripts = [
+        ("README.md", "llama-3.1-8b", "q4", 32_768, 1),
+        ("site/docs/index.html", "qwen3-30b-a3b", "q8", 32_768, 1),
+        ("site/index.html", "qwen3-30b-a3b", "q8", 32_768, 8),
+        ("site/index.html", "phi-4-14b", "q8", 32_768, 8),
+    ]
+    root = Path(__file__).resolve().parents[1]
+    for surface, model_id, quant, ctx, conc in transcripts:
+        f = solve(catalog.get(model_id), quant, m4, ctx, conc)
+        assert f.tokens_per_sec is not None
+        figure = f"{f.tokens_per_sec:.0f}"
+        text = (root / surface).read_text()
+        assert figure in text, (
+            f"{surface} should quote {figure} tok/s for {model_id} {quant} "
+            f"@{ctx} x{conc}; the solver moved and the page did not"
+        )
