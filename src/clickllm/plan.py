@@ -611,8 +611,32 @@ def _budget_warnings(req: Requirements, fit: Fit | None) -> tuple[str, ...]:
     reach by an order of magnitude.
     """
     out: list[str] = []
-    if fit is None or fit.tokens_per_sec is None:
+    if fit is None:
         return ()
+    if fit.tokens_per_sec is None:
+        # Returning () here made "could not check" indistinguishable from
+        # "checked and met": `meets_requirements` is `not self.warnings`, so an
+        # unverifiable budget read as a satisfied one.
+        #
+        # That is not a corner. `hardware.detect()` sets `bandwidth_gbps=None`
+        # for every NVIDIA and AMD GPU it finds (hardware.py:159, :187), so
+        # `tokens_per_sec` is None on essentially every real accelerator — and a
+        # physically impossible `itl_ms=1` came back `meets_requirements=True`
+        # with no warnings at all. The same request on a machine whose bandwidth
+        # is known is correctly refused.
+        #
+        # Say so instead. An unchecked budget is a stated unknown, which is the
+        # house rule: `?` rather than a fabricated score.
+        stated = [
+            n for n, v in (("inter-token", req.itl_ms), ("time-to-first-token", req.ttft_ms)) if v
+        ]
+        if stated:
+            out.append(
+                f"{' and '.join(stated)} budget could not be checked: this "
+                f"hardware's memory bandwidth is unknown, so there is no "
+                f"throughput estimate to compare against. Not a pass — unmeasured."
+            )
+        return tuple(out)
 
     if req.itl_ms is not None and fit.tokens_per_sec > 0:
         achievable = 1000.0 / fit.tokens_per_sec

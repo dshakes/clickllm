@@ -351,3 +351,39 @@ def test_llamacpp_never_emits_another_engines_kv_cache_spelling():
 
     assert set(LLAMACPP_KV_DTYPE.values()) <= allowed
     assert isinstance(a.translate(Setting.KV_CACHE_DTYPE, "nonsense_dtype"), Unsupported)
+
+
+@pytest.mark.parametrize("engine", ["vllm", "sglang", "llama.cpp", "mlx", "ollama"])
+def test_speculative_off_is_honoured_not_reported_as_a_gap(engine):
+    """ "off" is the planner's decision, not the user's request.
+
+    `plan()` attaches a SPECULATIVE knob to every plan and sets it "off" for
+    every BATCH workload and whenever concurrency exceeds the spec-decode
+    ceiling — so adapters see it constantly, unasked. vLLM and SGLang returned
+    `Translated((), ...)`, a successful no-op. llama.cpp, MLX and Ollama
+    returned `Unsupported`, which becomes a gap, and every renderer that
+    surfaces gaps showed the user an optimisation the engine "could not
+    express" when nothing had been wanted.
+
+    Those three are the most-installed engines in the catalogue, and the suite
+    missed it because the tests that drive the real `plan()` path assert they
+    only ever produce vllm/sglang plans — so this branch was never reached.
+    """
+    from clickllm.engines import Setting, Translated, adapter_for
+
+    got = adapter_for(engine).translate(Setting.SPECULATIVE, "off")
+    assert isinstance(got, Translated), f"{engine} reports a gap for an unrequested setting"
+    assert got.argv == (), f"{engine} emitted flags for speculative=off: {got.argv}"
+
+
+def test_a_real_draft_request_is_still_answered_on_its_merits():
+    """The control: silencing "off" must not silence a genuine request.
+
+    Ollama exposes no speculative setting at all, so a real draft model is still
+    an honest `Unsupported` — that gap is information, not noise.
+    """
+    from clickllm.engines import Setting, Unsupported, adapter_for
+
+    assert isinstance(
+        adapter_for("ollama").translate(Setting.SPECULATIVE, "org/draft-model"), Unsupported
+    )

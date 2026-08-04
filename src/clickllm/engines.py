@@ -574,6 +574,18 @@ class MlxAdapter(Adapter):
             case Setting.STRUCTURED_OUTPUT:
                 return Unsupported(setting, "no grammar or structured-output flag")
             case Setting.SPECULATIVE:
+                # "off" is a decision the planner made, not a request. `plan()`
+                # attaches a SPECULATIVE knob to every plan and sets it "off"
+                # for every BATCH workload and whenever concurrency exceeds the
+                # spec-decode ceiling — so this arrives constantly, unasked.
+                # Returning `Unsupported` turned that into a gap, and every
+                # renderer (launch's NOT EXPRESSED, session, box's per-target
+                # README, launch.json's not_expressed) showed the user an
+                # optimisation this engine "could not express" when nothing had
+                # been wanted. vLLM and SGLang already return Translated here;
+                # these three did not, and they are the three most-installed.
+                if not value or value == "off":
+                    return Translated((), "speculative decoding is off by default")
                 # --draft-model wants a model to load, not a method name. vLLM's
                 # JSON speculative config has no meaning here, and passing one
                 # would produce a server that cannot start.
@@ -700,6 +712,18 @@ class LlamaCppAdapter(Adapter):
                     "reuses a cached prefix in chunks of >=256 tokens",
                 )
             case Setting.SPECULATIVE:
+                # "off" is a decision the planner made, not a request. `plan()`
+                # attaches a SPECULATIVE knob to every plan and sets it "off"
+                # for every BATCH workload and whenever concurrency exceeds the
+                # spec-decode ceiling — so this arrives constantly, unasked.
+                # Returning `Unsupported` turned that into a gap, and every
+                # renderer (launch's NOT EXPRESSED, session, box's per-target
+                # README, launch.json's not_expressed) showed the user an
+                # optimisation this engine "could not express" when nothing had
+                # been wanted. vLLM and SGLang already return Translated here;
+                # these three did not, and they are the three most-installed.
+                if not value or value == "off":
+                    return Translated((), "speculative decoding is off by default")
                 # A dict names its draft explicitly; a bare string IS the draft —
                 # a path or a Hugging Face repo id, e.g. from the Python SDK
                 # (`Requirements(speculative="my_draft.gguf")`). Only a known
@@ -907,6 +931,18 @@ class OllamaAdapter(Adapter):
                     "documented set, so it is not emitted",
                 )
             case Setting.SPECULATIVE:
+                # "off" is a decision the planner made, not a request. `plan()`
+                # attaches a SPECULATIVE knob to every plan and sets it "off"
+                # for every BATCH workload and whenever concurrency exceeds the
+                # spec-decode ceiling — so this arrives constantly, unasked.
+                # Returning `Unsupported` turned that into a gap, and every
+                # renderer (launch's NOT EXPRESSED, session, box's per-target
+                # README, launch.json's not_expressed) showed the user an
+                # optimisation this engine "could not express" when nothing had
+                # been wanted. vLLM and SGLang already return Translated here;
+                # these three did not, and they are the three most-installed.
+                if not value or value == "off":
+                    return Translated((), "speculative decoding is off by default")
                 return Unsupported(setting, "no draft-model or speculative setting is exposed")
             case Setting.LORA_FLEET:
                 return Unsupported(

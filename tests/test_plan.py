@@ -825,3 +825,52 @@ def test_llmd_inherits_vllms_dialect_rather_than_copying_it():
     llmd_argv, _ = a.command("m", same)
     vllm_argv, _ = adapter_for("vllm").command("m", same)
     assert llmd_argv == vllm_argv, "the dialects have diverged, which is the bug being prevented"
+
+
+def _gpu(bandwidth):
+    return Hardware(
+        kind="nvidia",
+        name="H100 80GB",
+        total_bytes=80 * 2**30,
+        usable_bytes=76 * 2**30,
+        bandwidth_gbps=bandwidth,
+        cores=132,
+    )
+
+
+def test_a_budget_that_could_not_be_checked_is_not_a_budget_that_was_met():
+    """`meets_requirements` is `not self.warnings`, so silence reads as success.
+
+    `_budget_warnings` returned `()` whenever `tokens_per_sec` was None — and
+    `hardware.detect()` sets `bandwidth_gbps=None` for every NVIDIA and AMD GPU
+    it finds, so `tokens_per_sec` is None on essentially every real accelerator.
+    A physically impossible `itl_ms=1` therefore came back
+    `meets_requirements=True` with no warnings, while the identical request on a
+    machine whose bandwidth is known was correctly refused.
+
+    "Could not check" must not be reported as "checked and met" — the same rule
+    as `?` rather than a fabricated score.
+    """
+    from clickllm import catalog
+
+    model = catalog.get("llama-3.1-8b")
+
+    unknown = plan(_gpu(None), Requirements(Workload.REALTIME, 8, itl_ms=1), model, "q8")
+    assert not unknown.meets_requirements, "an unverifiable budget must not read as met"
+    assert any("could not be checked" in w for w in unknown.warnings)
+
+    # Control: with bandwidth known, the real check still fires and still names
+    # the achievable figure rather than the could-not-check wording.
+    known = plan(_gpu(3350.0), Requirements(Workload.REALTIME, 8, itl_ms=1), model, "q8")
+    assert not known.meets_requirements
+    assert any("roofline estimate of" in w for w in known.warnings)
+
+    # Control: an achievable budget still passes.
+    fine = plan(_gpu(3350.0), Requirements(Workload.REALTIME, 8, itl_ms=200), model, "q8")
+    assert fine.meets_requirements, fine.warnings
+
+    # Control, and the one most easily broken by this fix: stating NO budget on
+    # the same unknown-bandwidth machine must stay clean. There is nothing to
+    # check, so there is nothing to warn about.
+    silent = plan(_gpu(None), Requirements(Workload.REALTIME, 8), model, "q8")
+    assert silent.meets_requirements, silent.warnings
