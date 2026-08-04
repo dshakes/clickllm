@@ -1121,3 +1121,64 @@ def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
         "published surfaces promise an engine clickllm has no adapter for, so "
         "`clickllm run` would refuse it:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_every_published_engine_count_matches_the_adapters_that_exist():
+    """ "Five engines" outlived shipping seven, in three places at once.
+
+    Sibling of `test_no_published_surface_names_an_engine_clickllm_cannot_launch`:
+    that one catches a surface naming an engine we cannot launch, and this one
+    catches a surface *counting* them wrong. The count went stale on its own
+    because nothing was watching it — llama.cpp, Ollama and llm-d landed and the
+    README still said the engine was chosen "of five".
+
+    A number in prose rots more quietly than a name does: nobody greps for it.
+    """
+    from clickllm.engines import adapter_for
+    from clickllm.plan import Engine
+
+    launchable = {str(e).lower() for e in Engine if adapter_for(str(e)) is not None}
+    expected = len(launchable)
+    words = {
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    }
+
+    def as_int(token: str) -> int:
+        return words.get(token.lower()) or int(token)
+
+    root = Path(__file__).resolve().parents[1]
+    surfaces = {
+        "README.md": root / "README.md",
+        "site/index.html": root / "site" / "index.html",
+    }
+    patterns = (
+        r"engine of ([a-z]+|\d+)\b",
+        r"\b([a-z]+|\d+) engines with",
+        r'<div class="n">(\d+)</div><div class="l">engines',
+    )
+
+    seen = 0
+    for label, path in surfaces.items():
+        text = path.read_text()
+        for pattern in patterns:
+            for m in re.finditer(pattern, text):
+                try:
+                    got = as_int(m.group(1))
+                except (TypeError, ValueError):
+                    continue  # an adjective, not a count
+                seen += 1
+                assert got == expected, (
+                    f"{label} claims {m.group(1)!r} engines; {expected} have adapters "
+                    f"({', '.join(sorted(launchable))})"
+                )
+    assert seen >= 3, (
+        f"only found {seen} published engine counts — the markup moved and this "
+        f"check is now watching nothing, which is worse than it failing"
+    )

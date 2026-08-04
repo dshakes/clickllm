@@ -11,7 +11,7 @@ clickllm run qwen3-30b-a3b
 ```
 
 **Behind that one line: the KV cache sized without getting MoE, GQA or MLA
-wrong; the right engine of five chosen for the silicon you actually have; the
+wrong; the right engine of seven chosen for the silicon you actually have; the
 two dozen flags that matter set correctly; the weights resolved to a repo
 confirmed to exist. You get an OpenAI-compatible endpoint and you never opened
 an editor. When you need to know it is good enough — not on someone's
@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-979-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-983-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -33,7 +33,7 @@ answers per cluster with confidence intervals instead of a shrug.**
 
 **1 — Deploy open models without the project.** Between "the weights are on
 Hugging Face" and "it is serving" sits a specialist skill: KV cache arithmetic
-that goes wrong three different ways, five engines with incompatible flag
+that goes wrong three different ways, seven engines with incompatible flag
 dialects, quantisation that means something different on MLX than on vLLM,
 memory maths that must saturate rather than silently wrap. clickllm does that
 and prints the arithmetic, so you can check it rather than trust it.
@@ -558,11 +558,14 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 752 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 756 Python
 ```
 
-**979 tests.** Eight of the Python tests exercise the PyO3 bridge and skip unless
-the extension is built — `maturin develop` in `clickllm-py/` turns them on. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
+**983 tests.** 756 Python, 227 Rust. Ten of the Python tests skip on a bare
+machine: eight exercise the PyO3 bridge (`maturin develop` in `clickllm-py/`
+turns them on), and two ask vLLM and SGLang for their own flags, which needs
+those engines installed. CI runs both inside the engines' published images, so
+neither skip reaches a green tick unasked. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
 rule exists because breaking it shipped a bug: `--guided-decoding-backend` had
