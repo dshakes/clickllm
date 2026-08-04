@@ -321,7 +321,26 @@ def _looks_like_a_label(text: str, response_format: str | dict | None) -> bool:
     return not text.endswith((".", "!", "?", ":", ";")) and "," not in text
 
 
-_NUM = re.compile(r"-?\d+(?:\.\d+)?")
+#: Numbers, including thousands-grouped ones. The grouped alternative comes
+#: FIRST because Python's `|` is first-match-wins: with the plain form first,
+#: `1,234,567` matched as `1` and the rest was rescanned.
+#:
+#: That is not cosmetic. `-?\d+(?:\.\d+)?` split `$1,234,567` into `1`, `234`,
+#: `567`, and `grade` only checks each value appears *somewhere* in the
+#: candidate — so "1 prior conviction … served 234 days … 567 dollars in fines"
+#: scored PASS against a baseline awarding $1,234,567. A deterministic grader,
+#: the tier trusted to advance traffic, passing a completely wrong money figure
+#: — and grouping is exactly what money figures have.
+#:
+#: `\d{1,3}(?:,\d{3})+` requires full three-digit groups, so a genuine list like
+#: "1, 234" (with the space) still reads as two numbers. "1,234" with no space
+#: is read as one, which is the right call when the alternative is the above.
+_NUM = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?")
+
+
+def _as_float(token: str) -> float:
+    """A matched token as a number, with any thousands separators removed."""
+    return float(token.replace(",", ""))
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,10 +356,10 @@ class NumericAgreement:
     tier: Tier = Tier.TASK
 
     def grade(self, item: EvalItem) -> Score:
-        want = [float(x) for x in _NUM.findall(item.baseline)]
+        want = [_as_float(x) for x in _NUM.findall(item.baseline)]
         if not want:
             return Score(self.name, self.tier, Outcome.NOT_APPLICABLE, "baseline has no numbers")
-        got = {float(x) for x in _NUM.findall(item.candidate)}
+        got = {_as_float(x) for x in _NUM.findall(item.candidate)}
         missing = [w for w in want if not any(_close(w, g, self.tolerance) for g in got)]
         if missing:
             return Score(self.name, self.tier, Outcome.FAIL, f"missing or altered: {missing[:5]}")

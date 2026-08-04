@@ -681,3 +681,53 @@ def test_the_receipt_records_a_collapse_so_its_denominator_is_explainable():
     clean = [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(10)]
     quiet = Claim.of(run(clean, shares={"c": 1.0}).candidates[0].clusters[0])
     assert quiet.duplicates == 0 and "duplicate" not in quiet.render()
+
+
+@pytest.mark.parametrize(
+    ("baseline", "candidate", "expected", "why"),
+    [
+        (
+            "Total damages awarded: $1,234,567.",
+            "The defendant has 1 prior conviction and served 234 days, with 567 dollars in fines.",
+            "fail",
+            "the reported bypass: grouped baseline, completely wrong candidate",
+        ),
+        (
+            "Total damages awarded: $1,234,567.",
+            "The award was $1,234,567 in total.",
+            "pass",
+            "grouped on both sides still agrees",
+        ),
+        (
+            "Total damages awarded: $1,234,567.",
+            "The award was 1234567 dollars.",
+            "pass",
+            "grouping is formatting, not value",
+        ),
+        ("It cost 42.5 and 7.", "We paid 42.5 plus 7.", "pass", "ungrouped numbers unaffected"),
+        (
+            "Rooms 1, 234 and 567.",
+            "Rooms 1, 234 and 567.",
+            "pass",
+            "a genuine comma-separated list still reads as separate numbers",
+        ),
+    ],
+)
+def test_a_grouped_number_is_one_number_not_three(baseline, candidate, expected, why):
+    """`$1,234,567` used to tokenise as `1`, `234`, `567`.
+
+    `_NUM` did not treat `,` as part of a number, and `grade` only checks that
+    each parsed value appears *somewhere* in the candidate — never that the
+    fragments appear together. So a candidate stating a completely different
+    figure passed, provided the digits `1`, `234` and `567` each turned up
+    somewhere in its prose.
+
+    This is a deterministic grader — the tier trusted to *advance* traffic,
+    unlike judge-only — passing a wrong money figure. Thousands separators are
+    exactly what money figures carry, so the hole sat on the numbers most worth
+    checking. Found by the deep-review audit (#90).
+    """
+    from clickllm.prove.graders import EvalItem, NumericAgreement
+
+    item = EvalItem(item_id="x", cluster="c", prompt="p", baseline=baseline, candidate=candidate)
+    assert NumericAgreement().grade(item).outcome.value == expected, why
