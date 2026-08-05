@@ -182,3 +182,62 @@ def test_catalog_add_requires_network_to_be_opted_into(tmp_path):
     r = run(["catalog-add", "Qwen/Qwen3-14B", "--params-b", "14.8"], {})
     assert r.returncode == 0
     assert "opt-in" in r.stdout
+
+
+_MLA_BASE = dict(
+    num_hidden_layers=61,
+    num_attention_heads=128,
+    num_key_value_heads=128,
+    hidden_size=7168,
+    head_dim=56,
+    max_position_embeddings=163840,
+    vocab_size=129280,
+)
+
+
+def test_an_mla_config_whose_rank_will_not_parse_is_refused_not_reclassified():
+    """`kv_lora_rank` was the SOLE detector of MLA, and had no aliases.
+
+        kv_lora_rank = _first_int(cfg, "kv_lora_rank")
+        scheme = "mla" if kv_lora_rank else ("gqa" if ... else "mha")
+
+    So a rank that failed to parse did not merely go missing — the model stopped
+    being MLA and was sized with the GQA formula, which overestimates KV by
+    ~50x. CLAUDE.md makes the rank a load-bearing invariant and a test enforces
+    it over entries that ARE `mla`; an entry that never becomes `mla` walks
+    around that test entirely.
+
+    Refusing is the right failure: a refusal is a catalogue entry someone fixes,
+    a silent reclassification is a sizing answer wrong by a factor of fifty that
+    looks completely ordinary.
+    """
+    from clickllm.catalog_update import ConfigError, parse_config
+
+    cfg = {**_MLA_BASE, "architectures": ["DeepseekV3ForCausalLM"], "q_lora_rank": 1536}
+    with pytest.raises(ConfigError, match="kv_lora_rank"):
+        parse_config(cfg)
+
+
+def test_the_mla_rank_is_read_through_aliases_like_every_other_field():
+    """Every other geometry field takes 2-3 aliases to absorb naming drift; this
+    one took exactly one key. The MLA architecture has already been forked and
+    renamed by several open releases."""
+    from clickllm.catalog_update import parse_config
+
+    cfg = {
+        **_MLA_BASE,
+        "architectures": ["DeepseekV3ForCausalLM"],
+        "kv_lora_dim": 512,
+        "q_lora_rank": 1536,
+    }
+    arch = parse_config(cfg)
+    assert arch.kv_scheme == "mla" and arch.kv_lora_rank == 512
+
+
+def test_an_ordinary_gqa_config_is_untouched_by_the_mla_guard():
+    """The control: refusing MLA-without-a-rank must not refuse everything else."""
+    from clickllm.catalog_update import parse_config
+
+    cfg = {**_MLA_BASE, "architectures": ["LlamaForCausalLM"], "num_key_value_heads": 8}
+    arch = parse_config(cfg)
+    assert arch.kv_scheme == "gqa" and arch.kv_lora_rank is None
