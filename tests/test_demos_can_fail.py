@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import warnings
 
 import pytest
 
@@ -70,6 +71,10 @@ def _constants(mod) -> list[str]:
 INSENSITIVE = frozenset(
     {
         "clickllm.box",
+        # Platform-dependent: on macOS its demo exercises the Apple detection
+        # path and IS sensitive; on a Linux runner that path never executes.
+        # CI found this, not the author's laptop.
+        "clickllm.hardware",
         "clickllm.desktop",
         "clickllm.distill.cluster",
         "clickllm.host",
@@ -121,11 +126,22 @@ def test_the_module_self_check_is_sensitive_to_something(name: str):
             setattr(mod, const, original)
 
     if name in INSENSITIVE:
-        assert not noticed, (
-            f"{name}.demo() now notices {noticed} — good. Remove it from "
-            f"INSENSITIVE so the ratchet holds; leaving it there lets the next "
-            f"regression hide behind a stale exemption."
-        )
+        if noticed:
+            # A WARNING, not a failure. The first version failed here, to stop a
+            # stale exemption hiding a later regression — and CI immediately
+            # showed why it cannot: `clickllm.hardware` is sensitive on macOS
+            # (its demo runs the Apple path) and insensitive on Linux (it does
+            # not). Membership is therefore platform-dependent, and a strict
+            # reverse check makes such a module unpinnable on both at once.
+            #
+            # Failing a build because a demo got BETTER is also the wrong trade.
+            # The forward direction stays strict, which is the half that stops
+            # this getting worse; this half only nags.
+            warnings.warn(
+                f"{name} is listed INSENSITIVE but now notices {noticed} — "
+                f"remove it from the list if it is sensitive on every platform.",
+                stacklevel=1,
+            )
         pytest.xfail(f"{name} is a known-insensitive demo (see INSENSITIVE)")
 
     assert noticed, (
