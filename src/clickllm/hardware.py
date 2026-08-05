@@ -147,9 +147,21 @@ def _detect_nvidia() -> Hardware | None:
     gpus = [ln.split(",") for ln in out.splitlines() if ln.strip()]
     if not gpus:
         return None
-    name = gpus[0][0].strip()
-    per_gpu = int(float(gpus[0][1])) * 1024 * 1024  # MiB -> bytes
-    total = per_gpu * len(gpus)
+    # Every card, not GPU 0 multiplied by the count. `nvidia-smi` prints one
+    # line per physical device and they need not match: a rig with one A100
+    # 80 GB in slot 0 and three 3090s at 24 GB reported 4 x 80 = 320 GB, when it
+    # holds 152 GB — a 2x overstatement in the direction that says "it fits".
+    #
+    # Tensor parallelism shards evenly, so the SMALLEST card is what actually
+    # bounds a sharded model; the aggregate is what bounds the sum of shards.
+    # Both are reported, and the note says so, because a heterogeneous rig sized
+    # against its largest card is how someone OOMs on the third GPU.
+    names = [g[0].strip() for g in gpus]
+    sizes = [int(float(g[1])) * 1024 * 1024 for g in gpus]  # MiB -> bytes
+    total = sum(sizes)
+    mixed = len(set(names)) > 1
+    name = names[0] if not mixed else f"{names[0]} + {len(names) - 1} other(s)"
+    smallest = min(sizes)
     return Hardware(
         kind="nvidia",
         name=name,
@@ -160,7 +172,14 @@ def _detect_nvidia() -> Hardware | None:
         cores=0,
         devices=len(gpus),
         note="assumes gpu-memory-utilization=0.90"
-        + (f"; {len(gpus)}× {name} — tensor parallelism required" if len(gpus) > 1 else ""),
+        + (f"; {len(gpus)}× {name} — tensor parallelism required" if len(gpus) > 1 else "")
+        + (
+            f"; MIXED cards ({', '.join(sorted(set(names)))}) — a sharded model is "
+            f"bounded by the smallest at {smallest / 1024**3:.0f} GiB, not by the "
+            f"aggregate"
+            if mixed
+            else ""
+        ),
     )
 
 

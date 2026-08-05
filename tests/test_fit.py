@@ -1028,3 +1028,39 @@ def test_every_sdk_door_inherits_the_solver_guard():
 
     # Control: the valid path is untouched.
     assert isinstance(sdk.explain("llama-3.1-8b"), str)
+
+
+def _nvidia_smi(lines):
+    """Drive `_detect_nvidia` with a canned `nvidia-smi` response."""
+    import shutil
+    import subprocess
+    from unittest import mock
+
+    from clickllm import hardware as H
+
+    cp = subprocess.CompletedProcess([], 0, stdout="\n".join(lines), stderr="")
+    with (
+        mock.patch.object(shutil, "which", lambda _: "/usr/bin/nvidia-smi"),
+        mock.patch.object(subprocess, "run", lambda *a, **k: cp),
+    ):
+        return H._detect_nvidia()
+
+
+def test_a_heterogeneous_rig_is_summed_not_extrapolated_from_gpu_zero():
+    """Total memory was `gpus[0].memory * len(gpus)`.
+
+    `nvidia-smi` prints one line per physical device and they need not match. A
+    rig with one A100 80 GB in slot 0 and three 3090s at 24 GB reported
+    4 x 80 = 320 GB against a real 152 GB — a 2x overstatement, in the direction
+    that says "it fits", on the number every sizing decision divides by.
+    """
+    mixed = _nvidia_smi(["NVIDIA A100 80GB, 81920"] + ["NVIDIA RTX 3090, 24576"] * 3)
+    assert mixed.devices == 4
+    assert 150 * 2**30 < mixed.total_bytes < 155 * 2**30, mixed.total_bytes
+    assert "MIXED" in mixed.note, "a mixed rig must say so; TP is bounded by the smallest card"
+
+    # Control: a uniform rig is unchanged, and a single card is unaffected.
+    uniform = _nvidia_smi(["NVIDIA H100 80GB, 81559"] * 4)
+    assert uniform.total_bytes == 4 * 81559 * 1024 * 1024
+    assert "MIXED" not in uniform.note
+    assert _nvidia_smi(["NVIDIA L4, 23034"]).devices == 1
