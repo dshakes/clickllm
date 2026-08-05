@@ -305,8 +305,17 @@ class Matrix:
             row = f"{cand.model[:20]:<22}"
             for c in cand.clusters:
                 row += f"{c.render_cell():>18}"
+            # WITH its interval. This printed `weighted_score()` bare — the
+            # headline of the whole report, on every render, for every
+            # candidate. `weighted_interval` was already written and already
+            # documented as "exactly the kind of number this repo refuses to
+            # print bare"; it simply was not called. Invariant 6.
             ws = cand.weighted_score()
-            row += f"   {ws * 100:.0f}% weighted" if ws is not None else "   ? weighted"
+            if ws is None:
+                row += "   ? weighted"
+            else:
+                iv = cand.weighted_interval()
+                row += f"   {ws * 100:.0f}% [{iv.low * 100:.0f}–{iv.high * 100:.0f}] weighted"
             out.append(row)
         out.append("-" * len(head))
         out.append(

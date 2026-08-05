@@ -731,3 +731,31 @@ def test_a_grouped_number_is_one_number_not_three(baseline, candidate, expected,
 
     item = EvalItem(item_id="x", cluster="c", prompt="p", baseline=baseline, candidate=candidate)
     assert NumericAgreement().grade(item).outcome.value == expected, why
+
+
+def test_the_headline_weighted_figure_never_renders_without_its_interval():
+    """The report's headline was a bare point estimate, on every render.
+
+    `Matrix.render()` printed `weighted_score()` alone. `weighted_interval` was
+    already written and already documented as "a point estimate and the headline
+    of the whole report, which is exactly the kind of number this repo refuses
+    to print bare" — it simply was never called. Invariant 6, broken on the one
+    number a reader takes away.
+    """
+    import re
+
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from clickllm.prove.stats import wilson
+
+    cand = CandidateReport(
+        model="qwen3-30b-a3b",
+        clusters=(
+            ClusterScore("support", "support", 0.6, wilson(57, 60), 0),
+            ClusterScore("sql", "sql", 0.4, wilson(30, 40), 0),
+        ),
+    )
+    text = Matrix(incumbent="gpt-5", candidates=(cand,)).render()
+    line = next(ln for ln in text.splitlines() if "weighted" in ln and "qwen3" in ln)
+    assert re.search(r"\d+% \[\d+–\d+\] weighted", line), (
+        f"headline rendered without an interval: {line!r}"
+    )
