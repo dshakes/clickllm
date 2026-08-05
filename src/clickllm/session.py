@@ -116,6 +116,19 @@ def _fmt_gb(b: float) -> str:
     return f"{b / 1024**3:.1f} GB"
 
 
+#: Requirement field -> the type its value must be. Coercion happens once, in
+#: `Session._apply_fields`, because that is where every entry point converges.
+#: `bool` is excluded deliberately: `bool("false")` is True, so a string there
+#: must be a refusal rather than a silent yes.
+_REQUIREMENT_TYPES: dict[str, type] = {
+    "concurrency": int,
+    "context": int,
+    "ttft_ms": int,
+    "itl_ms": int,
+    "prefix_sharing": float,
+}
+
+
 @dataclass
 class Session:
     """A conversation with state. Feed it sentences; read answers off it."""
@@ -174,7 +187,26 @@ class Session:
                 f"not a requirement: {', '.join(sorted(unknown))}. "
                 f"Known: {', '.join(sorted(Requirements.__slots__))}"
             )
-        self.requirements = replace(self.requirements, **fields)
+        # Coerce HERE, not in the callers. `cmd_build` coerced with an explicit
+        # allowlist before calling this; `mcp._build` forwarded raw JSON values
+        # straight through, so `{"concurrency": "8"}` from an agent became a
+        # string where every downstream comparison expects a number — silently
+        # breaking workload-conditional planning rather than failing.
+        #
+        # Same lesson as ADR-0011: the constraint belongs to the thing it
+        # protects, not to whichever surface happened to reach it. This is the
+        # one funnel both paths pass through.
+        coerced: dict[str, object] = {}
+        for key, value in fields.items():
+            want = _REQUIREMENT_TYPES.get(key)
+            if want is None or value is None or isinstance(value, want):
+                coerced[key] = value
+                continue
+            try:
+                coerced[key] = want(value)  # type: ignore[operator]
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"{key} must be {want.__name__}, got {value!r}") from e
+        self.requirements = replace(self.requirements, **coerced)
         self.stated |= set(fields)
 
     def on(self, machine: str | Hardware | None = None) -> Turn:
