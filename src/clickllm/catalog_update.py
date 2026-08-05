@@ -94,7 +94,28 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     # MLA (DeepSeek family) is identified by its compressed KV rank. It must be
     # detected explicitly: sizing an MLA model with the GQA formula overestimates
     # KV by ~50x, which is the difference between "fits" and "buy another node".
-    kv_lora_rank = _first_int(cfg, "kv_lora_rank")
+    # Aliases, like every other field here — and then a guard, because this one
+    # is not just a field. The next line makes the rank the SOLE detector of
+    # MLA, so a rank that fails to parse does not merely go missing: the model
+    # stops being MLA and is sized with the GQA formula, which overestimates KV
+    # by ~50x. CLAUDE.md's invariant ("any entry with kv_scheme: mla must set
+    # kv_lora_rank") is enforced by a test over entries that ARE mla — and an
+    # entry that never becomes mla walks around it.
+    #
+    # So: detect the family independently of whether the rank parsed, and refuse
+    # rather than silently reclassify. A refusal is a catalogue entry someone
+    # fixes; a silent reclassification is a sizing answer that is wrong by a
+    # factor of fifty and looks ordinary.
+    kv_lora_rank = _first_int(cfg, "kv_lora_rank", "kv_lora_dim", "kv_rank")
+    mla_signals = [k for k in ("q_lora_rank", "qk_rope_head_dim", "qk_nope_head_dim") if k in cfg]
+    arch = " ".join(str(a) for a in (cfg.get("architectures") or [])).lower()
+    if not kv_lora_rank and (mla_signals or "deepseek" in arch):
+        raise ConfigError(
+            f"this config looks like an MLA model "
+            f"({', '.join(mla_signals) or arch}) but no kv_lora_rank could be "
+            f"read from it. Sizing it as GQA would overestimate KV by ~50x, so "
+            f"it is refused rather than guessed — add the rank by hand."
+        )
     scheme = "mla" if kv_lora_rank else ("gqa" if kv_heads < (attn_heads or kv_heads) else "mha")
 
     experts = _first_int(cfg, "num_experts", "num_local_experts", "n_routed_experts")
