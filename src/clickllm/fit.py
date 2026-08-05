@@ -139,6 +139,24 @@ def _overhead(weight_bytes: int) -> int:
 
 
 def solve(model: ModelSpec, quant: str, hw: Hardware, context: int, concurrency: int) -> Fit:
+    """Size one model on one machine. Validates here, not at the surface.
+
+    The same two bounds were enforced in `cli.py`'s argument parsing and in
+    `sdk.fit()`, and NOT in `sdk.explain()` or the MCP tools — three doors into
+    one calculation, guarded on two. Both unguarded doors could report a model
+    that does not fit as FEASIBLE, with flattering headroom, because a
+    non-positive context or concurrency makes the KV term vanish.
+
+    A guard at the surface has to be re-earned by every new entry point. This
+    one is at the solver, so there is one door. See ADR-0011.
+
+    Raises:
+        ValueError: context or concurrency below 1, naming the offending value.
+    """
+    if concurrency < 1:
+        raise ValueError(f"concurrency must be >= 1, got {concurrency}")
+    if context < 1:
+        raise ValueError(f"context must be >= 1, got {context}")
     w = model.weight_bytes(quant)
     kv = model.kv_bytes_per_token() * context * concurrency
     tps = None
