@@ -54,6 +54,11 @@ RegressionCheck = Callable[[dict], tuple[bool, str]]
 DEFAULT_INTERVAL = 30
 
 
+#: kubectl verbs that only read. Everything else is treated as mutating under
+#: `--dry-run`, so a verb nobody thought about is suppressed rather than run.
+_READ_ONLY_VERBS = frozenset({"get", "describe", "explain", "logs", "version", "api-resources"})
+
+
 @dataclass(frozen=True, slots=True)
 class Kubectl:
     """A `kubectl` invoker.
@@ -77,7 +82,20 @@ class Kubectl:
         cmd = ["kubectl", *args]
         if self.context:
             cmd += ["--context", self.context]
-        if self.dry_run and args and args[0] == "apply":
+        # Every mutating verb, not just `apply`. This was `args[0] == "apply"`,
+        # so `patch` slipped through — and `patch_status()` and `demote()` both
+        # issue `patch`. An operator running `--dry-run --once` to preview a
+        # pass against a live cluster really patched `status.conditions`, and
+        # really demoted `spec.phase` (canary -> shadow) when the gate saw a
+        # regression. A flag whose whole contract is "changes nothing" was
+        # performing the one action in this system that moves production
+        # traffic.
+        #
+        # Allow-list the read-only verbs instead of naming the mutating ones:
+        # the failure was an unlisted mutation, so the default must be to
+        # suppress. A verb added later is dry-run-safe until someone says
+        # otherwise, which is the direction that fails safe.
+        if self.dry_run and args and args[0] not in _READ_ONLY_VERBS:
             cmd += ["--dry-run=server"]
         try:
             r = subprocess.run(
