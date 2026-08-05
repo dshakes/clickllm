@@ -365,9 +365,7 @@ def discover(
                 downloads=int(r.get("downloads") or 0),
                 likes=int(r.get("likes") or 0),
                 trending=float(r.get("trendingScore") or 0.0),
-                license=str(
-                    r.get("license") or (r.get("cardData") or {}).get("license") or ""
-                ),
+                license=str(r.get("license") or (r.get("cardData") or {}).get("license") or ""),
             )
         )
     # Deterministic: trending, then downloads, then name.
@@ -499,8 +497,21 @@ def demo() -> None:
     )
     found = discover({"org/known"}, lambda _: index)
     assert [d.repo for d in found] == ["org/also-new", "org/fresh"], [d.repo for d in found]
-    assert discover(set(), lambda _: (_ for _ in ()).throw(OSError("offline"))) == [], (
-        "no network is a normal state, not an error"
+    # No network is still a normal state — it is now a NAMED one. Returning []
+    # made it indistinguishable from a malformed index and from "nothing new",
+    # and `watch` reported all three as offline.
+    try:
+        discover(set(), lambda _: (_ for _ in ()).throw(OSError("offline")))
+        raise AssertionError("a failed fetch must be distinguishable from an empty result")
+    except Unreachable:
+        pass
+    try:
+        discover(set(), lambda _: '{"error": "nope"}')
+        raise AssertionError("a malformed index must not read as 'nothing new'")
+    except Unreachable:
+        pass
+    assert discover({"org/known", "org/also-new", "org/fresh"}, lambda _: index) == [], (
+        "reached the index and it had nothing new: empty, and not a failure"
     )
 
     # Applying writes atomically to a copy, never the real catalogue in a test.

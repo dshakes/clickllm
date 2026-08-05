@@ -7,9 +7,9 @@ corrupt the thing every sizing answer depends on.
 
 from __future__ import annotations
 
-import pytest
-
 import json
+
+import pytest
 
 from clickllm import catalog, watch
 
