@@ -116,8 +116,14 @@ PROFILES: tuple[Profile, ...] = (
         16,
         859,  # 800 GiB/s expressed in GB/s, to match every other row here
         devices=8,
-        hourly_usd=1.20,
-        note="cheapest TPU per unit memory; 16 GB a chip means sharding early",
+        # HOST total, 8 x $1.20/chip-hr. These three rows carried the per-chip
+        # list price while every NVIDIA multi-device row here carries the
+        # whole-shape price (h100-x4 is 4 x 2.90). `Placement` divides this by
+        # AGGREGATE throughput across all chips, so a 1-chip numerator over an
+        # 8-chip denominator understated $/Mtok 8x — and `where()` then ranked
+        # TPUs artificially cheap ahead of GPUs they do not beat.
+        hourly_usd=9.60,
+        note="16 GB a chip means sharding early",
     ),
     Profile(
         "tpu-v6e-8",
@@ -126,7 +132,7 @@ PROFILES: tuple[Profile, ...] = (
         32,
         1638,
         devices=8,
-        hourly_usd=2.70,
+        hourly_usd=21.60,  # host total, 8 x $2.70/chip-hr
         note="the volume inference TPU; 256 GB a host without leaving one machine",
     ),
     Profile(
@@ -136,8 +142,9 @@ PROFILES: tuple[Profile, ...] = (
         95,
         2765,
         devices=4,
-        hourly_usd=4.20,
-        note="highest bandwidth per chip, but vLLM lists v5p as experimental",
+        hourly_usd=16.80,  # host total, 4 x $4.20/chip-hr
+        note="cheapest TPU per GB of memory, and the highest bandwidth per "
+        "chip, but vLLM lists v5p as experimental",
     ),
     Profile("m4-pro-48", "Apple M4 Pro 48 GB", "apple", 48, 273),
     Profile("rtx-4090", "NVIDIA RTX 4090", "nvidia", 24, 1008, hourly_usd=0.35),

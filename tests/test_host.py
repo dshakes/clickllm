@@ -629,3 +629,36 @@ def test_free_only_reports_the_providers_it_ruled_out_rather_than_hiding_them():
 
 def _gives_free(p) -> bool:
     return any(o.usd_per_hour == 0.0 for o in p.offers)
+
+
+def test_a_multi_device_profile_prices_the_whole_host_not_one_device():
+    """Two conventions coexisted silently in one table.
+
+    Every NVIDIA multi-device row prices the whole deployable shape — `h100-x4`
+    is exactly 4 x the `h100` rate. The three TPU rows carried Google's
+    *per-chip* list price instead, with `devices=8`/`8`/`4`.
+
+    `Placement.cost_per_mtok_usd` divides `hourly_usd` by AGGREGATE throughput
+    across every device, so a one-chip numerator over an eight-chip denominator
+    understated $/Mtok 8x — printed under a literal `$/Mtok` header, and used by
+    `where()`'s own sort, which ranked TPUs artificially cheap ahead of GPUs
+    they do not beat.
+
+    Asserted as a ratio rather than pinned prices: list rates change, the
+    convention must not.
+    """
+    from clickllm.hardware_catalog import PROFILES
+
+    by_id = {p.id: p for p in PROFILES}
+    for single, multi in (("h100", "h100-x2"), ("h100", "h100-x4"), ("h200", "h200-x8")):
+        one, many = by_id[single], by_id[multi]
+        assert many.hourly_usd == pytest.approx(one.hourly_usd * many.devices), (
+            f"{multi} must price all {many.devices} devices, like every other row"
+        )
+
+    # The TPU rows have no single-device sibling to compare against, so the check
+    # is the consequence: a per-chip price makes $/GB nonsense. With host totals,
+    # v5p is the cheapest per GB — the opposite of what the v5e note used to
+    # claim, because that claim was a symptom of the same bug.
+    per_gb = {p.id: p.hourly_usd / (p.memory_gb * p.devices) for p in PROFILES if p.kind == "tpu"}
+    assert min(per_gb, key=per_gb.get) == "tpu-v5p-4", per_gb
