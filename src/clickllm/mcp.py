@@ -528,6 +528,27 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
             return ok({"content": [{"type": "text", "text": f"error: {e}"}], "isError": True})
         except TypeError as e:
             return err(-32602, f"bad arguments for {name}: {e}")
+        except Exception as e:  # noqa: BLE001 — see below; this is the boundary
+            # A bad ARGUMENT must not kill the SESSION. Only KeyError and
+            # TypeError were caught, and `serve()` has no handler at all, so any
+            # other exception unwound the `while True` loop and took the process
+            # with it — every queued and future call in that session included.
+            #
+            # Reachable without contrivance, because this server does no schema
+            # validation: `clickllm_advise(workload="chat")` raises ValueError
+            # from `Workload("chat")`, and `clickllm_fit(context="a few
+            # thousand")` raises from `_parse_size`. An agent exploring the
+            # tool surface — which is what agents do — takes the server down.
+            #
+            # Reported as tool content rather than a transport error: the agent
+            # can read it, correct itself and continue, which is the whole point
+            # of a surface described as safe to hand an agent.
+            return ok(
+                {
+                    "content": [{"type": "text", "text": f"error: {type(e).__name__}: {e}"}],
+                    "isError": True,
+                }
+            )
         return ok(
             {
                 "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
@@ -546,7 +567,18 @@ def serve(stdin: BinaryIO | None = None, stdout: BinaryIO | None = None) -> int:
         request = _read_message(rx)
         if request is None:
             return 0
-        response = handle(request)
+        # Belt and braces: `handle` now contains tool failures, but a defect in
+        # `handle` itself — or in serialising a response — must not end the
+        # session either. Two layers, because this loop is the only thing
+        # standing between one bad call and every later one.
+        try:
+            response = handle(request)
+        except Exception as e:  # noqa: BLE001 — the loop must outlive one request
+            response = {
+                "jsonrpc": "2.0",
+                "id": (request or {}).get("id"),
+                "error": {"code": -32603, "message": f"internal error: {type(e).__name__}: {e}"},
+            }
         if response is not None:
             _write_message(tx, response)
 

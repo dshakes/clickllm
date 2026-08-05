@@ -759,3 +759,64 @@ def test_the_headline_weighted_figure_never_renders_without_its_interval():
     assert re.search(r"\d+% \[\d+–\d+\] weighted", line), (
         f"headline rendered without an interval: {line!r}"
     )
+
+
+def test_a_bad_tool_argument_does_not_end_the_mcp_session():
+    """`handle()` caught only KeyError and TypeError, and `serve()` caught
+    nothing, so any other exception unwound the loop and killed the process.
+
+    Reachable without contrivance, because this server does no schema
+    validation: `clickllm_advise(workload="chat")` raises ValueError from
+    `Workload("chat")`. An agent exploring the tool surface — which is what
+    agents do — took the whole session down with it, every queued and later
+    call included, on a surface the module's docstring calls safe to hand an
+    agent.
+    """
+    from clickllm import mcp
+
+    def call(tool, **args):
+        return mcp.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": args},
+            }
+        )
+
+    for tool, args in (
+        ("clickllm_advise", {"workload": "chat"}),
+        ("clickllm_fit", {"context": "a few thousand"}),
+    ):
+        r = call(tool, **args)
+        assert "error" not in r, f"{tool} killed the transport instead of reporting"
+        assert r["result"]["isError"] is True
+        assert "error:" in r["result"]["content"][0]["text"]
+
+    # Control: a valid call still succeeds after the bad ones.
+    good = call("clickllm_fit", context="8k")
+    assert not good["result"].get("isError"), good
+
+
+def test_requirement_values_are_coerced_at_the_funnel_not_at_the_surface():
+    """`cmd_build` coerced with an explicit allowlist; `mcp._build` forwarded raw
+    JSON values straight through.
+
+    So `{"concurrency": "8"}` from an agent became a string where every
+    downstream comparison expects a number — breaking workload-conditional
+    planning silently rather than failing. Same lesson as ADR-0011: the
+    constraint belongs to the thing it protects, not to whichever surface
+    reached it. `_apply_fields` is the one funnel both paths pass through.
+    """
+    from clickllm.session import Session
+
+    s = Session()
+    s._apply_fields(concurrency="8", context="4096", prefix_sharing="0.5")
+    assert s.requirements.concurrency == 8 and isinstance(s.requirements.concurrency, int)
+    assert s.requirements.context == 4096 and isinstance(s.requirements.context, int)
+    assert s.requirements.prefix_sharing == 0.5
+
+    # A value that cannot be coerced is a refusal naming the offender, not a
+    # silent pass-through of the string.
+    with pytest.raises(ValueError, match="concurrency must be int"):
+        Session()._apply_fields(concurrency="lots")
