@@ -58,6 +58,10 @@ class Architecture:
         return bool(self.experts and self.experts > 1)
 
 
+class Unreachable(RuntimeError):
+    """The index could not be read. Distinct from "it had nothing new for us"."""
+
+
 class ConfigError(ValueError):
     """A config could not be parsed into an architecture we can size."""
 
@@ -308,6 +312,13 @@ class Discovery:
     downloads: int
     likes: int
     trending: float
+    #: Licence as the index reported it, verbatim, or "" when it reported none.
+    #: `watch` read this off `Discovery` with `getattr(d, "license", "")` and the
+    #: field did not exist, so every staged discovery was written "unknown" —
+    #: against a docstring promising "the licence string as the index reported
+    #: it". Never guessed: an absent licence stays absent, which is the
+    #: distinction the module's own invariant turns on.
+    license: str = ""
 
     def render(self) -> str:
         return f"  {self.repo:<44} {self.downloads:>10,} downloads  {self.likes:>6,} likes"
@@ -325,12 +336,20 @@ def discover(
     that is what `fit` and `prove` are for. This only answers "is there something
     here we have not looked at".
     """
+    # Raises `Unreachable` rather than returning []. An empty list meant three
+    # different things — the fetch failed, the index was malformed, or we
+    # already know everything it listed — and `watch.run()` reported ALL of them
+    # as `offline=True`. So a corrupt index read as "nothing new upstream",
+    # which is the failure this whole module exists to notice.
     try:
         rows = json.loads(fetch(INDEX_URL.format(limit=limit)))
-    except Exception:  # noqa: BLE001 — no network is a normal state, not an error
-        return []
+    except Exception as e:  # noqa: BLE001 — no network is a normal state
+        raise Unreachable(f"the index could not be fetched: {e}") from e
     if not isinstance(rows, list):
-        return []
+        raise Unreachable(
+            f"the index returned {type(rows).__name__}, not a list of models — "
+            f"malformed, which is not the same as nothing new"
+        )
 
     seen = {r.casefold() for r in known_repos}
     out: list[Discovery] = []
@@ -346,6 +365,9 @@ def discover(
                 downloads=int(r.get("downloads") or 0),
                 likes=int(r.get("likes") or 0),
                 trending=float(r.get("trendingScore") or 0.0),
+                license=str(
+                    r.get("license") or (r.get("cardData") or {}).get("license") or ""
+                ),
             )
         )
     # Deterministic: trending, then downloads, then name.
