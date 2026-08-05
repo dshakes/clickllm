@@ -56,3 +56,38 @@ def test_run_tears_the_engine_down_on_sigterm_not_just_ctrl_c(monkeypatch):
     body = inspect.getsource(cli.cmd_run)
     assert "_serve_until_signalled(ep)" in body, "cmd_run bypasses the teardown"
     assert "return ep.wait()" not in body
+
+
+def test_a_runtime_error_is_a_sentence_and_exit_two_not_a_traceback(monkeypatch, capsys):
+    """`main()` caught KeyError/ValueError/OSError — not RuntimeError.
+
+    `desktop.install()` documents and raises `RuntimeError` on any unsupported
+    platform, so `clickllm desktop` on Linux printed a traceback. The convention
+    is stated two lines below the handler it escaped: a bad path or a refusal is
+    a nonzero exit with a sentence, never a traceback.
+    """
+    from clickllm import cli, desktop
+
+    def boom(**_):
+        raise RuntimeError("this platform has no desktop entry point")
+
+    monkeypatch.setattr(desktop, "install", boom)
+    assert cli.main(["desktop"]) == 2
+    assert "this platform has no desktop entry point" in capsys.readouterr().err
+
+
+def test_explain_honours_json_instead_of_silently_ignoring_it(capsys):
+    """`--explain` returned before the `--json` branch, so the flag did nothing.
+
+    A flag that silently does nothing is worse than one that errors: a script
+    consuming `fit --explain X --json` parses prose as JSON.
+    """
+    import json as _json
+
+    from clickllm import cli
+
+    assert cli.main(["fit", "--explain", "llama-3.1-8b", "--json"]) in (0, 1)
+    payload = _json.loads(capsys.readouterr().out)
+    assert payload["model"] == "llama-3.1-8b"
+    assert payload["total_bytes"] > 0
+    assert "explain" in payload, "the human arithmetic must still be reachable"
