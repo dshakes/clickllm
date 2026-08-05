@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from clickllm import catalog, watch
 
 INDEX = json.dumps(
@@ -152,3 +154,64 @@ def test_nothing_is_scheduled_without_being_asked():
     assert where
     # 12 hours, expressed in whatever this platform's units are.
     assert "43200" in fragment or "12h" in fragment
+
+
+def test_offline_means_offline_and_not_three_other_things():
+    """`discover()` returned [] for three unrelated states and `run()` called
+    them all `offline=True`.
+
+    The three: the fetch raised (genuinely offline), the index was malformed,
+    and the index was fine but listed nothing we do not already carry. Reporting
+    a corrupt index as "nothing new upstream" is the exact drift this module
+    exists to notice — a watcher that reports no change when it could not check.
+    """
+    import json as _json
+
+    from clickllm import catalog_update as cu
+
+    rows = [{"modelId": "acme/new", "downloads": 5, "likes": 1, "trendingScore": 9.0}]
+
+    with pytest.raises(cu.Unreachable):
+        cu.discover(set(), lambda _u: (_ for _ in ()).throw(OSError("no network")))
+
+    with pytest.raises(cu.Unreachable):
+        cu.discover(set(), lambda _u: _json.dumps({"error": "nope"}))
+
+    # Reached the index; it simply had nothing new. Empty, but NOT a failure.
+    assert cu.discover({"acme/new"}, lambda _u: _json.dumps(rows)) == []
+
+
+def test_the_licence_the_index_reported_is_the_licence_that_is_staged():
+    """`watch` read `getattr(d, "license", "")` off a `Discovery` that had no
+    such field, so every staged entry was written `"unknown"` — against a
+    docstring promising "the licence string as the index reported it".
+
+    A human reviewing a staged discovery to decide whether to promote it saw
+    "unknown" for every model, forcing the lookup the tool claims to have done.
+    """
+    import json as _json
+
+    from clickllm import catalog_update as cu
+
+    rows = [
+        {
+            "modelId": "acme/a",
+            "downloads": 5,
+            "likes": 1,
+            "trendingScore": 9.0,
+            "license": "apache-2.0",
+        },
+        {
+            "modelId": "acme/b",
+            "downloads": 4,
+            "likes": 1,
+            "trendingScore": 8.0,
+            "cardData": {"license": "mit"},
+        },
+        {"modelId": "acme/c", "downloads": 3, "likes": 1, "trendingScore": 7.0},
+    ]
+    got = {d.repo: d.license for d in cu.discover(set(), lambda _u: _json.dumps(rows))}
+    assert got["acme/a"] == "apache-2.0"
+    assert got["acme/b"] == "mit", "the index also reports it under cardData"
+    # Absent stays absent — never guessed. That distinction is the invariant.
+    assert got["acme/c"] == ""

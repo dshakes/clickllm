@@ -214,9 +214,18 @@ def run(
     """
     dest = dest or staging_dir()
     known = {m.repo for m in catalog.load() if m.repo}
-    found = cu.discover(known, fetch, limit=limit)
-    if not found:
+    # `offline` now means offline. It used to also mean "the index was
+    # malformed" and "we already know everything it listed" — three states
+    # under one flag, so a corrupt index reported as "nothing new upstream",
+    # which is precisely the drift this module exists to notice.
+    try:
+        found = cu.discover(known, fetch, limit=limit)
+    except cu.Unreachable:
         return WatchReport(offline=True)
+    if not found:
+        # Reached the index, and it listed nothing we do not already carry.
+        # That is a successful check with an empty result, not a failed one.
+        return WatchReport(offline=False)
 
     outcomes: list[Outcome] = []
     added = 0
@@ -237,7 +246,7 @@ def run(
             outcomes.append(Outcome(d.repo, False, f"could not read config: {e}"))
             continue
 
-        spec = _spec_from(d.repo, arch, getattr(d, "license", ""))
+        spec = _spec_from(d.repo, arch, d.license)
         dest.mkdir(parents=True, exist_ok=True)
         path = dest / f"discovered-{spec['id']}.json"
         if path.exists():
