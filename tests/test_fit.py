@@ -976,3 +976,55 @@ def test_aggregate_at_concurrency_one_is_exactly_the_single_stream_figure():
             f"at {ctx} ctx, batch-of-one aggregate {f.aggregate_tokens_per_sec:.2f} != "
             f"single-stream {f.tokens_per_sec:.2f} — the two formulas have drifted apart"
         )
+
+
+@pytest.mark.parametrize(
+    ("context", "concurrency", "want"),
+    [(0, 1, "context"), (-1, 1, "context"), (8192, 0, "concurrency"), (8192, -4, "concurrency")],
+)
+def test_the_solver_refuses_inputs_that_would_flatter_the_verdict(context, concurrency, want):
+    """The guard belongs to the calculation, not to whichever surface reached it.
+
+    `cli.py` and `sdk.fit()` each enforced these bounds; `sdk.explain()` and the
+    MCP tools did not. A non-positive context or concurrency makes the KV term
+    vanish, so the footprint shrinks and a model that does not fit is reported
+    FEASIBLE with flattering headroom — a wrong verdict, not a crash, through
+    the two least-validated doors into the product's central calculation.
+
+    Enforced in `solve()` now, so a fourth entry point inherits it by
+    construction rather than by review. See ADR-0011.
+    """
+    from clickllm import catalog
+    from clickllm.fit import solve
+    from clickllm.hardware import Hardware
+
+    hw = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * GB,
+        usable_bytes=96 * GB,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    with pytest.raises(ValueError, match=want):
+        solve(catalog.get("llama-3.1-8b"), "q8", hw, context, concurrency)
+
+
+def test_every_sdk_door_inherits_the_solver_guard():
+    """`fit()` had the check written out by hand; `explain()` did not have it.
+
+    Both now inherit it from `solve()`, which is the point — the surfaces stopped
+    being load-bearing.
+    """
+    from clickllm import sdk
+
+    for call in (
+        lambda: sdk.fit(concurrency=0),
+        lambda: sdk.explain("llama-3.1-8b", concurrency=0),
+        lambda: sdk.explain("llama-3.1-8b", context=0),
+    ):
+        with pytest.raises(ValueError):
+            call()
+
+    # Control: the valid path is untouched.
+    assert isinstance(sdk.explain("llama-3.1-8b"), str)
