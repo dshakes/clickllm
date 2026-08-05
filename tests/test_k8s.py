@@ -8,8 +8,11 @@ raise it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import pathlib
+import subprocess
+from unittest import mock
 
 import pytest
 
@@ -529,3 +532,53 @@ def test_the_generated_service_and_deployment_agree_on_the_name():
     dep, _ = deployment_for("llama-3.1-8b-instruct", "default", model.repo or model.id, p)
     assert dep["metadata"]["name"] == "llama-3-1-8b-instruct"
     assert dep["spec"]["selector"]["matchLabels"] == dep["spec"]["template"]["metadata"]["labels"]
+
+
+@pytest.mark.parametrize("verb", ["apply", "patch", "delete", "replace", "annotate", "label"])
+def test_dry_run_suppresses_every_mutating_verb_not_just_apply(verb):
+    """`--dry-run` is documented as "applies nothing" and patched for real.
+
+    The guard was `args[0] == "apply"`, so `patch` slipped through — and both
+    `patch_status()` and `demote()` issue `patch`. An operator running
+    `--dry-run --once` to preview a pass against a live cluster really wrote
+    `status.conditions`, and really demoted `spec.phase` (canary -> shadow) when
+    the gate saw a regression: a flag whose whole contract is "changes nothing"
+    performing the one action in this system that moves production traffic.
+
+    Parametrised over verbs the code does not currently issue, because the
+    defect was an UNLISTED mutation. The guard now allow-lists reads, so a verb
+    added later is suppressed until someone says otherwise.
+    """
+    from clickllm.k8s.controller import Kubectl
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+    kc = Kubectl(dry_run=True)
+    with mock.patch.object(subprocess, "run", fake_run), contextlib.suppress(Exception):
+        kc.run([verb, "inferenceworkload/x", "-p", "{}"])
+    assert "--dry-run=server" in seen.get("cmd", []), (
+        f"{verb} ran without the dry-run flag: {seen.get('cmd')}"
+    )
+
+
+def test_dry_run_does_not_cripple_reads():
+    """The control: suppressing writes must not suppress the reads a pass needs.
+
+    A `get` that silently became a server-side dry run would make the loop see
+    nothing and report a clean pass over a cluster it never looked at.
+    """
+    from clickllm.k8s.controller import Kubectl
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+    with mock.patch.object(subprocess, "run", fake_run):
+        Kubectl(dry_run=True).run(["get", "inferenceworkloads", "-A", "-o", "json"])
+    assert "--dry-run=server" not in seen.get("cmd", []), seen.get("cmd")
