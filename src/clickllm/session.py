@@ -467,11 +467,25 @@ class Session:
             {
                 "text": self.text,
                 "stage": self.stage.value,
+                # `lora` was excluded here with no comment and no fallback, and
+                # `from_json` never put it back — so a resumed session silently
+                # served without the multi-LoRA fleet it had been configured
+                # with. It looks identical on resume, which is why nothing
+                # caught it: the deployment is different and nothing says so.
                 "requirements": {
                     f: (getattr(req, f).value if f == "workload" else getattr(req, f))
                     for f in Requirements.__slots__
                     if f != "lora"
                 },
+                "lora": (
+                    {
+                        "adapters": [list(a) for a in req.lora.adapters],
+                        "max_rank": req.lora.max_rank,
+                        "max_concurrent": req.lora.max_concurrent,
+                    }
+                    if req.lora
+                    else None
+                ),
                 "stated": sorted(self.stated),
                 "asked": sorted(self.asked),
                 "model_id": self.model_id,
@@ -486,6 +500,14 @@ class Session:
         d = json.loads(text)
         r = dict(d["requirements"])
         r["workload"] = Workload(r["workload"])
+        if lora := d.get("lora"):
+            from clickllm.engines import LoraFleet
+
+            r["lora"] = LoraFleet(
+                adapters=tuple(tuple(a) for a in lora["adapters"]),
+                max_rank=lora["max_rank"],
+                max_concurrent=lora["max_concurrent"],
+            )
         hw = None
         if d.get("hw"):
             h = d["hw"]

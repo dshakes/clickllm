@@ -367,3 +367,27 @@ def test_mcp_build_asks_the_same_question_in_one_call():
         machine="h100",
     )
     assert out["question"] == "How many requests will be in flight at once?"
+
+
+def test_a_configured_lora_fleet_survives_a_resume():
+    """`to_json` excluded `lora` — no comment, no fallback — and `from_json`
+    never put it back.
+
+    A session resumed from disk therefore served without the multi-LoRA fleet it
+    had been configured with, and looked identical doing it. That is why nothing
+    caught it: the deployment is different and nothing says so. Multi-LoRA is
+    the cheapest personalisation there is, so the config most worth keeping is
+    the one that was dropped.
+    """
+    from clickllm.engines import LoraFleet
+    from clickllm.plan import Requirements, Workload
+    from clickllm.session import Session
+
+    fleet = LoraFleet((("support", "org/support"), ("sql", "org/sql")), 48, 2)
+    resumed = Session.from_json(
+        Session(requirements=Requirements(Workload.INTERACTIVE, 8, lora=fleet)).to_json()
+    )
+    assert resumed.requirements.lora == fleet
+
+    # Control: a session with no fleet resumes with none, not with an empty one.
+    assert Session.from_json(Session().to_json()).requirements.lora is None
