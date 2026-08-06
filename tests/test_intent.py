@@ -253,13 +253,13 @@ CONCURRENCY = [
     ("200 analysts", 40, True),
     # A rate IS the concurrency, however it is spelled — and reading it as a
     # backlog cost both the workload and this number.
-    ("rank 8000 req/s under 250ms", 2000, True),
+    ("rank 8000 req/s, each takes 250ms", 2000, True),
     ("score 4000 requests per second", 4, False),
     # Rates have decimals. `(\d[\d,]*)` could not match "1.5", so the engine
     # scanned past it and matched the "5".
     ("voice bot at 1.5 qps", 4, False),
     ("0.5 rps", 4, False),
-    ("4,000 requests per second under 1000ms", 4000, True),
+    ("4,000 requests per second, each takes 1 second", 4000, True),
     # A rate is NOT a concurrency statement on its own. Concurrency here is
     # requests in flight, and that is arrivals x time in the system: "120 per
     # minute, each taking 30 seconds" is two per second and sixty in flight.
@@ -274,16 +274,22 @@ CONCURRENCY = [
     # "staff" is a collective plural, so it modifies like a singular.
     ("process 20000 staff records", 64, False),
     ("chat tool for 5000 staff", 1000, True),
-    # With a budget, it is Little's Law and the arithmetic is stated.
-    ("score 4000 requests/sec under 200ms", 800, True),
-    ("voice bot at 16.5 qps under 200ms", 4, True),  # ceil(16.5 x 0.2)
-    ("7200 requests per hour under 500ms", 1, True),
-    ("2 million events per minute under 200ms", 6667, True),
+    # With a stated SERVICE TIME it is Little's Law, and the arithmetic is
+    # quoted. Not with a latency budget: that is time to first token, a
+    # request outlives its first token, and the resulting number was a lower
+    # bound — which under-sizes KV and makes a deployment look feasible.
+    ("chat API at 120 requests per minute, each can take 30 seconds", 60, True),
+    ("10 qps, each request takes 2 seconds", 20, True),
+    ("100 rps with 500ms per request", 50, True),
+    ("voice bot at 200 requests per second under 200ms", 4, False),
+    # Malformed: the number is anchored, so "1..5" is refused rather than
+    # read as the "5" the engine would find by scanning past it.
+    ("1..5 rps, each takes 1 second", 4, False),
     # The denominator's spellings come from the same map as its value, so
     # "hrs" cannot exist in one and not the other — it did, and read as
-    # per-second: a 3600x error, visible here only once a budget is stated.
-    ("3600 requests per hrs under 1000ms", 1, True),
-    ("3600 requests per second under 1000ms", 3600, True),
+    # per-second: a 3600x error.
+    ("3600 requests per hrs, each takes 1 second", 1, True),
+    ("3600 requests per second, each takes 1 second", 3600, True),
     ("classify 10000 requests per customer from captured traffic", 64, False),
 ]
 

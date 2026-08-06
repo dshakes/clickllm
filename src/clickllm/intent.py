@@ -456,7 +456,7 @@ def _rate_per_second(text: str) -> tuple[float, str] | None:
     unless the sentence states one. See `_little`.
     """
     m = re.search(
-        r"(?P<n>\d[\d,]*(?:\.\d+)?)\s*(?P<scale>million|billion)?\s*(?:"
+        r"(?<![\d.])(?P<n>\d[\d,]*(?:\.\d+)?)\s*(?P<scale>million|billion)?\s*(?:"
         rf"(?:qps|rps|tps)|{_RATE_UNIT}(?:\s+per\s+|\s*/\s*)(?P<unit>{_TIME})\b)",
         text,
     )
@@ -471,6 +471,35 @@ def _rate_per_second(text: str) -> tuple[float, str] | None:
     if per is None:  # a denominator we cannot convert is a question, not a guess
         return None
     return n / per, m.group(0)
+
+
+_DURATION_UNIT = r"(?:ms|milliseconds?|s|secs?|seconds?|min|mins|minutes?)"
+
+
+def _service_time(text: str) -> tuple[int, str] | None:
+    """How long a request stays in the system, in ms, when the sentence says.
+
+    NOT the latency budget. `_latency` reads a time-to-first-token target, and
+    a request lives longer than its first token — using it here produced a
+    concurrency that was a lower bound, which under-sizes KV and is the one
+    direction that makes a deployment look feasible when it is not. So this
+    matches a stated duration and nothing else, and without one the question
+    gets asked.
+    """
+    m = re.search(
+        rf"(?:each|every)?\s*(?:request|call|job|one)?\s*"
+        rf"(?:takes?|taking|lasts?|runs? for)\s*(?:about|around|roughly|up to)?\s*"
+        rf"(\d+(?:\.\d+)?)\s*({_DURATION_UNIT})\b"
+        rf"|(\d+(?:\.\d+)?)\s*({_DURATION_UNIT})\s+per\s+(?:request|call|job)\b",
+        text,
+    )
+    if not m:
+        return None
+    n = float(m.group(1) or m.group(3))
+    unit = (m.group(2) or m.group(4)).rstrip("s")
+    per_ms = {"m": 60_000, "min": 60_000, "minute": 60_000, "s": 1000, "sec": 1000, "second": 1000}
+    ms = n if unit.startswith("m") and unit not in ("min", "minute") else n * per_ms.get(unit, 1000)
+    return max(1, round(ms)), m.group(0)
 
 
 def _little(rate_per_second: float, service_ms: int) -> int:
@@ -574,22 +603,23 @@ def read(text: str) -> Intent:
     # and remove it, so nobody could correct the answer.
     budget = _latency(low)
     rate = _rate_per_second(low)
+    service = _service_time(low)
     if (explicit := _explicit_concurrency(low)) is not None:
         # A stated in-flight count beats a derived one, the same way a stated
         # workload beats an inferred one: "100 concurrent requests at 10 qps
         # under 200ms" says 100, and the derivation said 2.
         concurrency, evidence = explicit
         inferred.append(Inference("concurrency", concurrency, evidence))
-    elif rate is not None and budget is not None:
-        concurrency = _little(rate[0], budget[0])
+    elif rate is not None and service is not None:
+        concurrency = _little(rate[0], service[0])
         inferred.append(
             Inference(
                 "concurrency",
                 concurrency,
-                f"{rate[1]} at {budget[1]} — Little's Law: arrivals x time in "
-                f"the system. A LOWER bound: the stated budget is time to "
-                f"first token, and a request stays in the system longer than "
-                f"that. A rate alone gives no number at all",
+                f"{rate[1]} x {service[1]} — Little's Law: arrivals x time "
+                f"in the system. A rate alone gives no number at all, and the "
+                f"latency budget is not this number: it is time to first "
+                f"token, and a request outlives its first token",
             )
         )
     elif (headcount := _people(low)) is not None:
