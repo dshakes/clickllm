@@ -166,3 +166,23 @@ def test_the_bulk_verbs_are_not_open_stems(text):
     # `grad\\w*`: the open stem catches the gerund and half the dictionary
     # with it, which trades a missed batch job for a fabricated one.
     assert read(text).requirements.workload is not Workload.BATCH
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        # A stated mode outranks the bulk-volume inference. All three contain
+        # a bulk verb over a volume AND say outright what they are.
+        ("interactive scoring app for 5000 users", Workload.INTERACTIVE),
+        ("chat tool for ranking 5000 users", Workload.INTERACTIVE),
+        ("real-time scoring for 5000 users", Workload.REALTIME),
+        # ...but "customer" names the subject, not the mode, so it does not
+        # outrank it. This one is a batch job that happens to concern
+        # customers, and it stays batch.
+        ("score 4 million customer tickets", Workload.BATCH),
+        # And the mode words still classify on their own.
+        ("customer support chat", Workload.INTERACTIVE),
+    ],
+)
+def test_a_stated_mode_outranks_the_inference_but_a_subject_noun_does_not(text, want):
+    assert read(text).requirements.workload is want

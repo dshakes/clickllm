@@ -249,6 +249,18 @@ _BULK_VOLUME = re.compile(
 #: word further along than the one this anchoring fixed.
 _EXACT = frozenset({"rag", "phone"})
 
+#: Signals in the REALTIME/INTERACTIVE tables that name the subject matter
+#: rather than the interaction mode. They classify fine on their own but must
+#: not outrank the _BULK_VOLUME inference: "customer support chat" is
+#: interactive, and "score 4 million customer tickets" is a batch job that
+#: happens to concern customers.
+_SUBJECT_NOT_MODE = frozenset({"customer"})
+
+#: The words that state a mode outright. Only these suppress the inference.
+_STATED_MODE: tuple[str, ...] = tuple(
+    w for w in _WORKLOAD_SIGNALS[1][1] + _WORKLOAD_SIGNALS[2][1] if w not in _SUBJECT_NOT_MODE
+)
+
 
 def _find(text: str, needles: tuple[str, ...]) -> str | None:
     """First needle present at a word start, so it can be quoted back as evidence.
@@ -346,10 +358,17 @@ def read(text: str) -> Intent:
 
     # --- workload -------------------------------------------------------------
     workload = Workload.INTERACTIVE
-    # Checked ahead of the signal table for the same reason BATCH sits first in
-    # it: a bulk verb over a large volume is the least ambiguous thing a
-    # sentence can say about its workload.
-    if (bulk := _BULK_VOLUME.search(low)) is not None:
+    # _BULK_VOLUME is an INFERENCE from how the work is described; the signal
+    # tables are words the user chose on purpose. So a stated mode wins, and
+    # the inference only runs when nothing was stated: "interactive scoring app
+    # for 5000 users" and "real-time scoring for 5000 users" both contain a
+    # bulk verb over a volume, and both say outright what they are.
+    #
+    # Suppressed by a stated REALTIME/INTERACTIVE mode only — not by BATCH,
+    # which agrees with the inference anyway, and not by the subject-matter
+    # words (see _SUBJECT_NOT_MODE).
+    stated = _find(low, _STATED_MODE)
+    if stated is None and (bulk := _BULK_VOLUME.search(low)) is not None:
         workload = Workload.BATCH
         inferred.append(Inference("workload", Workload.BATCH.value, bulk.group(0)))
         signal_hit = True
