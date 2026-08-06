@@ -239,6 +239,30 @@ def test_a_rollback_says_that_raising_it_again_is_a_human_decision():
     assert any("human decision" in c["message"] for c in r.status["conditions"])
 
 
+def test_a_rollback_of_an_infeasible_plan_is_not_applied():
+    """The apply gate must hold on the rollback path too.
+
+    The regression branch used to set Ready=True unconditionally and hand back
+    `obj_dep` regardless of `p.fit.feasible` — so a workload rescheduled onto
+    smaller hardware between passes, and then caught by the quality gate, would
+    have its infeasible Deployment applied on exactly the path that runs
+    unattended (ADR-0013). The phase must still lower; the Deployment must not
+    go out.
+    """
+    r = reconcile(
+        workload(phase="canary", context=1_000_000),
+        CLUSTER,
+        regressed=True,
+        regression_reason="extract regressed to 61% [54-68]",
+    )
+    assert r.demote_to == "shadow", "a regression must still lower the phase"
+    assert not r.objects, "an infeasible plan must never be applied, rollback or not"
+    cond = r.status["conditions"][0]
+    assert cond["type"] == "Ready" and cond["status"] == "False"
+    assert cond["reason"] == "DoesNotFit", cond
+    assert "GiB" in cond["message"], "the refusal must carry the arithmetic"
+
+
 # --- the controller loop -------------------------------------------------------
 
 
