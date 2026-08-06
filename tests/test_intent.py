@@ -160,6 +160,11 @@ WORKLOADS = [
     (Workload.INTERACTIVE, "scoring app for 2 million users"),
     (Workload.INTERACTIVE, "rank content for 2 million users under 200ms"),
     (Workload.INTERACTIVE, "classify messages for 2 million customers under 200ms"),
+    # ...through a quantifier, a possessive, or three adjectives. A fixed-width
+    # lookbehind could reach none of these.
+    (Workload.INTERACTIVE, "rank content for about 2 million users, needs to feel snappy"),
+    (Workload.INTERACTIVE, "classify messages across our 2 million customers under 200ms"),
+    (Workload.INTERACTIVE, "rank content for 2 million daily active paying users under 200ms"),
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),

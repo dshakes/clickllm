@@ -298,25 +298,24 @@ _ADJECTIVES = (
 #:
 #: A RATE is excluded at any magnitude — it has a denominator, and nothing
 #: with a denominator is a pile.
-#: "for"/"serving"/"across" in front of the number says the people are being
-#: SERVED, whatever the magnitude: "rank content FOR 2 million users under
-#: 200ms" is a product, and "rank 4 million customers by priority" is a scoring
-#: job. Millions-of-people-are-records was right about the second and wrong
-#: about the first, because magnitude was never the thing that differed.
-#:
-#: Only the million/billion branch needs it — a plain count of people is an
-#: audience in either position, so the digit branch excludes them outright.
-_SERVED = r"(?<!for )(?<!serving )(?<!across )"
-
-#: The lookbehind has to sit before the NUMERAL, not before "million" — the
-#: preposition is three words from the word it qualifies ("for 2 million
-#: users"), and a lookbehind cannot see past the digits. So the million branch
-#: spells out its number. Each lookbehind is separately fixed-width, which is
-#: the only kind Python allows.
 _VOLUME = (
-    rf"(?:{_SERVED}\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b)"
-    rf"|\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b)"
+    rf"(?:\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b)"
     rf"|(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}})\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b))"
+)
+
+#: "…for 2 million users", "…across our 2 million customers", "…for about 2
+#: million daily active paying users" — the sentence says who is being SERVED,
+#: and that beats any bulk verb elsewhere in it, at any magnitude. A plain
+#: count of people is already excluded by _VOLUME; this covers the millions,
+#: where the people could equally have been records.
+#:
+#: A separate pattern rather than a lookbehind on _VOLUME: the preposition is
+#: several words from the numeral ("for about 2 million"), lookbehinds must be
+#: fixed-width, and enumerating "for about "/"across our "/… as fixed widths is
+#: how the previous spelling missed all three phrasings the reviewer sent.
+_SERVED_AUDIENCE = re.compile(
+    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+\d[\d,.]*\s+(?:million|billion)"
+    rf"(?:\s+\w+){{0,3}}\s+{_AUDIENCE}\b"
 )
 
 #: Words that cannot be the noun a singular people-noun modifies. Seeing one
@@ -459,7 +458,8 @@ def read(text: str) -> Intent:
     # chat transcripts" as interactive on the word "chat", and it existed only
     # to rescue sentences whose volume counted users. Fixing the volume made it
     # dead weight.
-    if (bulk := _BULK_VOLUME.search(low)) is not None:
+    bulk = None if _SERVED_AUDIENCE.search(low) else _BULK_VOLUME.search(low)
+    if bulk is not None:
         workload = Workload.BATCH
         inferred.append(Inference("workload", Workload.BATCH.value, bulk.group(0)))
         signal_hit = True
