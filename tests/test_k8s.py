@@ -239,6 +239,30 @@ def test_a_rollback_says_that_raising_it_again_is_a_human_decision():
     assert any("human decision" in c["message"] for c in r.status["conditions"])
 
 
+def test_a_rollback_of_an_infeasible_plan_is_not_applied():
+    """The apply gate must hold on the rollback path too.
+
+    The regression branch used to set Ready=True unconditionally and hand back
+    `obj_dep` regardless of `p.fit.feasible` — so a workload rescheduled onto
+    smaller hardware between passes, and then caught by the quality gate, would
+    have its infeasible Deployment applied on exactly the path that runs
+    unattended (ADR-0013). The phase must still lower; the Deployment must not
+    go out.
+    """
+    r = reconcile(
+        workload(phase="canary", context=1_000_000),
+        CLUSTER,
+        regressed=True,
+        regression_reason="extract regressed to 61% [54-68]",
+    )
+    assert r.demote_to == "shadow", "a regression must still lower the phase"
+    assert not r.objects, "an infeasible plan must never be applied, rollback or not"
+    cond = r.status["conditions"][0]
+    assert cond["type"] == "Ready" and cond["status"] == "False"
+    assert cond["reason"] == "DoesNotFit", cond
+    assert "GiB" in cond["message"], "the refusal must carry the arithmetic"
+
+
 # --- the controller loop -------------------------------------------------------
 
 
@@ -639,3 +663,21 @@ def test_a_workload_declared_unfit_is_reported_but_not_applied():
     # Control: a workload that does fit is still applied.
     _, ok_calls = run_loop([workload(model="meta-llama/Llama-3.1-8B-Instruct")])
     assert "apply" in [c[0][0] for c in ok_calls]
+
+
+def test_a_regressed_and_infeasible_workload_is_demoted_but_not_applied():
+    """Same gate, driven through the loop: a regression alone must not be
+    enough to slip an infeasible Deployment past the apply gate."""
+    wl = workload(phase="canary", context=1_000_000)
+    Recorder.CALLS, Recorder.ITEMS = [], [wl]
+    got = dict(
+        reconcile_once(
+            Recorder(), nodes=CLUSTER, regression_check=lambda _: (True, "extract fell to 61%")
+        )
+    )
+    r = got["ml/triage"]
+    assert r.demote_to == "shadow"
+    verbs = [c[0][0] for c in Recorder.CALLS]
+    assert "apply" not in verbs, f"applied an infeasible rollback: {verbs}"
+    spec_patches = [b for b in _patch_bodies(Recorder.CALLS) if '"spec"' in b]
+    assert spec_patches and '"phase": "shadow"' in spec_patches[0], "the demotion must still land"

@@ -413,13 +413,34 @@ def reconcile(
         "observedPhase": phase,
     }
 
+    # `fit.feasible` is reachable now that a model is passed to `plan()`. Two
+    # earlier attempts to add this were discarded as dead code because `p.fit`
+    # was always None (recorded on #114). Computed once, ahead of the rollback
+    # branch below: the apply gate applies on every path that can produce
+    # `objects`, not only the one that was reasoned about first (ADR-0013).
+    fits = p.fit is None or p.fit.feasible
+
     # A rollback. Lowering only — see the module docstring.
     demote = None
     if regressed and phase != "off":
         idx = PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 0
         demote = PHASE_ORDER[max(idx - 1, 0)]
+        # Demoting `spec.phase` is always safe and must happen unattended even
+        # when sizing fails — that is the whole point of a rollback. Applying
+        # the Deployment is not: an infeasible plan must not go out just
+        # because the trigger for this pass was a quality regression rather
+        # than a sizing failure. Without `fits` here, a workload rescheduled
+        # onto smaller hardware between passes would have its infeasible
+        # config applied on exactly the unattended path with nobody watching.
+        ready = bool(obj_dep) and fits
+        reason = "RolledBack" if ready else ("NoEngineDialect" if not obj_dep else "DoesNotFit")
+        message = (
+            (regression_reason or "quality regression")
+            if ready
+            else (_does_not_fit(p, node) if obj_dep else (gaps[0] if gaps else "unknown"))
+        )
         status["conditions"] = [
-            condition("Ready", True, "RolledBack", regression_reason or "quality regression"),
+            condition("Ready", ready, reason, message),
             condition(
                 "Progressing",
                 False,
@@ -428,12 +449,8 @@ def reconcile(
                 f"is a human decision",
             ),
         ]
-        return Reconciled(objects=(obj_dep,) if obj_dep else (), status=status, demote_to=demote)
+        return Reconciled(objects=(obj_dep,) if ready else (), status=status, demote_to=demote)
 
-    # `fit.feasible` is reachable now that a model is passed to `plan()`. Two
-    # earlier attempts to add this were discarded as dead code because `p.fit`
-    # was always None (recorded on #114).
-    fits = p.fit is None or p.fit.feasible
     ok = bool(obj_dep) and not p.warnings and fits
     status["conditions"] = [
         condition(
