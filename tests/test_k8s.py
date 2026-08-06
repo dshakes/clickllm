@@ -71,7 +71,7 @@ def test_gpu_memory_in_bytes_is_detected_not_multiplied_again():
     assert n.schedulable, "a reinterpreted unit is a caveat, not a refusal"
 
 
-@pytest.mark.parametrize("raw", ["", "not-a-number", "0", "-5"])
+@pytest.mark.parametrize("raw", ["", "not-a-number", "0", "-5", "inf", "nan", "1e309"])
 def test_an_unusable_memory_label_refuses_rather_than_defaults(raw):
     n = from_json({"items": [gpu(mem=raw)]})[0]
     assert n.device_bytes is None
@@ -812,3 +812,30 @@ def test_zero_gpus_spelled_with_a_suffix_is_zero_not_a_refusal():
     # outright, which stops even CPU work being scheduled on it.
     n = from_json({"items": [node_json("z", alloc={"nvidia.com/gpu": "0Ki", "memory": "64Gi"})]})[0]
     assert n.kind == "cpu" and n.schedulable and not n.unknown
+
+
+def test_every_float_parse_in_this_file_goes_through_the_finiteness_check():
+    # The defect was in four parsers and I fixed the three that had crashed;
+    # the fourth was found by a reviewer, and would otherwise have been found
+    # by a node label. Parsed rather than grepped, so a docstring quoting the
+    # old code does not count as the old code.
+    import ast
+
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/k8s/nodes.py"
+    tree = ast.parse(src.read_text())
+
+    def float_calls(node):
+        return {
+            n.lineno
+            for n in ast.walk(node)
+            if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "float"
+        }
+
+    inside = {
+        line
+        for f in ast.walk(tree)
+        if isinstance(f, ast.FunctionDef) and f.name == "_finite"
+        for line in float_calls(f)
+    }
+    stray = sorted(float_calls(tree) - inside)
+    assert not stray, f"float() outside _finite at nodes.py:{stray}"

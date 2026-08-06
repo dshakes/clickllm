@@ -260,10 +260,16 @@ def _gpu_bytes(raw: str) -> tuple[int | None, str]:
     """
     if not raw:
         return None, f"the cluster does not publish {GPU_MEMORY_LABEL} for this node"
-    try:
-        value = int(float(raw))
-    except (TypeError, ValueError):
+    # Through `_finite`, like the other three parsers. This one kept its own
+    # `int(float(...))` and caught only TypeError/ValueError, so a label of
+    # "inf" or "1e309" raised OverflowError straight out of the cluster read —
+    # the fourth instance of the defect this PR is about, in the file it is
+    # about, missed because I fixed the three that had crashed rather than
+    # grepping for the pattern.
+    value_f = _finite(str(raw))
+    if value_f is None:
         return None, f"{GPU_MEMORY_LABEL}={raw!r} is not a number"
+    value = int(value_f)
     if value <= 0:
         return None, f"{GPU_MEMORY_LABEL}={raw!r} is not a usable capacity"
     if value >= BYTES_THRESHOLD_MIB:
