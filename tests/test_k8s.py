@@ -71,7 +71,7 @@ def test_gpu_memory_in_bytes_is_detected_not_multiplied_again():
     assert n.schedulable, "a reinterpreted unit is a caveat, not a refusal"
 
 
-@pytest.mark.parametrize("raw", ["", "not-a-number", "0", "-5"])
+@pytest.mark.parametrize("raw", ["", "not-a-number", "0", "-5", "inf", "nan", "1e309"])
 def test_an_unusable_memory_label_refuses_rather_than_defaults(raw):
     n = from_json({"items": [gpu(mem=raw)]})[0]
     assert n.device_bytes is None
@@ -697,3 +697,145 @@ def test_a_rollback_lowers_the_phase_and_applies_nothing():
     plain = dict(workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary"))
     _, ok_calls = run_loop([plain])
     assert "apply" in [c[0][0] for c in ok_calls]
+
+
+# --- quantities the API server actually sends ----------------------------------
+
+
+def test_a_millicpu_allocatable_reads_rather_than_killing_the_whole_cluster_read():
+    # "15910m" is the ordinary shape of allocatable.cpu once kube-reserved is
+    # subtracted from capacity. int(float("15910m")) raised out of from_json,
+    # out of read_cluster, and past reconcile_once's per-workload try — so one
+    # node's formatting stopped every workload in the cluster reconciling.
+    nodes = from_json({"items": [gpu(), node_json("m", alloc={"cpu": "15910m", "memory": "64Gi"})]})
+    assert len(nodes) == 2
+    assert nodes[1].cpus == 15  # truncated: 15.91 cores are 15 whole ones
+    assert nodes[1].schedulable
+
+
+def test_a_fractional_accelerator_count_refuses_rather_than_truncating():
+    # Extended resources are integer-only — the API server rejects "7500m"
+    # outright — so there is no fractional form here to truncate the way cpu
+    # has. Truncating one to 7 invents a count no cluster reported.
+    n = from_json({"items": [gpu(count="7500m")]})[0]
+    assert not n.schedulable and "fractional" in n.unknown
+
+
+def test_a_whole_count_in_milli_notation_still_reads():
+    assert from_json({"items": [gpu(count="3000m")]})[0].devices == 3
+
+
+def test_a_suffixed_accelerator_count_is_not_read_as_zero():
+    # "3Ki" is a legal whole quantity. Read as 0 the node fell through to the
+    # CPU branch, hiding eight cards behind a host-RAM sizing.
+    n = from_json({"items": [gpu(count="3Ki")]})[0]
+    assert n.kind == "nvidia" and n.devices == 3072
+
+
+def test_an_unreadable_accelerator_count_is_unsizable_not_a_cpu_node():
+    n = from_json({"items": [gpu(count="junk")]})[0]
+    assert n.kind == "nvidia", "a node we cannot count is still a GPU node"
+    assert not n.schedulable and "unreadable" in n.unknown
+    assert n.to_hardware() is None
+
+
+def test_an_unreadable_count_is_none_not_an_exception():
+    n = from_json({"items": [node_json("junk", alloc={"cpu": "not-a-number", "memory": "8Gi"})]})[0]
+    assert n.cpus == 0 and n.kind == "cpu"
+
+
+def test_a_tpu_generation_with_no_published_bandwidth_says_so_on_the_node():
+    # v4 sizes fine — it is in TPU_HBM_GIB — but has no entry in TPU_BANDWIDTH.
+    # _tpu computed that caveat and nothing carried it, so the CRD status
+    # showed a blank bandwidth with no reason next to it.
+    n = from_json(
+        {
+            "items": [
+                node_json(
+                    "tpu-v4",
+                    labels={TPU_ACCELERATOR_LABEL: "tpu-v4-podslice", TPU_TOPOLOGY_LABEL: "2x2x1"},
+                    alloc={"google.com/tpu": "4", "memory": "300Gi", "cpu": "24"},
+                )
+            ]
+        }
+    )[0]
+    assert n.schedulable and n.bandwidth_gbps is None
+    assert "no published bandwidth for TPU v4" in n.note
+    assert not n.unknown, "a sized node is not an unknown one"
+
+
+def test_a_generation_that_has_a_bandwidth_carries_no_such_caveat():
+    n = from_json(
+        {
+            "items": [
+                node_json(
+                    "tpu-v6e",
+                    labels={TPU_ACCELERATOR_LABEL: "tpu-v6e-slice", TPU_TOPOLOGY_LABEL: "2x4"},
+                    alloc={"google.com/tpu": "8", "memory": "1500Gi", "cpu": "180"},
+                )
+            ]
+        }
+    )[0]
+    assert n.bandwidth_gbps and not n.note
+
+
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "1e309", "junk", "8x"])
+def test_a_hostile_accelerator_count_refuses_rather_than_raising(raw):
+    # "nan", "inf" and "1e309" all pass float() and then explode at int() —
+    # ValueError for NaN, OverflowError for infinity — from a line outside the
+    # try that caught the parse. Same crash out of read_cluster as the millicpu
+    # one this PR started with, one input class over.
+    n = from_json({"items": [gpu(count=raw)]})[0]
+    assert n.kind == "nvidia" and not n.schedulable and n.unknown
+
+
+def test_a_negative_accelerator_count_refuses():
+    n = from_json({"items": [gpu(count="-2")]})[0]
+    assert not n.schedulable and "negative" in n.unknown
+
+
+@pytest.mark.parametrize("raw", ["inf", "nan", "1e309", "infGi", "nanGi"])
+def test_a_hostile_memory_quantity_reads_as_none_rather_than_raising(raw):
+    n = from_json({"items": [node_json("m", alloc={"cpu": "8", "memory": raw})]})[0]
+    assert n.host_bytes == 0
+
+
+@pytest.mark.parametrize("raw", ["inf", "nan", "1e309"])
+def test_a_hostile_cpu_quantity_reads_as_zero_rather_than_raising(raw):
+    n = from_json({"items": [node_json("c", alloc={"cpu": raw, "memory": "8Gi"})]})[0]
+    assert n.cpus == 0
+
+
+def test_zero_gpus_spelled_with_a_suffix_is_zero_not_a_refusal():
+    # "0Ki" is a legal way to say none. Reading it through _quantity conflated
+    # zero with unreadable — both come back 0 — so the node was refused
+    # outright, which stops even CPU work being scheduled on it.
+    n = from_json({"items": [node_json("z", alloc={"nvidia.com/gpu": "0Ki", "memory": "64Gi"})]})[0]
+    assert n.kind == "cpu" and n.schedulable and not n.unknown
+
+
+def test_every_float_parse_in_this_file_goes_through_the_finiteness_check():
+    # The defect was in four parsers and I fixed the three that had crashed;
+    # the fourth was found by a reviewer, and would otherwise have been found
+    # by a node label. Parsed rather than grepped, so a docstring quoting the
+    # old code does not count as the old code.
+    import ast
+
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/k8s/nodes.py"
+    tree = ast.parse(src.read_text())
+
+    def float_calls(node):
+        return {
+            n.lineno
+            for n in ast.walk(node)
+            if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "float"
+        }
+
+    inside = {
+        line
+        for f in ast.walk(tree)
+        if isinstance(f, ast.FunctionDef) and f.name == "_finite"
+        for line in float_calls(f)
+    }
+    stray = sorted(float_calls(tree) - inside)
+    assert not stray, f"float() outside _finite at nodes.py:{stray}"
