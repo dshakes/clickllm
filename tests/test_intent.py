@@ -142,8 +142,14 @@ WORKLOADS = [
     (Workload.INTERACTIVE, "chat assistant for 2 million daily active users"),
     (Workload.REALTIME, "real-time scoring for 5000 users"),
     (Workload.REALTIME, "real-time scoring for 5000 monthly users"),
-    # A volume of REQUESTS is a rate, not a pile.
+    # A volume of REQUESTS is a rate only when it has a denominator. A corpus
+    # of captured requests is the thing this product exists to process, so the
+    # bare noun must stay a backlog.
     (Workload.REALTIME, "realtime classification API for 10000 requests per second under 200ms"),
+    (Workload.REALTIME, "voice bot at 200 requests per second"),
+    (Workload.BATCH, "classify 1 million requests from captured traffic"),
+    (Workload.BATCH, "embed 1 million queries from logs"),
+    (Workload.BATCH, "score 4 million captured requests"),
     # Words that merely contain a signal.
     (Workload.INTERACTIVE, "label 5 millionaire profiles"),  # not "million"
     (Workload.INTERACTIVE, "gradual rollout to 2 million users"),  # not "grade"

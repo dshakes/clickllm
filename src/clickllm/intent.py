@@ -235,13 +235,21 @@ _BULK_VERB = (
 #: singular one describes the items.
 #:
 #: "accounts" is deliberately absent — reconciling 20,000 accounts is real
-#: batch work, unlike 20,000 subscribers. So is "calls": transcribing 900,000
-#: of them is a backlog, and only the API sense is a rate.
-_NOT_A_BACKLOG = (
+#: batch work, unlike 20,000 subscribers.
+_AUDIENCE = (
     r"(?:users|people|humans|customers|clients|employees|engineers|staff|seats"
-    r"|subscribers|members|players|students|patients|developers|devs"
-    r"|requests?|queries|qps|rps|tps)"
+    r"|subscribers|members|players|students|patients|developers|devs)"
 )
+
+#: A rate needs its denominator. "requests" and "queries" name the units of a
+#: rate AND the units of a backlog — and a corpus of captured requests is the
+#: thing this product exists to process, so "classify 1 million requests from
+#: captured traffic" is as central a sentence as clickllm has. Excluding the
+#: bare noun took that out. Only "per <something>" makes it a rate; qps/rps/tps
+#: carry their denominator in the word.
+_RATE = r"(?:qps|rps|tps|(?:requests?|queries|calls|messages|events)\s+per\s+\w+)"
+
+_NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
 
 #: What may sit between the number and that noun: adjectives, and nothing that
 #: opens a new phrase. This is the part four rounds of review kept moving.
