@@ -128,6 +128,11 @@ WORKLOADS = [
     (Workload.BATCH, "triage 2 million support tickets"),
     (Workload.BATCH, "2 million support tickets to triage"),
     (Workload.BATCH, "summarization of 2 million support tickets"),
+    # clickllm's own vocabulary: evaluating a captured corpus is the thing
+    # this tool exists to do, and none of it was in the verb or noun lists.
+    (Workload.BATCH, "evaluate 1 million captured prompts"),
+    (Workload.BATCH, "eval 1 million captured requests"),
+    (Workload.BATCH, "2 million requests to evaluate"),
     # ...unless the noun carries a denominator. A rate whose unit happens to
     # be a work item is still a rate.
     (Workload.REALTIME, "realtime classify 2 million events/sec under 200ms"),
@@ -281,6 +286,10 @@ CONCURRENCY = [
     ("chat API at 120 requests per minute, each can take 30 seconds", 60, True),
     ("10 qps, each request takes 2 seconds", 20, True),
     ("100 rps with 500ms per request", 50, True),
+    # The subject is required. Optional, it matched "first token takes 2
+    # seconds" — the exact figure this must not use as time-in-system.
+    ("100 rps, first token takes 2 seconds", 4, False),
+    ("100 rps, startup takes 2 seconds", 4, False),
     ("voice bot at 200 requests per second under 200ms", 4, False),
     # Malformed: the number is anchored, so "1..5" is refused rather than
     # read as the "5" the engine would find by scanning past it.

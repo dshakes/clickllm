@@ -223,7 +223,7 @@ _BULK_VERB = (
     r"(?:scor|grad|translat|transcrib|annotat|rewrit|summaris|summariz|categoris"
     r"|categoriz)(?:e|es|ed|ing)"
     r"|classif\w*"
-    r"|(?:label|tag|rank|process|extract|embed|index)\w*"
+    r"|(?:label|tag|rank|process|extract|embed|index|eval)\w*"
 )
 
 #: Nouns that make a number something other than a backlog: an audience, or a
@@ -347,7 +347,7 @@ _PHRASE_END = (
 #:
 #: Plural, for the reason _AUDIENCE is: a singular noun here is a modifier.
 _BACKLOG_NOUN = (
-    r"(?:tickets|documents|docs|records|rows|messages|emails|transcripts"
+    r"(?:tickets|documents|docs|records|rows|messages|emails|transcripts|prompts"
     r"|conversations|items|files|images|photos|articles|reviews|logs|events"
     r"|pages|posts|comments|chunks|entries|samples|examples|labels|pairs"
     r"|utterances|snippets|abstracts|papers|listings|products|sessions)"
@@ -486,8 +486,15 @@ def _service_time(text: str) -> tuple[int, str] | None:
     matches a stated duration and nothing else, and without one the question
     gets asked.
     """
+    # The subject is REQUIRED. Optional, it matched "first token takes 2
+    # seconds" and "startup takes 2 seconds" — the first being exactly the
+    # figure the docstring above says must not be used as time-in-system.
+    subject = (
+        r"(?:(?:each|every)(?:\s+(?:request|call|job|generation|response|one))?"
+        r"|(?:a|the|one)\s+(?:request|call|job|generation|response))"
+    )
     m = re.search(
-        rf"(?:each|every)?\s*(?:request|call|job|one)?\s*"
+        rf"{subject}\s+(?:can\s+|may\s+|will\s+|usually\s+|typically\s+)?"
         rf"(?:takes?|taking|lasts?|runs? for)\s*(?:about|around|roughly|up to)?\s*"
         rf"(\d+(?:\.\d+)?)\s*({_DURATION_UNIT})\b"
         rf"|(\d+(?:\.\d+)?)\s*({_DURATION_UNIT})\s+per\s+(?:request|call|job)\b",
