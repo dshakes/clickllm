@@ -221,7 +221,10 @@ _BULK_VOLUME = re.compile(
     r"|categoriz)(?:e|es|ed|ing)"
     r"|classif\w*"
     r"|(?:label|tag|rank|process|extract|embed|index)\w*"
-    r")\b(?:\s+\S+){0,3}\s+(?:\d{4,}|million|billion)"
+    # `\d{4,}` alone missed every number a person actually types: "4,000" has
+    # no run of four digits in it. Grouped thousands count from 1,000 up, so
+    # any comma-grouped number qualifies without a second threshold.
+    r")\b(?:\s+\S+){0,3}\s+(?:\d{1,3}(?:,\d{3})+|\d{4,}|million|billion)"
 )
 
 #: Needles with no inflection worth catching, so they anchor at both ends. RAG

@@ -98,6 +98,11 @@ def test_a_large_user_count_does_not_make_an_interactive_product_a_batch_job():
         "annotating 2 million images",
         "rewriting 40000 product blurbs",
         "summarising 30000 reports",
+        # Written the way a person writes them. "4,000" contains no run of
+        # four digits, so a bare \d{4,} missed every grouped number.
+        "score 4,000 tickets",
+        "classify 2,000,000 documents",
+        "rank 1,500 answers",
     ],
 )
 def test_a_bulk_verb_over_a_large_volume_is_still_batch_without_a_batch_word(text):
