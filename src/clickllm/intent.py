@@ -329,6 +329,21 @@ _PHRASE_END = (
     r"|using|needs?|wants?|will|would|can|only|each|about|max|maximum|plus)"
 )
 
+#: Nouns that are work items rather than people. A million of them is a
+#: backlog whatever the verb: "triage 2 million support tickets" and
+#: "summarization of 2 million support tickets" are batch jobs, and neither
+#: verb is in _BULK_VERB — which is the trouble with a verb whitelist, since
+#: English has more verbs than I will think of. Bare "million" used to carry
+#: these, and removing it dropped them.
+#:
+#: Plural, for the reason _AUDIENCE is: a singular noun here is a modifier.
+_BACKLOG_NOUN = (
+    r"(?:tickets|documents|docs|records|rows|messages|emails|transcripts"
+    r"|conversations|items|files|images|photos|articles|reviews|logs|events"
+    r"|pages|posts|comments|chunks|entries|samples|examples|labels|pairs"
+    r"|utterances|snippets|abstracts|papers|listings|products|sessions)"
+)
+
 _NEAR = r"(?:\s+\S+){0,3}\s+"
 
 #: Both orders, because English has both: "score 4 million tickets" and
@@ -339,6 +354,8 @@ _NEAR = r"(?:\s+\S+){0,3}\s+"
 _BULK_VOLUME = re.compile(
     rf"\b(?:{_BULK_VERB})\b{_NEAR}{_VOLUME}"
     rf"|\b{_VOLUME}{_NEAR}to\s+(?:{_BULK_VERB})\b"
+    # No verb needed when the noun says it: a million tickets is a pile.
+    rf"|\b\d[\d,.]*\s+(?:million|billion)\b{_ADJECTIVES}\s+{_BACKLOG_NOUN}\b"
 )
 
 #: Needles with no inflection worth catching, so they anchor at both ends. RAG
@@ -405,13 +422,16 @@ def _people(text: str) -> tuple[int, str] | None:
 def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     """Concurrency stated outright."""
     m = re.search(
-        r"(\d[\d,]*)\s*(?:concurrent|simultaneous|parallel|in flight|in-flight|"
+        r"(\d[\d,.]*\d|\d)\s*(?:concurrent|simultaneous|parallel|in flight|in-flight|"
         rf"at once|qps|rps|{_RATE_UNIT}{_PER_SECOND})",
         text,
     )
     if not m:
         return None
-    return max(1, int(m.group(1).replace(",", ""))), m.group(0)
+    # Decimals, because rates have them. `(\d[\d,]*)` could not match "1.5",
+    # so the engine scanned past it and matched the "5" — reading 1.5 qps as
+    # five in flight, and 0.5 rps as five.
+    return max(1, round(float(m.group(1).replace(",", "")))), m.group(0)
 
 
 def _latency(text: str) -> tuple[int, str] | None:

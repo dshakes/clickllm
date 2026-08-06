@@ -122,6 +122,12 @@ WORKLOADS = [
     (Workload.BATCH, "score 4,000 tickets"),  # grouped digits
     (Workload.BATCH, "rank 1,500 answers"),
     (Workload.BATCH, "score 4 million tickets overnight"),
+    # A million work items is a backlog with no verb from the whitelist at
+    # all — which is the trouble with a verb whitelist. Bare "million" used to
+    # carry these and removing it dropped them.
+    (Workload.BATCH, "triage 2 million support tickets"),
+    (Workload.BATCH, "2 million support tickets to triage"),
+    (Workload.BATCH, "summarization of 2 million support tickets"),
     # Items named by an interactive-sounding word are still items.
     (Workload.BATCH, "score 4 million chat transcripts"),
     (Workload.BATCH, "classify 2 million support bot conversations"),
@@ -246,6 +252,11 @@ CONCURRENCY = [
     ("score 4000 requests/sec under 200ms", 4000, True),
     ("rank 8000 req/s", 8000, True),
     ("score 4000 requests per second", 4000, True),
+    # Rates have decimals. `(\d[\d,]*)` could not match "1.5", so the engine
+    # scanned past it and matched the "5".
+    ("voice bot at 1.5 qps", 2, True),
+    ("0.5 rps", 1, True),
+    ("4,000 requests per second", 4000, True),
     # A per-MINUTE rate is not a concurrency statement: 200 per minute is
     # about three in flight. Reading it as 200 sized a GPU cluster for a
     # workload a laptop serves — and the previous version of this row asserted
