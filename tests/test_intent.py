@@ -128,6 +128,10 @@ WORKLOADS = [
     (Workload.BATCH, "triage 2 million support tickets"),
     (Workload.BATCH, "2 million support tickets to triage"),
     (Workload.BATCH, "summarization of 2 million support tickets"),
+    # ...unless the noun carries a denominator. A rate whose unit happens to
+    # be a work item is still a rate.
+    (Workload.REALTIME, "realtime classify 2 million events/sec under 200ms"),
+    (Workload.INTERACTIVE, "handle 2 million messages per second"),
     # Items named by an interactive-sounding word are still items.
     (Workload.BATCH, "score 4 million chat transcripts"),
     (Workload.BATCH, "classify 2 million support bot conversations"),

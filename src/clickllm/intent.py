@@ -355,7 +355,10 @@ _BULK_VOLUME = re.compile(
     rf"\b(?:{_BULK_VERB})\b{_NEAR}{_VOLUME}"
     rf"|\b{_VOLUME}{_NEAR}to\s+(?:{_BULK_VERB})\b"
     # No verb needed when the noun says it: a million tickets is a pile.
-    rf"|\b\d[\d,.]*\s+(?:million|billion)\b{_ADJECTIVES}\s+{_BACKLOG_NOUN}\b"
+    # ...unless that noun carries a denominator. "2 million events/sec" is a
+    # rate whose unit happens to be a work item, and the noun branch skipped
+    # the rate test the other two branches get from _VOLUME.
+    rf"|\b\d[\d,.]*\s+(?:million|billion)\b{_ADJECTIVES}\s+{_BACKLOG_NOUN}\b(?!{_PER})"
 )
 
 #: Needles with no inflection worth catching, so they anchor at both ends. RAG
