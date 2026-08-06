@@ -11,6 +11,8 @@ import pytest
 
 from clickllm.posttrain import (
     MIN_EXAMPLES_PER_CLUSTER,
+    PLAUSIBLE_GAP,
+    PROMPT_PAIRS_TO_READ,
     WIDE_GAP,
     Method,
     Recipe,
@@ -175,3 +177,62 @@ def test_every_recipe_carries_steps_and_a_stated_risk():
         assert x.steps and all(len(s) > 20 for s in x.steps)
         assert x.risks, f"{x.cluster} has no stated risk"
         assert x.render()
+
+
+# --- the free fix is not gated on the training floor ---------------------------
+
+
+def test_a_small_gap_gets_the_prompt_fix_even_with_too_little_data_to_train():
+    # 87% against a 90% bar, 60 captured examples. The floor exists because LoRA
+    # on 60 samples memorises them — which is no reason to withhold "read the
+    # worst captures", and the refusal it produced cited LoRA's problem for a
+    # recipe that trains on nothing.
+    rec = recommend(receipt(cs("fmt", 870, 1000)), {"fmt": 60})
+    assert only(rec, "fmt").method is Method.PROMPT
+    assert not rec.stay, rec.stay
+
+
+def test_a_small_gap_with_no_captured_data_is_still_refused():
+    # Same 87%-against-90% gap as the case above, but this cluster has zero
+    # captured examples — absent and explicit-zero both count as "no data".
+    # The free fix is free to read, not free to conjure: "read the 0 worst-
+    # scoring captured pairs" is not a recipe, it is a bug wearing one.
+    absent = recommend(receipt(cs("fmt", 870, 1000)), {})
+    assert not absent.recipes
+    assert "no captured examples" in dict(absent.stay)["fmt"]
+
+    zero = recommend(receipt(cs("fmt", 870, 1000)), {"fmt": 0})
+    assert not zero.recipes
+    assert "no captured examples" in dict(zero.stay)["fmt"]
+
+
+def test_the_prompt_recipe_counts_what_it_reads_not_what_was_captured():
+    # `examples` is a training-set size on the LoRA recipe it renders beside.
+    # "prompt · fmt · 4,000 examples" for reading twenty of them borrows that
+    # meaning to overstate the cheap option.
+    big = only(recommend(receipt(cs("fmt", 870, 1000)), {"fmt": 4000}), "fmt")
+    assert big.examples == PROMPT_PAIRS_TO_READ
+    assert "4,000" not in big.render()
+    # And a cluster with fewer than twenty says how many there are, rather than
+    # asking for pairs that do not exist.
+    small = only(recommend(receipt(cs("fmt", 870, 1000)), {"fmt": 7}), "fmt")
+    assert small.examples == 7 and "read the 7 " in small.render()
+
+
+def test_a_gap_past_the_plausible_line_is_not_sold_with_the_same_confidence():
+    # Both are inside WIDE_GAP and get the identical recipe; only the risk line
+    # distinguishes a 15% gap from a 30% one, so it has to.
+    near = only(recommend(receipt(cs("c", 800, 1000)), {"c": 5000}), "c")  # gap 0.10
+    far = only(recommend(receipt(cs("c", 600, 1000)), {"c": 5000}), "c")  # gap 0.30
+    assert near.method is far.method is Method.LORA
+    assert "often, not always" in near.risks[0]
+    assert f"past the {PLAUSIBLE_GAP:.1%}" in far.risks[0]
+    assert "failing outright" in far.risks[0]
+
+
+def test_a_borderline_gap_does_not_render_as_past_itself():
+    # 15.2% is past the 15% line, but both sides printed at :.0% made the
+    # warning read "the gap is 15%, past the 15% where...".
+    r = only(recommend(receipt(cs("c", 748, 1000)), {"c": 5000}), "c")  # gap 0.152
+    assert "past the" in r.risks[0]
+    assert "15.2%" in r.risks[0] and "15.0%" in r.risks[0]
