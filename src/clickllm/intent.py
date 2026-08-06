@@ -133,7 +133,12 @@ _WORKLOAD_SIGNALS: tuple[tuple[Workload, tuple[str, ...]], ...] = (
             "dataset",
             "corpus",
             "reprocess",
-            "million",
+            # No bare "million". A magnitude is not a mode: "chat assistant for
+            # 2 million daily active users, needs to feel snappy" matched it,
+            # and because BATCH is checked first it beat "chat" and "assistant"
+            # — sizing a latency-sensitive product for offline throughput and
+            # skipping the TTFT question entirely. The batch words below carry
+            # the real signal.
         ),
     ),
     (
@@ -172,7 +177,12 @@ _WORKLOAD_SIGNALS: tuple[tuple[Workload, tuple[str, ...]], ...] = (
 _PREFIX_SIGNALS: tuple[tuple[str, float], ...] = (
     ("same system prompt", 0.85),
     ("shared prompt", 0.85),
-    ("agent", 0.7),
+    # A FLEET of agents shares a system prompt. One agent shares it with
+    # nobody, and bare "agent" claimed 0.7 from "build a support agent for one
+    # customer". The workload table still matches the singular — one agent is
+    # interactive work; it just is not evidence of a shared prefix.
+    ("agent fleet", 0.75),
+    ("agents", 0.7),
     ("few-shot", 0.7),
     ("rag", 0.6),
     ("retrieval", 0.6),
@@ -194,8 +204,20 @@ _STRUCTURED_SIGNALS = (
 
 
 def _find(text: str, needles: tuple[str, ...]) -> str | None:
-    """First needle present, so the match can be quoted back as evidence."""
-    return next((n for n in needles if n in text), None)
+    """First needle present at a word start, so it can be quoted back as evidence.
+
+    Plain containment found "rag" inside "average" and "storage", "parse"
+    inside "sparse", and "phone" inside "microphone" — then quoted the needle
+    back as the user's own words, which is the one thing `Inference.evidence`
+    promises it is. Anchoring the start fixes every one of those.
+
+    The END is deliberately unanchored: these are stems, and "parsing",
+    "agents" and "batching" must still match. That leaves word-START
+    collisions ("rag" in "ragtime") reachable in principle; they need a
+    sentence that opens the colliding word, which is a far narrower door than
+    matching anywhere inside any word.
+    """
+    return next((n for n in needles if re.search(rf"\b{re.escape(n)}", text)), None)
 
 
 def _people(text: str) -> tuple[int, str] | None:
@@ -360,7 +382,9 @@ def read(text: str) -> Intent:
     # --- prefix sharing -------------------------------------------------------
     prefix_sharing = 0.0
     for phrase, value in _PREFIX_SIGNALS:
-        if phrase in low:
+        # Through _find, not `phrase in low` — this loop had its own copy of the
+        # matching rule, so fixing the one in _find would have left it behind.
+        if _find(low, (phrase,)) is not None:
             prefix_sharing = value
             inferred.append(
                 Inference(
