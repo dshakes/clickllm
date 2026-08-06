@@ -175,6 +175,12 @@ def test_the_bulk_verbs_are_not_open_stems(text):
         # has a bulk verb in it; only the second group counts work items.
         ("scoring app for 5000 users", Workload.INTERACTIVE),
         ("customer scoring app for 5000 users", Workload.INTERACTIVE),
+        # An adjective between the number and the noun. Matching only the
+        # immediate next word got the line above right and every one of these
+        # wrong.
+        ("scoring app for 5000 active users", Workload.INTERACTIVE),
+        ("classification API for 5000 enterprise customers", Workload.INTERACTIVE),
+        ("real-time scoring for 5000 monthly users", Workload.REALTIME),
         ("interactive scoring app for 5000 users", Workload.INTERACTIVE),
         ("chat tool for ranking 5000 users", Workload.INTERACTIVE),
         ("real-time scoring for 5000 users", Workload.REALTIME),
@@ -183,6 +189,11 @@ def test_the_bulk_verbs_are_not_open_stems(text):
         ("score 4 million chat transcripts", Workload.BATCH),
         ("classify 2 million support bot conversations", Workload.BATCH),
         ("score 4 million customer tickets", Workload.BATCH),
+        # The plurality is what separates these from the group above: an
+        # English noun modifying another noun is singular, so a plural
+        # audience noun is the head of its phrase and a singular one is not.
+        ("process 20000 user records", Workload.BATCH),
+        ("index 50000 customer documents", Workload.BATCH),
         # And the mode words still classify on their own.
         ("customer support chat", Workload.INTERACTIVE),
     ],

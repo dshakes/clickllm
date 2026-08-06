@@ -225,15 +225,26 @@ _BULK_VERB = (
     r"|(?:label|tag|rank|process|extract|embed|index)\w*"
 )
 
-#: Nouns that make a number an audience rather than a workload. Checked as the
-#: word IMMEDIATELY after the volume, not within a window: "5000 users" counts
-#: an audience, and "4 million customer tickets" counts four million tickets.
-#: That is also why the singular "customer" is absent while "customers" is
-#: present — as a modifier it is always singular.
+#: Nouns that make a number an audience rather than a workload.
+#:
+#: **Plural only, and that is what does the work.** An English noun modifying
+#: another noun is singular — "customer tickets", "user records" — so a plural
+#: audience noun is the head of its phrase and not a description of the items.
+#: That distinction is what lets adjectives sit in between: "5000 monthly
+#: users" and "5000 enterprise customers" are audiences, while "4 million
+#: customer tickets" is four million tickets. Matching the immediate next word
+#: instead got that right for the wrong reason, and any sentence with an
+#: adjective in it wrong.
+#:
+#: Two intervening words, not more. "score 4 million tickets from our users"
+#: has an audience noun three words out and is still a backlog; without a
+#: parser that boundary is a judgement call, and this is where it is made.
+#:
+#: "accounts" is deliberately absent — reconciling 20,000 accounts is real
+#: batch work, unlike 20,000 subscribers.
 _AUDIENCE = (
-    r"(?:users?|people|humans?|customers|clients|employees|staff|seats"
-    r"|subscribers|members|accounts|tenants|players|students|patients"
-    r"|developers|devs|testers|reviewers)"
+    r"(?:users|people|humans|customers|clients|employees|engineers|staff|seats"
+    r"|subscribers|members|players|students|patients|developers|devs)"
 )
 
 #: `\d{4,}` alone missed every number a person actually types: "4,000" has no
@@ -242,7 +253,9 @@ _AUDIENCE = (
 #: `\b` keeps "million" out of "millionaire", and the lookahead keeps a user
 #: count from reading as a backlog: "scoring app for 5000 users" is a product,
 #: not a batch job.
-_VOLUME = rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}}|million|billion)\b(?!\s+{_AUDIENCE}\b)"
+_VOLUME = (
+    rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}}|million|billion)\b(?!(?:\s+\w+){{0,2}}\s+{_AUDIENCE}\b)"
+)
 
 _NEAR = r"(?:\s+\S+){0,3}\s+"
 
