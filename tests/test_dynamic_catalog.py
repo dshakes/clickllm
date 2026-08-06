@@ -241,3 +241,69 @@ def test_an_ordinary_gqa_config_is_untouched_by_the_mla_guard():
     cfg = {**_MLA_BASE, "architectures": ["LlamaForCausalLM"], "num_key_value_heads": 8}
     arch = parse_config(cfg)
     assert arch.kv_scheme == "gqa" and arch.kv_lora_rank is None
+
+
+_VALID = {
+    "id": "x",
+    "name": "X",
+    "params_b": 7.0,
+    "active_b": 7.0,
+    "layers": 32,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "kv_scheme": "gqa",
+    "max_context": 8192,
+    "license": "apache-2.0",
+    "license_ok": True,
+    "quants": ["q8"],
+    "verified": True,
+}
+
+
+def _load_with(tmp_path, monkeypatch, **extra):
+    import json
+
+    from clickllm import catalog
+
+    f = tmp_path / "m.json"
+    f.write_text(json.dumps([{**_VALID, **extra}]))
+    monkeypatch.setenv("CLICKLLM_CATALOG", str(f))
+    catalog._CACHE.clear()
+    return catalog.load()
+
+
+@pytest.mark.parametrize(
+    ("extra", "expect"),
+    [
+        ({"kv_scheme": "mla"}, "kv_lora_rank"),
+        ({"quants": ["q3_ultra"]}, "no bit-width"),
+        ({"kv_scheme": "banana"}, "cannot size"),
+    ],
+)
+def test_load_refuses_an_entry_the_solver_would_size_wrongly(tmp_path, monkeypatch, extra, expect):
+    """CLAUDE.md makes the MLA rank load-bearing and says a test enforces it.
+
+    That test parametrises over `load()` **at collection time**, so it only ever
+    sees the built-in `models.json` — never an entry supplied through
+    `CLICKLLM_CATALOG` or the `models.d` drop-in directory, which `sources()`
+    documents as the first-class way to add a model. An MLA entry with no rank
+    arriving that way is sized with the GQA formula and overestimates KV by
+    ~50x: a wrong number, not a crash.
+
+    Enforced in `load()` because that is the funnel every catalogue passes
+    through, built-in or not — ADR-0011's rule applied to the catalogue.
+    """
+    with pytest.raises(ValueError, match=expect):
+        _load_with(tmp_path, monkeypatch, **extra)
+
+
+def test_a_valid_drop_in_entry_still_loads(tmp_path, monkeypatch):
+    """The control: refusing bad entries must not refuse good ones, and the
+    drop-in mechanism is the documented way to add a model."""
+    # A drop-in ADDS to the built-in catalogue, it does not replace it, so look
+    # the entry up by id rather than assuming a position.
+    got = {m.id: m for m in _load_with(tmp_path, monkeypatch)}
+    assert "x" in got, sorted(got)
+
+    mla = {m.id: m for m in _load_with(tmp_path, monkeypatch, kv_scheme="mla", kv_lora_rank=512)}
+    assert mla["x"].kv_scheme == "mla" and mla["x"].kv_lora_rank == 512
