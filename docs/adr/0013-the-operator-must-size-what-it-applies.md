@@ -1,6 +1,6 @@
 # ADR-0013 — The operator must size what it applies
 
-**Status:** proposed · **Date:** 2026-08-05
+**Status:** accepted · **Date:** 2026-08-05
 **Related:** [ADR-0012](0012-unknown-is-not-a-pass.md) · [ADR-0002](0002-runtime-abstraction.md)
 
 ## Context

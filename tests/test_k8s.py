@@ -239,6 +239,30 @@ def test_a_rollback_says_that_raising_it_again_is_a_human_decision():
     assert any("human decision" in c["message"] for c in r.status["conditions"])
 
 
+def test_a_rollback_of_an_infeasible_plan_is_not_applied():
+    """The apply gate must hold on the rollback path too.
+
+    The regression branch used to set Ready=True unconditionally and hand back
+    `obj_dep` regardless of `p.fit.feasible` — so a workload rescheduled onto
+    smaller hardware between passes, and then caught by the quality gate, would
+    have its infeasible Deployment applied on exactly the path that runs
+    unattended (ADR-0013). The phase must still lower; the Deployment must not
+    go out.
+    """
+    r = reconcile(
+        workload(phase="canary", context=1_000_000),
+        CLUSTER,
+        regressed=True,
+        regression_reason="extract regressed to 61% [54-68]",
+    )
+    assert r.demote_to == "shadow", "a regression must still lower the phase"
+    assert not r.objects, "an infeasible plan must never be applied, rollback or not"
+    cond = r.status["conditions"][0]
+    assert cond["type"] == "Ready" and cond["status"] == "False"
+    assert cond["reason"] == "DoesNotFit", cond
+    assert "GiB" in cond["message"], "the refusal must carry the arithmetic"
+
+
 # --- the controller loop -------------------------------------------------------
 
 
@@ -582,3 +606,94 @@ def test_dry_run_does_not_cripple_reads():
     with mock.patch.object(subprocess, "run", fake_run):
         Kubectl(dry_run=True).run(["get", "inferenceworkloads", "-A", "-o", "json"])
     assert "--dry-run=server" not in seen.get("cmd", []), seen.get("cmd")
+
+
+def test_the_operator_sizes_the_model_against_the_node_it_picked():
+    """`reconcile` called `plan(hw, req)` with NO model, so `Plan.fit` was always
+    None and no sizing happened at all.
+
+    `select_node` read every node's accelerator memory, picked the largest, and
+    that capacity was used for nothing — a Deployment for a 70B and one for an
+    8B were planned identically on the same hardware, in the module whose
+    docstring calls reconciling against real node capacity "the feature".
+    See ADR-0013.
+    """
+    from clickllm.k8s.reconcile import reconcile
+
+    def cond(wl):
+        return (reconcile(wl, CLUSTER).status.get("conditions") or [{}])[0]
+
+    # A request that cannot fit is now SAID to not fit, with the arithmetic.
+    big = cond(workload(model="Qwen/Qwen3-32B", context=1000000))
+    assert big["status"] == "False" and big["reason"] == "DoesNotFit", big
+    assert "GiB" in big["message"], "the refusal must carry the arithmetic"
+
+    # Control: an ordinary request still plans.
+    ok = cond(workload(model="meta-llama/Llama-3.1-8B-Instruct"))
+    assert ok["status"] == "True" and ok["reason"] == "Planned", ok
+
+
+def test_a_repo_outside_the_catalogue_is_refused_with_the_remedy():
+    """Sizing needs a `ModelSpec`; the CRD names a Hugging Face repo. A repo we
+    do not carry is a stated unknown, never a pass (ADR-0012), because the
+    alternative is applying a Deployment whose flags came from no hardware."""
+    from clickllm.k8s.reconcile import reconcile
+
+    r = reconcile(workload(model="acme/not-a-real-model"), CLUSTER)
+    c = (r.status.get("conditions") or [{}])[0]
+    assert not r.objects, "nothing may be applied for a model that was never sized"
+    assert c["reason"] == "ModelNotInCatalogue"
+    assert "catalog-add" in c["message"], "a refusal should name the way out"
+
+
+def test_a_workload_declared_unfit_is_reported_but_not_applied():
+    """The apply gate, live at last.
+
+    Two earlier attempts at it were discarded as unreachable: nothing ever
+    reported Ready=False while returning objects, because nothing was ever
+    sized. Now that ADR-0013 sizes the model, this fires — and it is driven
+    through `reconcile_once`, not through the predicate, because the first
+    version of this test passed with the gate removed.
+    """
+    got, calls = run_loop([workload(model="Qwen/Qwen3-32B", context=1000000)])
+    verbs = [c[0][0] for c in calls]
+    assert "apply" not in verbs, f"applied a workload it declared unfit: {verbs}"
+    assert "patch" in verbs, "the status explaining why must still be written"
+
+    # Control: a workload that does fit is still applied.
+    _, ok_calls = run_loop([workload(model="meta-llama/Llama-3.1-8B-Instruct")])
+    assert "apply" in [c[0][0] for c in ok_calls]
+
+
+def test_a_rollback_lowers_the_phase_and_applies_nothing():
+    """The rollback branch reported Ready=True and returned the Deployment, so
+    the ADR-0013 fit gate never fired on it — an infeasible Deployment shipped
+    on the ONE path that runs without a human watching.
+
+    The two effects are separated rather than sharing a gate:
+
+      lowering `spec.phase`   reduces exposure, must work unattended, always
+                              proceeds
+      applying a Deployment   reshapes the workload, which is not what a
+                              rollback is for
+
+    A rollback is "reduce exposure now". Re-planning is the next ordinary pass's
+    job, by which point the workload sits at a lower phase where getting it
+    wrong costs less.
+    """
+    wl = workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary")
+    wl["metadata"]["annotations"] = {"clickllm.dev/regressed": "true"}
+
+    got, calls = run_loop([wl])
+    r = got["ml/triage"]
+    verbs = [c[0][0] for c in calls]
+
+    assert r.demote_to == "shadow", "the phase must still be lowered, unattended"
+    assert not r.objects, "a rollback must not reshape the Deployment"
+    assert "apply" not in verbs, f"applied during a rollback: {verbs}"
+    assert verbs.count("patch") >= 2, "status and the demote patch must both land"
+
+    # Control: an ordinary pass on the same workload still applies.
+    plain = dict(workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary"))
+    _, ok_calls = run_loop([plain])
+    assert "apply" in [c[0][0] for c in ok_calls]

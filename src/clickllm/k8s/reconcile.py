@@ -30,6 +30,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from clickllm import catalog
+from clickllm.catalog import ModelSpec
 from clickllm.engines import Setting
 from clickllm.k8s.nodes import Node
 from clickllm.plan import Engine, Plan, Requirements, Workload, plan
@@ -207,6 +209,33 @@ def dns_label(name: str) -> str:
     return out[:63].rstrip("-")
 
 
+def _catalogue_model(repo: str) -> ModelSpec | None:
+    """The catalogue entry for a Hugging Face repo, or None.
+
+    Exact match, case-folded. Deliberately not fuzzy: `Qwen/Qwen3-32B` and
+    `Qwen/Qwen3-32B-FP8` differ in exactly the way that decides how much memory
+    the weights need, and a near-match sizes the wrong model — a confident wrong
+    number, which is the failure this repo has spent the most effort removing.
+    """
+    want = (repo or "").casefold()
+    if not want:
+        return None
+    return next((m for m in catalog.load() if m.repo and m.repo.casefold() == want), None)
+
+
+def _does_not_fit(p: Plan, node: Node) -> str:
+    """Why the sizing failed, with the arithmetic rather than a bare verdict."""
+    f = p.fit
+    if f is None:  # pragma: no cover — `fits` is True when there is no fit
+        return "no sizing was produced"
+    return (
+        f"needs {f.total_bytes / 1024**3:.0f} GiB (weights "
+        f"{f.weight_bytes / 1024**3:.0f} + KV {f.kv_bytes / 1024**3:.0f} + overhead "
+        f"{f.overhead_bytes / 1024**3:.0f}) of {f.usable_bytes / 1024**3:.0f} GiB "
+        f"usable on {node.name}"
+    )
+
+
 def deployment_for(
     name: str, namespace: str, model: str, p: Plan, replicas: int = 1
 ) -> tuple[dict[str, Any], list[str]]:
@@ -342,7 +371,34 @@ def reconcile(
             status={"conditions": [condition("Ready", False, "UnsizableNode", node.unknown)]}
         )
 
-    p = plan(hw, _requirements(spec))
+    # Resolve the CRD's repo to a catalogue entry, so the model can actually be
+    # SIZED against the node just selected. This call used to be
+    # `plan(hw, _requirements(spec))` — no model — so `Plan.fit` was always None
+    # and no sizing happened at all. `select_node` read every node's accelerator
+    # memory, picked the largest, and that capacity was then used for nothing: a
+    # Deployment for a 70B and one for an 8B were planned identically on the same
+    # hardware, in the module whose docstring calls reconciling against real node
+    # capacity "the feature". See ADR-0013.
+    spec_model = _catalogue_model(model)
+    if spec_model is None:
+        return Reconciled(
+            status={
+                "conditions": [
+                    condition(
+                        "Ready",
+                        False,
+                        "ModelNotInCatalogue",
+                        f"{model!r} is not in the catalogue, so it cannot be sized "
+                        f"against {node.name}. Add it with `clickllm catalog-add "
+                        f"--repo {model}` and this workload will plan on the next "
+                        f"pass. Not applying a Deployment whose flags would come "
+                        f"from no hardware at all.",
+                    )
+                ]
+            }
+        )
+
+    p = plan(hw, _requirements(spec), spec_model)
     obj_dep, gaps = deployment_for(name, namespace, model, p)
 
     status: dict[str, Any] = {
@@ -357,13 +413,34 @@ def reconcile(
         "observedPhase": phase,
     }
 
+    # `fit.feasible` is reachable now that a model is passed to `plan()`. Two
+    # earlier attempts to add this were discarded as dead code because `p.fit`
+    # was always None (recorded on #114). Computed once, ahead of the rollback
+    # branch below: the apply gate applies on every path that can produce
+    # `objects`, not only the one that was reasoned about first (ADR-0013).
+    fits = p.fit is None or p.fit.feasible
+
     # A rollback. Lowering only — see the module docstring.
     demote = None
     if regressed and phase != "off":
         idx = PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 0
         demote = PHASE_ORDER[max(idx - 1, 0)]
+        # Demoting `spec.phase` is always safe and must happen unattended even
+        # when sizing fails — that is the whole point of a rollback. Applying
+        # the Deployment is not: an infeasible plan must not go out just
+        # because the trigger for this pass was a quality regression rather
+        # than a sizing failure. Without `fits` here, a workload rescheduled
+        # onto smaller hardware between passes would have its infeasible
+        # config applied on exactly the unattended path with nobody watching.
+        ready = bool(obj_dep) and fits
+        reason = "RolledBack" if ready else ("NoEngineDialect" if not obj_dep else "DoesNotFit")
+        message = (
+            (regression_reason or "quality regression")
+            if ready
+            else (_does_not_fit(p, node) if obj_dep else (gaps[0] if gaps else "unknown"))
+        )
         status["conditions"] = [
-            condition("Ready", True, "RolledBack", regression_reason or "quality regression"),
+            condition("Ready", ready, reason, message),
             condition(
                 "Progressing",
                 False,
@@ -372,15 +449,42 @@ def reconcile(
                 f"is a human decision",
             ),
         ]
-        return Reconciled(objects=(obj_dep,) if obj_dep else (), status=status, demote_to=demote)
+        # NO objects on a rollback. The two effects are separated deliberately:
+        #
+        #   lowering `spec.phase`  reduces exposure and must work unattended, so
+        #                          it always proceeds — `demote_to` is carried
+        #                          and the controller acts on it independently
+        #   applying a Deployment  reshapes the workload, which is not what a
+        #                          rollback is for, and doing it here bypassed
+        #                          the ADR-0013 fit gate entirely: this branch
+        #                          reports Ready=True, so an infeasible
+        #                          Deployment shipped on the ONE path that runs
+        #                          without a human watching
+        #
+        # A rollback is "reduce exposure now"; re-planning the Deployment is the
+        # next ordinary pass's job, and by then the workload is at a lower phase
+        # where getting it wrong costs less.
+        return Reconciled(status=status, demote_to=demote)
 
-    ok = bool(obj_dep) and not p.warnings
+    ok = bool(obj_dep) and not p.warnings and fits
     status["conditions"] = [
         condition(
             "Ready",
             ok,
-            "Planned" if ok else ("NoEngineDialect" if not obj_dep else "CannotMeetRequirements"),
-            why if ok else (p.warnings[0] if p.warnings else gaps[0] if gaps else "unknown"),
+            "Planned"
+            if ok
+            else (
+                "NoEngineDialect"
+                if not obj_dep
+                else ("DoesNotFit" if not fits else "CannotMeetRequirements")
+            ),
+            why
+            if ok
+            else (
+                _does_not_fit(p, node)
+                if not fits
+                else (p.warnings[0] if p.warnings else gaps[0] if gaps else "unknown")
+            ),
         )
     ]
     return Reconciled(objects=(obj_dep,) if obj_dep else (), status=status)

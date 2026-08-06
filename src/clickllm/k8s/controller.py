@@ -175,6 +175,26 @@ def gate_from_annotation(wl: dict) -> tuple[bool, str]:
     return regressed, reason
 
 
+def _ready(r: Reconciled) -> bool:
+    """Whether this pass's own status says the workload is fit to apply.
+
+    No Ready condition means ready — a defensive default for a `Reconciled`
+    built without one.
+
+    The previous version of this docstring claimed the rollback path is the
+    no-conditions case. It is not: that path sets `Ready=True` with reason
+    `RolledBack`, so this predicate passed and the fit gate never fired there.
+    A comment stating an assumption nobody had checked, in the fix for exactly
+    that shape. The rollback now returns no objects at all, so it does not reach
+    this predicate — but the docstring is corrected rather than deleted, because
+    the wrong version is the more instructive artifact.
+    """
+    for c in r.status.get("conditions", ()):
+        if c.get("type") == "Ready":
+            return str(c.get("status", "True")).lower() == "true"
+    return True
+
+
 def reconcile_once(
     kc: Kubectl,
     namespace: str | None = None,
@@ -207,8 +227,18 @@ def reconcile_once(
             # never once have fired in production.
             regressed, reason = check(wl)
             r = reconcile(wl, nodes, regressed=regressed, regression_reason=reason)
-            for obj in r.objects:
-                kc.apply(obj)
+            # Do not apply what this pass just declared unfit. Dead code until
+            # ADR-0013 made `reconcile` actually size the model — two earlier
+            # attempts at this gate were discarded precisely because nothing
+            # ever reported Ready=False while returning objects (#114).
+            #
+            # The status is still written: "a workload that cannot be sized
+            # still produces a status explaining why" is the documented and
+            # useful half. What changes is that reporting a problem no longer
+            # coexists with shipping it.
+            if _ready(r):
+                for obj in r.objects:
+                    kc.apply(obj)
             if r.status:
                 kc.patch_status(name, ns, r.status)
             if r.demote_to:
