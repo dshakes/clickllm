@@ -225,11 +225,24 @@ _BULK_VERB = (
     r"|(?:label|tag|rank|process|extract|embed|index)\w*"
 )
 
+#: Nouns that make a number an audience rather than a workload. Checked as the
+#: word IMMEDIATELY after the volume, not within a window: "5000 users" counts
+#: an audience, and "4 million customer tickets" counts four million tickets.
+#: That is also why the singular "customer" is absent while "customers" is
+#: present — as a modifier it is always singular.
+_AUDIENCE = (
+    r"(?:users?|people|humans?|customers|clients|employees|staff|seats"
+    r"|subscribers|members|accounts|tenants|players|students|patients"
+    r"|developers|devs|testers|reviewers)"
+)
+
 #: `\d{4,}` alone missed every number a person actually types: "4,000" has no
 #: run of four digits in it. Grouped thousands count from 1,000 up, so matching
 #: the grouping IS the magnitude test — no second threshold needed. The closing
-#: `\b` keeps "million" out of "millionaire".
-_VOLUME = r"(?:\d{1,3}(?:,\d{3})+|\d{4,}|million|billion)\b"
+#: `\b` keeps "million" out of "millionaire", and the lookahead keeps a user
+#: count from reading as a backlog: "scoring app for 5000 users" is a product,
+#: not a batch job.
+_VOLUME = rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}}|million|billion)\b(?!\s+{_AUDIENCE}\b)"
 
 _NEAR = r"(?:\s+\S+){0,3}\s+"
 
@@ -248,18 +261,6 @@ _BULK_VOLUME = re.compile(
 #: "ragged prompts" and "ragtime" claim retrieval, the same false positive one
 #: word further along than the one this anchoring fixed.
 _EXACT = frozenset({"rag", "phone"})
-
-#: Signals in the REALTIME/INTERACTIVE tables that name the subject matter
-#: rather than the interaction mode. They classify fine on their own but must
-#: not outrank the _BULK_VOLUME inference: "customer support chat" is
-#: interactive, and "score 4 million customer tickets" is a batch job that
-#: happens to concern customers.
-_SUBJECT_NOT_MODE = frozenset({"customer"})
-
-#: The words that state a mode outright. Only these suppress the inference.
-_STATED_MODE: tuple[str, ...] = tuple(
-    w for w in _WORKLOAD_SIGNALS[1][1] + _WORKLOAD_SIGNALS[2][1] if w not in _SUBJECT_NOT_MODE
-)
 
 
 def _find(text: str, needles: tuple[str, ...]) -> str | None:
@@ -358,17 +359,13 @@ def read(text: str) -> Intent:
 
     # --- workload -------------------------------------------------------------
     workload = Workload.INTERACTIVE
-    # _BULK_VOLUME is an INFERENCE from how the work is described; the signal
-    # tables are words the user chose on purpose. So a stated mode wins, and
-    # the inference only runs when nothing was stated: "interactive scoring app
-    # for 5000 users" and "real-time scoring for 5000 users" both contain a
-    # bulk verb over a volume, and both say outright what they are.
-    #
-    # Suppressed by a stated REALTIME/INTERACTIVE mode only — not by BATCH,
-    # which agrees with the inference anyway, and not by the subject-matter
-    # words (see _SUBJECT_NOT_MODE).
-    stated = _find(low, _STATED_MODE)
-    if stated is None and (bulk := _BULK_VOLUME.search(low)) is not None:
+    # A bulk verb over a volume of WORK ITEMS. The volume itself carries the
+    # discrimination (see _AUDIENCE), which is why there is no rule here about
+    # stated modes outranking inferred ones: that rule read "score 4 million
+    # chat transcripts" as interactive on the word "chat", and it existed only
+    # to rescue sentences whose volume counted users. Fixing the volume made it
+    # dead weight.
+    if (bulk := _BULK_VOLUME.search(low)) is not None:
         workload = Workload.BATCH
         inferred.append(Inference("workload", Workload.BATCH.value, bulk.group(0)))
         signal_hit = True

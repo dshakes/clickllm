@@ -171,18 +171,21 @@ def test_the_bulk_verbs_are_not_open_stems(text):
 @pytest.mark.parametrize(
     ("text", "want"),
     [
-        # A stated mode outranks the bulk-volume inference. All three contain
-        # a bulk verb over a volume AND say outright what they are.
+        # The volume decides, because the volume is what differs. Each of these
+        # has a bulk verb in it; only the second group counts work items.
+        ("scoring app for 5000 users", Workload.INTERACTIVE),
+        ("customer scoring app for 5000 users", Workload.INTERACTIVE),
         ("interactive scoring app for 5000 users", Workload.INTERACTIVE),
         ("chat tool for ranking 5000 users", Workload.INTERACTIVE),
         ("real-time scoring for 5000 users", Workload.REALTIME),
-        # ...but "customer" names the subject, not the mode, so it does not
-        # outrank it. This one is a batch job that happens to concern
-        # customers, and it stays batch.
+        # Work items, even when an interactive-sounding word names them. A
+        # rule that let "chat" outrank the volume made this one interactive.
+        ("score 4 million chat transcripts", Workload.BATCH),
+        ("classify 2 million support bot conversations", Workload.BATCH),
         ("score 4 million customer tickets", Workload.BATCH),
         # And the mode words still classify on their own.
         ("customer support chat", Workload.INTERACTIVE),
     ],
 )
-def test_a_stated_mode_outranks_the_inference_but_a_subject_noun_does_not(text, want):
+def test_a_volume_of_users_is_an_audience_and_a_volume_of_items_is_a_backlog(text, want):
     assert read(text).requirements.workload is want
