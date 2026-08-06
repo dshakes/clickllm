@@ -259,12 +259,10 @@ _RATE_UNIT = r"(?:requests?|queries|calls|messages|events|req|msgs?|evts?)"
 _TIME = r"(?:s|se[ck]|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)"
 _PER = rf"(?:\s+per\s+{_TIME}\b|\s*/\s*{_TIME}\b)"
 
-#: Only a PER-SECOND rate is a statement about concurrency, and only roughly:
-#: 200 requests per MINUTE is about three in flight, not two hundred, and
-#: reading it as two hundred sizes a GPU cluster for a workload a laptop
-#: serves. Any denominator still means "not a backlog" for _RATE; only this
-#: one licenses a number.
-_PER_SECOND = r"(?:\s+per\s+(?:s|se[ck]|second|seconds)\b|\s*/\s*(?:s|se[ck]|second|seconds)\b)"
+#: Seconds in each denominator, keyed by the first three characters of the
+#: unit — enough to separate s/sec/second from min/minute and hr/hour/day.
+_SECONDS_IN = {"s": 1, "se": 1, "sec": 1, "min": 60, "hr": 3600, "hou": 3600, "day": 86400}
+
 _RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
 _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
@@ -423,18 +421,30 @@ def _people(text: str) -> tuple[int, str] | None:
 
 
 def _explicit_concurrency(text: str) -> tuple[int, str] | None:
-    """Concurrency stated outright."""
+    """Concurrency stated outright, or a rate converted to it.
+
+    A rate is a concurrency statement once its denominator is accounted for.
+    Two hundred requests per minute is about three in flight, not two hundred
+    and not the interactive default of four — the first over-provisions a GPU
+    cluster and the second under-provisions a real one. Both were shipped in
+    this file within two rounds of each other, which is what happens when the
+    denominator is treated as a flag rather than as arithmetic.
+    """
     m = re.search(
-        r"(\d[\d,.]*\d|\d)\s*(?:concurrent|simultaneous|parallel|in flight|in-flight|"
-        rf"at once|qps|rps|{_RATE_UNIT}{_PER_SECOND})",
+        r"(?P<n>\d[\d,]*(?:\.\d+)?)\s*(?P<scale>million|billion)?\s*(?:"
+        r"(?:concurrent|simultaneous|parallel|in flight|in-flight|at once)"
+        rf"|qps|rps|tps|{_RATE_UNIT}(?:\s+per\s+|\s*/\s*)(?P<unit>{_TIME})\b)",
         text,
     )
     if not m:
         return None
-    # Decimals, because rates have them. `(\d[\d,]*)` could not match "1.5",
-    # so the engine scanned past it and matched the "5" — reading 1.5 qps as
-    # five in flight, and 0.5 rps as five.
-    return max(1, round(float(m.group(1).replace(",", "")))), m.group(0)
+    try:
+        n = float(m.group("n").replace(",", ""))
+    except ValueError:  # a malformed span like "1..5" — refuse rather than raise
+        return None
+    n *= {"million": 1e6, "billion": 1e9}.get(m.group("scale") or "", 1)
+    per = _SECONDS_IN.get((m.group("unit") or "")[:3], 1)
+    return max(1, round(n / per)), m.group(0)
 
 
 def _latency(text: str) -> tuple[int, str] | None:

@@ -261,12 +261,15 @@ CONCURRENCY = [
     ("voice bot at 1.5 qps", 2, True),
     ("0.5 rps", 1, True),
     ("4,000 requests per second", 4000, True),
-    # A per-MINUTE rate is not a concurrency statement: 200 per minute is
-    # about three in flight. Reading it as 200 sized a GPU cluster for a
-    # workload a laptop serves — and the previous version of this row asserted
-    # exactly that, which is the "test enshrines the bug" shape again.
-    ("voice bot at 200 requests per minute", 4, False),
-    ("10000 requests per day", 4, False),
+    # A rate IS a concurrency statement once its denominator is arithmetic
+    # rather than a flag. 200 per minute is about three in flight — not 200,
+    # which sized a GPU cluster for a workload a laptop serves, and not the
+    # default of 4, which under-provisions a real one. Both shipped here
+    # within two rounds, and each was asserted by a version of this row.
+    ("voice bot at 200 requests per minute", 3, True),
+    ("10000 requests per day", 1, True),
+    ("2 million events per minute", 33333, True),
+    ("1..5 rps", 5, True),  # malformed: refuses to raise, reads what it can
     ("classify 10000 requests per customer from captured traffic", 64, False),
 ]
 
