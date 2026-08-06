@@ -697,3 +697,62 @@ def test_a_rollback_lowers_the_phase_and_applies_nothing():
     plain = dict(workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary"))
     _, ok_calls = run_loop([plain])
     assert "apply" in [c[0][0] for c in ok_calls]
+
+
+# --- quantities the API server actually sends ----------------------------------
+
+
+def test_a_millicpu_allocatable_reads_rather_than_killing_the_whole_cluster_read():
+    # "15910m" is the ordinary shape of allocatable.cpu once kube-reserved is
+    # subtracted from capacity. int(float("15910m")) raised out of from_json,
+    # out of read_cluster, and past reconcile_once's per-workload try — so one
+    # node's formatting stopped every workload in the cluster reconciling.
+    nodes = from_json({"items": [gpu(), node_json("m", alloc={"cpu": "15910m", "memory": "64Gi"})]})
+    assert len(nodes) == 2
+    assert nodes[1].cpus == 15  # truncated: 15.91 cores are 15 whole ones
+    assert nodes[1].schedulable
+
+
+def test_a_millicpu_device_count_does_not_round_a_partial_card_up_to_a_whole_one():
+    n = from_json({"items": [gpu(count="7500m")]})[0]
+    assert n.devices == 7, "over-reporting devices is the direction that makes things appear to fit"
+
+
+def test_an_unreadable_count_is_none_not_an_exception():
+    n = from_json({"items": [node_json("junk", alloc={"cpu": "not-a-number", "memory": "8Gi"})]})[0]
+    assert n.cpus == 0 and n.kind == "cpu"
+
+
+def test_a_tpu_generation_with_no_published_bandwidth_says_so_on_the_node():
+    # v4 sizes fine — it is in TPU_HBM_GIB — but has no entry in TPU_BANDWIDTH.
+    # _tpu computed that caveat and nothing carried it, so the CRD status
+    # showed a blank bandwidth with no reason next to it.
+    n = from_json(
+        {
+            "items": [
+                node_json(
+                    "tpu-v4",
+                    labels={TPU_ACCELERATOR_LABEL: "tpu-v4-podslice", TPU_TOPOLOGY_LABEL: "2x2x1"},
+                    alloc={"google.com/tpu": "4", "memory": "300Gi", "cpu": "24"},
+                )
+            ]
+        }
+    )[0]
+    assert n.schedulable and n.bandwidth_gbps is None
+    assert "no published bandwidth for TPU v4" in n.note
+    assert not n.unknown, "a sized node is not an unknown one"
+
+
+def test_a_generation_that_has_a_bandwidth_carries_no_such_caveat():
+    n = from_json(
+        {
+            "items": [
+                node_json(
+                    "tpu-v6e",
+                    labels={TPU_ACCELERATOR_LABEL: "tpu-v6e-slice", TPU_TOPOLOGY_LABEL: "2x4"},
+                    alloc={"google.com/tpu": "8", "memory": "1500Gi", "cpu": "180"},
+                )
+            ]
+        }
+    )[0]
+    assert n.bandwidth_gbps and not n.note

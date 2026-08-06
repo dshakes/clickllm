@@ -165,6 +165,31 @@ def _quantity(v: str | int | None) -> int:
         return 0
 
 
+def _count(v: str | int | None) -> int:
+    """A whole-unit count from a Kubernetes quantity, milli suffix included.
+
+    `allocatable.cpu` is routinely `"15910m"` — the standard notation for
+    fractional cores, and what a node reports once kube-reserved is subtracted
+    from capacity, since that arithmetic rarely lands on a whole core.
+    `int(float("15910m"))` raises, and nothing between here and
+    `reconcile_once` catches it, so one such node took down the reconcile pass
+    for every workload in the cluster — the opposite of that function's stated
+    per-workload blast radius.
+
+    Truncates rather than rounds: 15.91 cores are 15 whole ones, and
+    over-reporting capacity is the direction that makes something appear to
+    fit. Degrades to 0 like `_quantity` rather than raising — an unreadable
+    count must read as "none", never as a crash halfway through a cluster.
+    """
+    if v is None:
+        return 0
+    s = str(v).strip()
+    try:
+        return int(float(s[:-1]) / 1000) if s.endswith("m") else int(float(s))
+    except ValueError:
+        return 0
+
+
 def _gpu_bytes(raw: str) -> tuple[int | None, str]:
     """Per-GPU memory in bytes, and a note when the units had to be inferred.
 
@@ -236,10 +261,10 @@ def from_json(payload: dict | str) -> list[Node]:
         labels = meta.get("labels", {}) or {}
         alloc = item.get("status", {}).get("allocatable", {}) or {}
         host_bytes = _quantity(alloc.get("memory"))
-        cpus = int(float(alloc.get("cpu", 0) or 0))
+        cpus = _count(alloc.get("cpu"))
 
-        gpus = int(float(alloc.get("nvidia.com/gpu", 0) or 0))
-        tpus = int(float(alloc.get("google.com/tpu", 0) or 0))
+        gpus = _count(alloc.get("nvidia.com/gpu"))
+        tpus = _count(alloc.get("google.com/tpu"))
 
         if gpus:
             device_bytes, note = _gpu_bytes(labels.get(GPU_MEMORY_LABEL, ""))
@@ -279,6 +304,13 @@ def from_json(payload: dict | str) -> list[Node]:
                     host_bytes=host_bytes,
                     cpus=cpus,
                     unknown=note if device_bytes is None else "",
+                    # Same split as the GPU branch above, and it was missing:
+                    # `_tpu` computes "no published bandwidth for TPU v4" for
+                    # the generations absent from TPU_BANDWIDTH, and that note
+                    # reached nothing. A v4 node sized fine and showed a blank
+                    # bandwidth with no reason, in the field reconcile.py puts
+                    # on the CRD status.
+                    note="" if device_bytes is None else note,
                     labels=labels,
                 )
             )
