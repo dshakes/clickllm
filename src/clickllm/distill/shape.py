@@ -84,8 +84,15 @@ def _sha(*parts: str) -> str:
     """
     h = hashlib.sha256()
     for p in parts:
-        h.update(p.encode())
-        h.update(b"\x00")  # separator, so ("ab","c") != ("a","bc")
+        b = p.encode()
+        # Length-prefixed, netstring style — not a NUL separator. A separator
+        # is only unambiguous while no part contains it, and tool names come
+        # out of captured schemas, which this repo treats as untrusted data.
+        # One tool named "get\x00weather" hashed identically to two named "get"
+        # and "weather": the same collision the comma join had, one layer down.
+        # A length cannot be forged by its own payload.
+        h.update(f"{len(b)}:".encode())
+        h.update(b)
     return h.hexdigest()[:16]
 
 

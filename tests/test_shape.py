@@ -32,6 +32,17 @@ def test_a_comma_in_a_tool_name_does_not_merge_two_different_shapes():
     assert one.signature != two.signature
 
 
+def test_a_separator_inside_a_tool_name_does_not_merge_two_shapes_either():
+    # The comma fix moved the collision one layer down rather than removing it:
+    # a NUL separator is only unambiguous while no part contains a NUL, and
+    # tool names come out of captured schemas, which this repo treats as
+    # untrusted data. Hence length prefixes, which a payload cannot forge.
+    for sep in ("\x00", ",", ":", "1:"):
+        one = extract_shape(cap(tools=({"name": f"get{sep}weather"},)))
+        two = extract_shape(cap(tools=({"name": "get"}, {"name": "weather"})))
+        assert one.signature != two.signature, sep
+
+
 def test_the_same_tools_in_any_order_are_the_same_shape():
     # The other half of the same property: separating the names must not make
     # the signature order-sensitive, since tool_names is sorted for that reason.
