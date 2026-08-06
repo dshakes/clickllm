@@ -326,6 +326,10 @@ def test_a_headcount_is_counted_and_a_modifier_is_not(text, want, inferred):
     "text",
     [
         "9" * 400 + " qps, each request takes 1 second",
+        # Finite on its own, infinite once multiplied — so the check belongs
+        # after the multiplier, not before it.
+        "9" * 300 + " billion qps, each request takes 1 second",
+        "9" * 300 + " million events per second, each takes 1 second",
         "10 qps, each request takes " + "9" * 400 + " seconds",
         "1..5 rps, each takes 1 second",
         "score " + "9" * 400 + " tickets",

@@ -473,11 +473,6 @@ def _rate_per_second(text: str) -> tuple[float, str] | None:
         n = float(m.group("n").replace(",", ""))
     except ValueError:  # a malformed span like "1..5" — refuse rather than raise
         return None
-    if not math.isfinite(n):
-        # 400 digits parses to inf, and math.ceil(inf) raises OverflowError out
-        # of read() — which must always return an Intent. Same defect as the
-        # one in k8s/nodes today: float() accepts it and int() explodes.
-        return None
     n *= {"million": 1e6, "billion": 1e9}.get(m.group("scale") or "", 1)
     per = _SECONDS_IN.get((m.group("unit") or "s").rstrip("s") or "s")
     if per is None:  # a denominator we cannot convert is a question, not a guess
@@ -523,14 +518,20 @@ def _service_time(text: str) -> tuple[int, str] | None:
     return max(1, round(ms)), m.group(0)
 
 
-def _little(rate_per_second: float, service_ms: int) -> int:
+def _little(rate_per_second: float, service_ms: int) -> int | None:
     """Little's Law: in flight = arrival rate x time spent in the system.
+
+    None when the product is not a real number. Guarding the two inputs was
+    not enough and I shipped that twice: 1e300 and 1000 are both finite, and
+    their product is not. The overflow is in the multiplication, so the check
+    is on the multiplication.
 
     Ceiling, not round(): banker's rounding sent 16.5 to 16, and more
     concurrency reserves more KV, which is the conservative direction for a
     sizing tool.
     """
-    return max(1, math.ceil(rate_per_second * service_ms / 1000))
+    n = rate_per_second * service_ms / 1000
+    return max(1, math.ceil(n)) if math.isfinite(n) else None
 
 
 def _latency(text: str) -> tuple[int, str] | None:
@@ -631,8 +632,8 @@ def read(text: str) -> Intent:
         # under 200ms" says 100, and the derivation said 2.
         concurrency, evidence = explicit
         inferred.append(Inference("concurrency", concurrency, evidence))
-    elif rate is not None and service is not None:
-        concurrency = _little(rate[0], service[0])
+    elif rate is not None and service is not None and (little := _little(rate[0], service[0])):
+        concurrency = little
         inferred.append(
             Inference(
                 "concurrency",
