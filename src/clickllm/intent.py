@@ -432,19 +432,29 @@ def _people(text: str) -> tuple[int, str] | None:
 
 
 def _explicit_concurrency(text: str) -> tuple[int, str] | None:
-    """Concurrency stated outright, or a rate converted to it.
+    """Concurrency stated outright — in flight at the same time, said as such."""
+    m = re.search(
+        r"(\d[\d,]*)\s*(?:concurrent|simultaneous|parallel|in flight|in-flight|at once)",
+        text,
+    )
+    if not m:
+        return None
+    return max(1, int(m.group(1).replace(",", ""))), m.group(0)
 
-    A rate is a concurrency statement once its denominator is accounted for.
-    Two hundred requests per minute is about three in flight, not two hundred
-    and not the interactive default of four — the first over-provisions a GPU
-    cluster and the second under-provisions a real one. Both were shipped in
-    this file within two rounds of each other, which is what happens when the
-    denominator is treated as a flag rather than as arithmetic.
+
+def _rate_per_second(text: str) -> tuple[float, str] | None:
+    """A throughput rate, normalised to per-second. NOT a concurrency.
+
+    Concurrency in this codebase is requests in flight at the same time, and a
+    rate does not give you that on its own — "120 requests per minute, each
+    taking 30 seconds" is two per second and about SIXTY in flight. Dividing
+    the rate by its denominator and calling the answer concurrency was wrong
+    by the service time, which is a factor this module has no way to know
+    unless the sentence states one. See `_little`.
     """
     m = re.search(
         r"(?P<n>\d[\d,]*(?:\.\d+)?)\s*(?P<scale>million|billion)?\s*(?:"
-        r"(?:concurrent|simultaneous|parallel|in flight|in-flight|at once)"
-        rf"|qps|rps|tps|{_RATE_UNIT}(?:\s+per\s+|\s*/\s*)(?P<unit>{_TIME})\b)",
+        rf"(?:qps|rps|tps)|{_RATE_UNIT}(?:\s+per\s+|\s*/\s*)(?P<unit>{_TIME})\b)",
         text,
     )
     if not m:
@@ -457,9 +467,17 @@ def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     per = _SECONDS_IN.get((m.group("unit") or "s").rstrip("s") or "s")
     if per is None:  # a denominator we cannot convert is a question, not a guess
         return None
-    # Ceiling, not round(): banker's rounding sent 16.5 qps to 16, and the
-    # conservative direction for concurrency is the one that reserves more KV.
-    return max(1, math.ceil(n / per)), m.group(0)
+    return n / per, m.group(0)
+
+
+def _little(rate_per_second: float, service_ms: int) -> int:
+    """Little's Law: in flight = arrival rate x time spent in the system.
+
+    Ceiling, not round(): banker's rounding sent 16.5 to 16, and more
+    concurrency reserves more KV, which is the conservative direction for a
+    sizing tool.
+    """
+    return max(1, math.ceil(rate_per_second * service_ms / 1000))
 
 
 def _latency(text: str) -> tuple[int, str] | None:
@@ -547,7 +565,23 @@ def read(text: str) -> Intent:
         )
 
     # --- concurrency ----------------------------------------------------------
-    if (explicit := _explicit_concurrency(low)) is not None:
+    # The latency budget is read first because a rate needs it: a rate is a
+    # concurrency statement only once you know how long each request stays in
+    # the system, and without that this used to answer the question anyway —
+    # and remove it, so nobody could correct the answer.
+    budget = _latency(low)
+    rate = _rate_per_second(low)
+    if rate is not None and budget is not None:
+        concurrency = _little(rate[0], budget[0])
+        inferred.append(
+            Inference(
+                "concurrency",
+                concurrency,
+                f"{rate[1]} at {budget[1]} — Little's Law: arrivals x time in "
+                f"the system. A rate alone does not give this",
+            )
+        )
+    elif (explicit := _explicit_concurrency(low)) is not None:
         concurrency, evidence = explicit
         inferred.append(Inference("concurrency", concurrency, evidence))
     elif (headcount := _people(low)) is not None:
@@ -574,7 +608,7 @@ def read(text: str) -> Intent:
 
     # --- latency budget -------------------------------------------------------
     ttft_ms = itl_ms = None
-    if (budget := _latency(low)) is not None:
+    if budget is not None:
         ms, evidence = budget
         ttft_ms = ms
         # A per-response budget is not a per-token one. Splitting it needs a

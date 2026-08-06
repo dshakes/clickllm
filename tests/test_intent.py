@@ -253,31 +253,32 @@ CONCURRENCY = [
     ("200 analysts", 40, True),
     # A rate IS the concurrency, however it is spelled — and reading it as a
     # backlog cost both the workload and this number.
-    ("score 4000 requests/sec under 200ms", 4000, True),
-    ("rank 8000 req/s", 8000, True),
-    ("score 4000 requests per second", 4000, True),
+    ("rank 8000 req/s under 250ms", 2000, True),
+    ("score 4000 requests per second", 4, False),
     # Rates have decimals. `(\d[\d,]*)` could not match "1.5", so the engine
     # scanned past it and matched the "5".
-    ("voice bot at 1.5 qps", 2, True),
-    ("0.5 rps", 1, True),
-    ("4,000 requests per second", 4000, True),
-    # A rate IS a concurrency statement once its denominator is arithmetic
-    # rather than a flag. 200 per minute is about three in flight — not 200,
-    # which sized a GPU cluster for a workload a laptop serves, and not the
-    # default of 4, which under-provisions a real one. Both shipped here
-    # within two rounds, and each was asserted by a version of this row.
-    ("voice bot at 200 requests per minute", 4, True),
-    ("10000 requests per day", 1, True),
-    ("2 million events per minute", 33334, True),
+    ("voice bot at 1.5 qps", 4, False),
+    ("0.5 rps", 4, False),
+    ("4,000 requests per second under 1000ms", 4000, True),
+    # A rate is NOT a concurrency statement on its own. Concurrency here is
+    # requests in flight, and that is arrivals x time in the system: "120 per
+    # minute, each taking 30 seconds" is two per second and sixty in flight.
+    # Without a stated service time the honest answer is the question.
+    ("chat API at 120 requests per minute", 4, False),
+    ("200 qps", 4, False),
+    ("2 million events per minute", 4, False),
+    ("3600 requests per hrs", 4, False),
+    ("1..5 rps", 4, False),  # malformed: refuses to raise
+    # With one, it is Little's Law and the arithmetic is stated.
+    ("score 4000 requests/sec under 200ms", 800, True),
+    ("voice bot at 16.5 qps under 200ms", 4, True),  # ceil(16.5 x 0.2)
+    ("7200 requests per hour under 500ms", 1, True),
+    ("2 million events per minute under 200ms", 6667, True),
     # The denominator's spellings come from the same map as its value, so
     # "hrs" cannot exist in one and not the other — it did, and read as
-    # per-second: a 3600x over-provision from one missing key.
-    ("3600 requests per hrs", 1, True),
-    ("3600 requests per hour", 1, True),
-    ("7200 requests per hour", 2, True),
-    # Ceiling, not round(): banker's rounding sent 16.5 to 16.
-    ("voice bot at 16.5 qps under 200ms", 17, True),
-    ("1..5 rps", 5, True),  # malformed: refuses to raise, reads what it can
+    # per-second: a 3600x error, visible here only once a budget is stated.
+    ("3600 requests per hrs under 1000ms", 1, True),
+    ("3600 requests per second under 1000ms", 3600, True),
     ("classify 10000 requests per customer from captured traffic", 64, False),
 ]
 
