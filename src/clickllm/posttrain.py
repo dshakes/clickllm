@@ -272,6 +272,17 @@ def recommend(
             )
             continue
 
+        if n <= 0:
+            stay.append(
+                (
+                    claim.name,
+                    "no captured examples for this cluster — there is nothing "
+                    "to read and nothing to train on. Capture traffic before "
+                    "deciding",
+                )
+            )
+            continue
+
         # Cheapest first — and that means BEFORE the data floor, not after. The
         # floor is a fine-tuning floor: it exists because LoRA on a few dozen
         # samples memorises them. Reading captures needs no such thing. Checked

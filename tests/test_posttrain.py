@@ -192,6 +192,20 @@ def test_a_small_gap_gets_the_prompt_fix_even_with_too_little_data_to_train():
     assert not rec.stay, rec.stay
 
 
+def test_a_small_gap_with_no_captured_data_is_still_refused():
+    # Same 87%-against-90% gap as the case above, but this cluster has zero
+    # captured examples — absent and explicit-zero both count as "no data".
+    # The free fix is free to read, not free to conjure: "read the 0 worst-
+    # scoring captured pairs" is not a recipe, it is a bug wearing one.
+    absent = recommend(receipt(cs("fmt", 870, 1000)), {})
+    assert not absent.recipes
+    assert "no captured examples" in dict(absent.stay)["fmt"]
+
+    zero = recommend(receipt(cs("fmt", 870, 1000)), {"fmt": 0})
+    assert not zero.recipes
+    assert "no captured examples" in dict(zero.stay)["fmt"]
+
+
 def test_the_prompt_recipe_counts_what_it_reads_not_what_was_captured():
     # `examples` is a training-set size on the LoRA recipe it renders beside.
     # "prompt · fmt · 4,000 examples" for reading twenty of them borrows that
