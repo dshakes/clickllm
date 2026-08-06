@@ -32,6 +32,7 @@ Sources, checked 2026-07-27:
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from dataclasses import dataclass, field
 
@@ -133,36 +134,61 @@ class Node:
         )
 
 
+#: The suffixes Kubernetes emits on a quantity. Binary ones never collide with
+#: decimal ones — they all end in `i` — so iteration order does not matter.
+_UNITS = {
+    "Ki": 1024,
+    "Mi": 1024**2,
+    "Gi": 1024**3,
+    "Ti": 1024**4,
+    "K": 1000,
+    "M": 1000**2,
+    "G": 1000**3,
+    "T": 1000**4,
+}
+
+
+def _finite(s: str) -> float | None:
+    """`float(s)`, but only when the answer is a real number.
+
+    "nan", "inf" and "1e309" all parse without complaint and then explode at
+    `int()` — `ValueError` for NaN, `OverflowError` for infinity — from a line
+    outside whichever `try` caught the parse. Three functions here had that
+    hole, so the check belongs with the parse rather than after it, once.
+    """
+    try:
+        n = float(s)
+    except ValueError:
+        return None
+    return n if math.isfinite(n) else None
+
+
+def _scaled(v: str | int | None) -> float | None:
+    """A quantity's numeric value with its suffix applied, or None if unreadable.
+
+    One parser; the three callers below differ only in what they do about a
+    value they cannot use.
+    """
+    if v is None:
+        return None
+    s = str(v).strip()
+    for suffix, mult in _UNITS.items():
+        if s.endswith(suffix):
+            n = _finite(s[: -len(suffix)])
+            return None if n is None else n * mult
+    return _finite(s)
+
+
 def _quantity(v: str | int | None) -> int:
     """Parse a Kubernetes resource quantity into bytes.
 
     Handles the binary suffixes Kubernetes actually emits for memory
     (`Ki`/`Mi`/`Gi`) and a bare integer. Decimal suffixes are rare for memory
-    but cheap to accept.
+    but cheap to accept. Unreadable degrades to 0: a node with no usable
+    memory figure sizes nothing, which is the safe direction.
     """
-    if v is None:
-        return 0
-    s = str(v).strip()
-    units = {
-        "Ki": 1024,
-        "Mi": 1024**2,
-        "Gi": 1024**3,
-        "Ti": 1024**4,
-        "K": 1000,
-        "M": 1000**2,
-        "G": 1000**3,
-        "T": 1000**4,
-    }
-    for suffix, mult in units.items():
-        if s.endswith(suffix):
-            try:
-                return int(float(s[: -len(suffix)]) * mult)
-            except ValueError:
-                return 0
-    try:
-        return int(float(s))
-    except ValueError:
-        return 0
+    n = _scaled(v)
+    return 0 if n is None else int(n)
 
 
 def _count(v: str | int | None) -> int:
@@ -184,10 +210,11 @@ def _count(v: str | int | None) -> int:
     if v is None:
         return 0
     s = str(v).strip()
-    try:
-        return int(float(s[:-1]) / 1000) if s.endswith("m") else int(float(s))
-    except ValueError:
-        return 0
+    if s.endswith("m"):
+        milli = _finite(s[:-1])
+        return 0 if milli is None else int(milli / 1000)
+    n = _scaled(s)
+    return 0 if n is None else int(n)
 
 
 def _devices(v: str | int | None) -> tuple[int, str]:
@@ -202,8 +229,10 @@ def _devices(v: str | int | None) -> tuple[int, str]:
     Either way an unreadable count must make the node unsizable, which is what
     `unknown` is for.
 
-    Suffixed forms go through `_quantity`, which already knows the Ki/Mi/Gi/K/M
-    table — a count is a quantity like any other.
+    Suffixed forms go through `_scaled`, which already knows the Ki/Mi/Gi/K/M
+    table — a count is a quantity like any other. Reading them via `_quantity`
+    instead conflated "zero" with "unreadable", because that returns 0 for
+    both: `"0Ki"` is a legal way to say no GPUs, and it refused the node.
     """
     if v is None:
         return 0, ""
@@ -211,19 +240,14 @@ def _devices(v: str | int | None) -> tuple[int, str]:
     if not s:
         return 0, ""
     if s.endswith("m"):
-        try:
-            milli = float(s[:-1])
-        except ValueError:
-            return 0, f"unreadable accelerator count {s!r}"
-        if milli % 1000:
-            return 0, f"fractional accelerator count {s!r} — these are whole units"
-        return int(milli // 1000), ""
-    try:
-        n = float(s)
-    except ValueError:
-        if suffixed := _quantity(s):
-            return suffixed, ""
+        milli = _finite(s[:-1])
+        n = None if milli is None else milli / 1000
+    else:
+        n = _scaled(s)
+    if n is None:
         return 0, f"unreadable accelerator count {s!r}"
+    if n < 0:
+        return 0, f"negative accelerator count {s!r}"
     if n != int(n):
         return 0, f"fractional accelerator count {s!r} — these are whole units"
     return int(n), ""

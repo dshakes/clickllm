@@ -777,3 +777,38 @@ def test_a_generation_that_has_a_bandwidth_carries_no_such_caveat():
         }
     )[0]
     assert n.bandwidth_gbps and not n.note
+
+
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "1e309", "junk", "8x"])
+def test_a_hostile_accelerator_count_refuses_rather_than_raising(raw):
+    # "nan", "inf" and "1e309" all pass float() and then explode at int() —
+    # ValueError for NaN, OverflowError for infinity — from a line outside the
+    # try that caught the parse. Same crash out of read_cluster as the millicpu
+    # one this PR started with, one input class over.
+    n = from_json({"items": [gpu(count=raw)]})[0]
+    assert n.kind == "nvidia" and not n.schedulable and n.unknown
+
+
+def test_a_negative_accelerator_count_refuses():
+    n = from_json({"items": [gpu(count="-2")]})[0]
+    assert not n.schedulable and "negative" in n.unknown
+
+
+@pytest.mark.parametrize("raw", ["inf", "nan", "1e309", "infGi", "nanGi"])
+def test_a_hostile_memory_quantity_reads_as_none_rather_than_raising(raw):
+    n = from_json({"items": [node_json("m", alloc={"cpu": "8", "memory": raw})]})[0]
+    assert n.host_bytes == 0
+
+
+@pytest.mark.parametrize("raw", ["inf", "nan", "1e309"])
+def test_a_hostile_cpu_quantity_reads_as_zero_rather_than_raising(raw):
+    n = from_json({"items": [node_json("c", alloc={"cpu": raw, "memory": "8Gi"})]})[0]
+    assert n.cpus == 0
+
+
+def test_zero_gpus_spelled_with_a_suffix_is_zero_not_a_refusal():
+    # "0Ki" is a legal way to say none. Reading it through _quantity conflated
+    # zero with unreadable — both come back 0 — so the node was refused
+    # outright, which stops even CPU work being scheduled on it.
+    n = from_json({"items": [node_json("z", alloc={"nvidia.com/gpu": "0Ki", "memory": "64Gi"})]})[0]
+    assert n.kind == "cpu" and n.schedulable and not n.unknown
