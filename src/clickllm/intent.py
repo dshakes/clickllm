@@ -208,10 +208,20 @@ _STRUCTURED_SIGNALS = (
 #: went too far the other way: "score 4 million support tickets" with no
 #: "overnight" in it is batch work by any reading. The verb is what separates
 #: them. Nothing scores four million tickets while someone waits.
+#:
+#: The verbs come in two spellings because English does. An open stem
+#: (`translate\w*`) never matches "translating" — the silent e is dropped, so
+#: "translate" is not a prefix of it, the same trap that made me claim "parse"
+#: matched "parsing". Those verbs are written stem-without-e plus an explicit
+#: ending list, which is also why they are not `grad\w*`: that would match
+#: "gradual" and "gradient".
 _BULK_VOLUME = re.compile(
-    r"\b(?:score|grade|classify|classif\w*|categoris\w*|categoriz\w*|label|tag|rank"
-    r"|process|extract|summaris\w*|summariz\w*|translate|transcribe|embed|index"
-    r"|annotate|rewrite)\w*\b(?:\s+\S+){0,3}\s+(?:\d{4,}|million|billion)"
+    r"\b(?:"
+    r"(?:scor|grad|translat|transcrib|annotat|rewrit|summaris|summariz|categoris"
+    r"|categoriz)(?:e|es|ed|ing)"
+    r"|classif\w*"
+    r"|(?:label|tag|rank|process|extract|embed|index)\w*"
+    r")\b(?:\s+\S+){0,3}\s+(?:\d{4,}|million|billion)"
 )
 
 #: Needles with no inflection worth catching, so they anchor at both ends. RAG

@@ -89,6 +89,15 @@ def test_a_large_user_count_does_not_make_an_interactive_product_a_batch_job():
         "score 4 million support tickets",  # no "overnight" to fall back on
         "classify 2 million documents",
         "rank 500000 candidate answers",
+        # The gerunds, which an open stem misses on every silent-e verb:
+        # "translate" is not a prefix of "translating".
+        "translating 5 million tickets",
+        "scoring 4 million tickets",
+        "grading 2 million essays",
+        "transcribing 900000 calls",
+        "annotating 2 million images",
+        "rewriting 40000 product blurbs",
+        "summarising 30000 reports",
     ],
 )
 def test_a_bulk_verb_over_a_large_volume_is_still_batch_without_a_batch_word(text):
@@ -124,3 +133,18 @@ def test_evidence_is_a_word_the_user_wrote_not_a_fragment_inside_one():
         for i in read(text).inferred:
             for word in str(i.evidence).split():
                 assert any(w.startswith(word) for w in text.lower().split()), (text, i)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "gradual rollout to 2 million users",  # not "grade"
+        "gradient work on 900000 samples",  # not "grade"
+        "a scoreboard for 5000 players",  # not "score"
+    ],
+)
+def test_the_bulk_verbs_are_not_open_stems(text):
+    # The reason those verbs are spelled stem-plus-endings rather than
+    # `grad\\w*`: the open stem catches the gerund and half the dictionary
+    # with it, which trades a missed batch job for a fabricated one.
+    assert read(text).requirements.workload is not Workload.BATCH
