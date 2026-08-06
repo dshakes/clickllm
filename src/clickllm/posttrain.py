@@ -49,6 +49,7 @@ from clickllm.prove.receipt import Claim, Receipt
 __all__ = [
     "MIN_EXAMPLES_PER_CLUSTER",
     "PLAUSIBLE_GAP",
+    "PROMPT_PAIRS_TO_READ",
     "WIDE_GAP",
     "Method",
     "Recipe",
@@ -74,7 +75,14 @@ WIDE_GAP = 0.35
 
 
 class Method(StrEnum):
-    """How to close a gap. Ordered cheapest-first, which is also safest-first."""
+    """How to close a gap. Ordered cheapest-first, which is also safest-first.
+
+    Two members, because two are produced. There were four: `PREFERENCE`, which
+    nothing ever emitted, and `STAY`, which nothing could — a decision to stay
+    is a `(cluster, reason)` pair in `Recommendation.stay`, never a `Recipe`.
+    `worth_training` filtered on `method is not STAY` and so filtered nothing,
+    and would have started lying the moment someone made those cases real.
+    """
 
     #: Better prompting on the failing cluster. Free, reversible, and skipped far
     #: too often in favour of training.
@@ -82,11 +90,6 @@ class Method(StrEnum):
     #: LoRA on captured incumbent outputs. The default when there is a real gap
     #: and real data — cheap, and the adapter can be served alongside the base.
     LORA = "lora"
-    #: Preference tuning where the failure is about style or format rather than
-    #: capability, and pairs can be built from graded outcomes.
-    PREFERENCE = "preference"
-    #: Do not train. The gap is capability, not calibration.
-    STAY = "stay"
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,8 +129,12 @@ class Recommendation:
 
     @property
     def worth_training(self) -> bool:
-        """Whether any cluster is worth a training run."""
-        return any(r.method is not Method.STAY for r in self.recipes)
+        """Whether any cluster is worth acting on. A prompt recipe counts.
+
+        Not every recipe is a training run — the cheap one is a prompt change,
+        and it is in `recipes` precisely so it is offered before a GPU is.
+        """
+        return bool(self.recipes)
 
     def render(self) -> str:
         """Terminal-shaped. What to leave alone comes first."""
@@ -149,6 +156,38 @@ class Recommendation:
 def _gap(claim: Claim, bar: float) -> float:
     """How far below the bar this cluster sits, at its point estimate."""
     return max(0.0, bar - (claim.point or 0.0))
+
+
+#: Twenty is what the prompt recipe asks a person to read. Fewer exist in a
+#: small cluster, and the recipe says how many there actually are rather than
+#: asking for pairs that aren't there.
+PROMPT_PAIRS_TO_READ = 20
+
+
+def _prompt(cluster: str, examples: int) -> Recipe:
+    """The free fix: read the worst captures before writing any training config."""
+    read = min(PROMPT_PAIRS_TO_READ, examples)
+    return Recipe(
+        method=Method.PROMPT,
+        cluster=cluster,
+        # What this recipe touches, not what happens to be captured. `examples`
+        # is a training-set size on the LoRA recipes it renders beside, and a
+        # prompt recipe headed "4,000 examples" for reading twenty of them
+        # borrows that meaning to overstate itself.
+        examples=read,
+        source=f"the failing captures themselves — read {read} of them",
+        steps=(
+            f"read the {read} worst-scoring captured pairs for this "
+            f"cluster before writing any training config",
+            "a gap this small is usually a missing instruction or an "
+            "output-format mismatch, not a capability gap",
+            "re-prove after the prompt change; it is free and reversible, which no training run is",
+        ),
+        risks=(
+            "none worth the word — this is the reversible option, and it "
+            "spends reading time rather than a GPU budget",
+        ),
+    )
 
 
 def _lora(cluster: str, examples: int, gap: float, incumbent: str) -> Recipe:
@@ -176,8 +215,18 @@ def _lora(cluster: str, examples: int, gap: float, incumbent: str) -> Recipe:
             "fine-tune appears to work",
         ),
         risks=(
-            f"the gap is {gap:.0%}; distillation closes gaps of this size often, "
-            f"not always. Budget for the possibility that it does not",
+            (
+                f"the gap is {gap:.0%}; distillation closes gaps of this size often, "
+                f"not always. Budget for the possibility that it does not"
+            )
+            if gap <= PLAUSIBLE_GAP
+            else (
+                f"the gap is {gap:.0%}, past the {PLAUSIBLE_GAP:.0%} where "
+                f"distillation routinely closes it. It is under the wide-gap line, "
+                f"so the attempt is defensible — but this is the range where it "
+                f"often does not work, and the recipe below is the same one used "
+                f"for a gap a third the size. Budget for it failing outright"
+            ),
             "the adapter learns the incumbent's failures too — captured output is "
             "not ground truth, it is what the expensive model happened to say",
             "an adapter trained on today's traffic decays as traffic drifts; the "
@@ -223,6 +272,16 @@ def recommend(
             )
             continue
 
+        # Cheapest first — and that means BEFORE the data floor, not after. The
+        # floor is a fine-tuning floor: it exists because LoRA on a few dozen
+        # samples memorises them. Reading captures needs no such thing. Checked
+        # first, it withheld the free fix from every cluster under 200 examples
+        # and explained the refusal with LoRA's memorisation problem, for a
+        # method that was never going to train on anything.
+        if gap <= 0.05:
+            recipes.append(_prompt(claim.cluster, n))
+            continue
+
         if n < MIN_EXAMPLES_PER_CLUSTER:
             stay.append(
                 (
@@ -234,32 +293,7 @@ def recommend(
             )
             continue
 
-        # Cheapest first. A formatting failure is a prompt problem, and reaching
-        # for a GPU before trying the free fix is how teams spend a week on a
-        # missing instruction.
-        if gap <= 0.05:
-            recipes.append(
-                Recipe(
-                    method=Method.PROMPT,
-                    cluster=claim.cluster,
-                    examples=n,
-                    source="the failing captures themselves — read twenty of them",
-                    steps=(
-                        "read the twenty worst-scoring captured pairs for this "
-                        "cluster before writing any training config",
-                        "a gap this small is usually a missing instruction or an "
-                        "output-format mismatch, not a capability gap",
-                        "re-prove after the prompt change; it is free and "
-                        "reversible, which no training run is",
-                    ),
-                    risks=(
-                        "none worth the word — this is the reversible option, and "
-                        "trying it first costs a day rather than a GPU budget",
-                    ),
-                )
-            )
-        else:
-            recipes.append(_lora(claim.cluster, n, gap, receipt.incumbent))
+        recipes.append(_lora(claim.cluster, n, gap, receipt.incumbent))
 
     if receipt.unproven:
         notes.append(
