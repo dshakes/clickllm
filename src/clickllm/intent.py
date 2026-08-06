@@ -251,7 +251,13 @@ _AUDIENCE = (
 #: "per second", "/sec", "/s". Without the slash forms "score 4000
 #: requests/sec under 200ms" read as a backlog of four thousand.
 _RATE_UNIT = r"(?:requests?|queries|calls|messages|events|req|msgs?|evts?)"
-_PER = r"(?:\s+per\s+\w+|\s*/\s*(?:s|se[ck]|second|min|minute|hr|hour|day)\b)"
+#: A denominator, and only a TIME one. `per \w+` accepted "per customer" and
+#: "per user", which are ratios rather than rates: "classify 10000 requests per
+#: customer from captured traffic" is a backlog described per head. The slash
+#: form was already restricted; the spelled-out form was not, because I wrote
+#: it first and widened the wrong one.
+_TIME = r"(?:s|se[ck]|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)"
+_PER = rf"(?:\s+per\s+{_TIME}\b|\s*/\s*{_TIME}\b)"
 _RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
 _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"

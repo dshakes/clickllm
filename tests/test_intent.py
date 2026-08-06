@@ -151,6 +151,9 @@ WORKLOADS = [
     (Workload.INTERACTIVE, "score 4000 requests/sec under 200ms"),
     (Workload.INTERACTIVE, "classify 5000 events/sec"),
     (Workload.INTERACTIVE, "rank 8000 req/s"),
+    # "per <not a time>" is a ratio, not a rate — still a backlog.
+    (Workload.BATCH, "classify 10000 requests per customer from captured traffic"),
+    (Workload.BATCH, "score 20000 events per user"),
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),
@@ -219,6 +222,8 @@ CONCURRENCY = [
     ("score 4000 requests/sec under 200ms", 4000, True),
     ("rank 8000 req/s", 8000, True),
     ("score 4000 requests per second", 4000, True),
+    ("voice bot at 200 requests per minute", 200, True),
+    ("classify 10000 requests per customer from captured traffic", 64, False),
 ]
 
 
