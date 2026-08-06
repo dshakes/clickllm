@@ -225,26 +225,34 @@ _BULK_VERB = (
     r"|(?:label|tag|rank|process|extract|embed|index)\w*"
 )
 
-#: Nouns that make a number an audience rather than a workload.
+#: Nouns that make a number something other than a backlog: an audience, or a
+#: rate. "5000 monthly users" is who it serves; "10000 requests per second" is
+#: how fast; "4 million tickets" is the pile of work.
 #:
-#: **Plural only, and that is what does the work.** An English noun modifying
-#: another noun is singular — "customer tickets", "user records" — so a plural
-#: audience noun is the head of its phrase and not a description of the items.
-#: That distinction is what lets adjectives sit in between: "5000 monthly
-#: users" and "5000 enterprise customers" are audiences, while "4 million
-#: customer tickets" is four million tickets. Matching the immediate next word
-#: instead got that right for the wrong reason, and any sentence with an
-#: adjective in it wrong.
-#:
-#: Two intervening words, not more. "score 4 million tickets from our users"
-#: has an audience noun three words out and is still a backlog; without a
-#: parser that boundary is a judgement call, and this is where it is made.
+#: **Plural, for the audience half, and that is what does the work.** An
+#: English noun modifying another noun is singular — "customer tickets", "user
+#: records" — so a plural audience noun is the head of its phrase while a
+#: singular one describes the items.
 #:
 #: "accounts" is deliberately absent — reconciling 20,000 accounts is real
-#: batch work, unlike 20,000 subscribers.
-_AUDIENCE = (
+#: batch work, unlike 20,000 subscribers. So is "calls": transcribing 900,000
+#: of them is a backlog, and only the API sense is a rate.
+_NOT_A_BACKLOG = (
     r"(?:users|people|humans|customers|clients|employees|engineers|staff|seats"
-    r"|subscribers|members|players|students|patients|developers|devs)"
+    r"|subscribers|members|players|students|patients|developers|devs"
+    r"|requests?|queries|qps|rps|tps)"
+)
+
+#: What may sit between the number and that noun: adjectives, and nothing that
+#: opens a new phrase. This is the part four rounds of review kept moving.
+#: Allowing any two words made "classify 2 million documents for clients" an
+#: audience — the counted items are documents and the clients are a phrase
+#: later. Allowing none made every adjective ("5000 monthly users") a backlog.
+#: A preposition is the boundary between the two, so the gap admits words that
+#: are not prepositions. Same rule rescues "score 4 million tickets from our
+#: users", which the previous spelling conceded as a known miss.
+_ADJECTIVES = (
+    r"(?:\s+(?!for\b|of\b|in\b|on\b|per\b|from\b|to\b|with\b|by\b|across\b|via\b)\w+){0,2}"
 )
 
 #: `\d{4,}` alone missed every number a person actually types: "4,000" has no
@@ -254,7 +262,8 @@ _AUDIENCE = (
 #: count from reading as a backlog: "scoring app for 5000 users" is a product,
 #: not a batch job.
 _VOLUME = (
-    rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}}|million|billion)\b(?!(?:\s+\w+){{0,2}}\s+{_AUDIENCE}\b)"
+    rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}}|million|billion)\b"
+    rf"(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b)"
 )
 
 _NEAR = r"(?:\s+\S+){0,3}\s+"

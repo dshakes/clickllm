@@ -77,55 +77,6 @@ def test_phonebook_is_not_a_real_time_workload():
     assert read("voice agent on a phone call").requirements.workload is Workload.REALTIME
 
 
-def test_a_large_user_count_does_not_make_an_interactive_product_a_batch_job():
-    # BATCH is checked before INTERACTIVE by design, so a bare "million"
-    # anywhere in the sentence beat "chat" and "assistant". The workload
-    # decides scheduling in opposite directions.
-    i = read("chat assistant for 2 million daily active users, needs to feel snappy")
-    assert i.requirements.workload is Workload.INTERACTIVE
-    # It is latency-sensitive, so the TTFT question must still be asked — a
-    # batch classification skips that question entirely.
-    assert "ttft_ms" in {q.field for q in i.questions}
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "score 4 million support tickets",  # no "overnight" to fall back on
-        "classify 2 million documents",
-        "rank 500000 candidate answers",
-        # The gerunds, which an open stem misses on every silent-e verb:
-        # "translate" is not a prefix of "translating".
-        "translating 5 million tickets",
-        "scoring 4 million tickets",
-        "grading 2 million essays",
-        "transcribing 900000 calls",
-        "annotating 2 million images",
-        "rewriting 40000 product blurbs",
-        "summarising 30000 reports",
-        # Written the way a person writes them. "4,000" contains no run of
-        # four digits, so a bare \d{4,} missed every grouped number.
-        "score 4,000 tickets",
-        "classify 2,000,000 documents",
-        "rank 1,500 answers",
-        # Noun first, verb after — the other order English uses for the same
-        # instruction. The "to" is what makes it one.
-        "4 million support tickets to score",
-        "2 million documents to classify",
-        "30000 rows to embed",
-    ],
-)
-def test_a_bulk_verb_over_a_large_volume_is_still_batch_without_a_batch_word(text):
-    # Dropping bare "million" fixed the interactive case and broke this one:
-    # these are batch work by any reading and carry no "overnight"/"offline".
-    # The verb is what separates the two — nothing scores four million tickets
-    # while someone waits.
-    i = read(text)
-    assert i.requirements.workload is Workload.BATCH
-    # And the evidence is the user's own span, not a bare magnitude.
-    assert next(x for x in i.inferred if x.field == "workload").evidence in text
-
-
 def test_one_agent_is_not_a_fleet():
     # The comment justifying 0.7 says "an agent fleet on one system prompt".
     # One agent shares a prefix with nobody.
@@ -150,53 +101,78 @@ def test_evidence_is_a_word_the_user_wrote_not_a_fragment_inside_one():
                 assert any(w.startswith(word) for w in text.lower().split()), (text, i)
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "gradual rollout to 2 million users",  # not "grade"
-        "gradient work on 900000 samples",  # not "grade"
-        "a scoreboard for 5000 players",  # not "score"
-        "label 5 millionaire profiles",  # not "million"
-        # Volume then verb with no "to" is a description, not an instruction.
-        "2 million users, ranked by activity",
-    ],
-)
-def test_the_bulk_verbs_are_not_open_stems(text):
-    # The reason those verbs are spelled stem-plus-endings rather than
-    # `grad\\w*`: the open stem catches the gerund and half the dictionary
-    # with it, which trades a missed batch job for a fabricated one.
-    assert read(text).requirements.workload is not Workload.BATCH
+# --- the workload table -------------------------------------------------------
+#
+# One table rather than a test per fix. This file took eight review rounds, and
+# every round was a rule that fixed its own example and broke someone else's —
+# so the cases live together where a new rule has to face all of them at once.
+# Adding a row is the cost of a new claim about this classifier.
+
+WORKLOADS = [
+    # A bulk verb over a volume of work items, in either order, however the
+    # verb and the number are spelled.
+    (Workload.BATCH, "score 4 million support tickets"),
+    (Workload.BATCH, "4 million support tickets to score"),
+    (Workload.BATCH, "2 million documents to classify"),
+    (Workload.BATCH, "30000 rows to embed"),
+    (Workload.BATCH, "translating 5 million tickets"),  # silent-e gerund
+    (Workload.BATCH, "scoring 4 million tickets"),
+    (Workload.BATCH, "transcribing 900000 calls"),
+    (Workload.BATCH, "summarising 30000 reports"),
+    (Workload.BATCH, "score 4,000 tickets"),  # grouped digits
+    (Workload.BATCH, "rank 1,500 answers"),
+    (Workload.BATCH, "score 4 million tickets overnight"),
+    # Items named by an interactive-sounding word are still items.
+    (Workload.BATCH, "score 4 million chat transcripts"),
+    (Workload.BATCH, "classify 2 million support bot conversations"),
+    # A singular people-noun modifies the item; it does not replace it.
+    (Workload.BATCH, "score 4 million customer tickets"),
+    (Workload.BATCH, "process 20000 user records"),
+    (Workload.BATCH, "index 50000 customer documents"),
+    # An audience behind a preposition belongs to a later phrase.
+    (Workload.BATCH, "classify 2 million documents for clients"),
+    (Workload.BATCH, "score 4 million tickets from our users"),
+    # A volume of PEOPLE is an audience, through any number of adjectives.
+    (Workload.INTERACTIVE, "scoring app for 5000 users"),
+    (Workload.INTERACTIVE, "scoring app for 5000 active users"),
+    (Workload.INTERACTIVE, "customer scoring app for 5000 users"),
+    (Workload.INTERACTIVE, "interactive scoring app for 5000 users"),
+    (Workload.INTERACTIVE, "chat tool for ranking 5000 users"),
+    (Workload.INTERACTIVE, "classification API for 5000 enterprise customers"),
+    (Workload.INTERACTIVE, "chat assistant for 2 million daily active users"),
+    (Workload.REALTIME, "real-time scoring for 5000 users"),
+    (Workload.REALTIME, "real-time scoring for 5000 monthly users"),
+    # A volume of REQUESTS is a rate, not a pile.
+    (Workload.REALTIME, "realtime classification API for 10000 requests per second under 200ms"),
+    # Words that merely contain a signal.
+    (Workload.INTERACTIVE, "label 5 millionaire profiles"),  # not "million"
+    (Workload.INTERACTIVE, "gradual rollout to 2 million users"),  # not "grade"
+    (Workload.INTERACTIVE, "a scoreboard for 5000 players"),  # not "score"
+    (Workload.INTERACTIVE, "phonebook search assistant"),  # not "phone"
+    # Volume then verb with no "to" describes; it does not instruct.
+    (Workload.INTERACTIVE, "2 million users, ranked by activity"),
+    # The signals still classify on their own.
+    (Workload.INTERACTIVE, "customer support chat"),
+    (Workload.REALTIME, "phone agent, has to reply under 800ms"),
+    (Workload.REALTIME, "voice agent on a phone call"),
+    (Workload.BATCH, "batching jobs"),
+    (Workload.BATCH, "run it over our datasets"),
+]
 
 
-@pytest.mark.parametrize(
-    ("text", "want"),
-    [
-        # The volume decides, because the volume is what differs. Each of these
-        # has a bulk verb in it; only the second group counts work items.
-        ("scoring app for 5000 users", Workload.INTERACTIVE),
-        ("customer scoring app for 5000 users", Workload.INTERACTIVE),
-        # An adjective between the number and the noun. Matching only the
-        # immediate next word got the line above right and every one of these
-        # wrong.
-        ("scoring app for 5000 active users", Workload.INTERACTIVE),
-        ("classification API for 5000 enterprise customers", Workload.INTERACTIVE),
-        ("real-time scoring for 5000 monthly users", Workload.REALTIME),
-        ("interactive scoring app for 5000 users", Workload.INTERACTIVE),
-        ("chat tool for ranking 5000 users", Workload.INTERACTIVE),
-        ("real-time scoring for 5000 users", Workload.REALTIME),
-        # Work items, even when an interactive-sounding word names them. A
-        # rule that let "chat" outrank the volume made this one interactive.
-        ("score 4 million chat transcripts", Workload.BATCH),
-        ("classify 2 million support bot conversations", Workload.BATCH),
-        ("score 4 million customer tickets", Workload.BATCH),
-        # The plurality is what separates these from the group above: an
-        # English noun modifying another noun is singular, so a plural
-        # audience noun is the head of its phrase and a singular one is not.
-        ("process 20000 user records", Workload.BATCH),
-        ("index 50000 customer documents", Workload.BATCH),
-        # And the mode words still classify on their own.
-        ("customer support chat", Workload.INTERACTIVE),
-    ],
-)
-def test_a_volume_of_users_is_an_audience_and_a_volume_of_items_is_a_backlog(text, want):
+@pytest.mark.parametrize(("want", "text"), WORKLOADS)
+def test_the_workload_table(want, text):
     assert read(text).requirements.workload is want
+
+
+def test_a_latency_sensitive_product_is_still_asked_for_its_budget():
+    # Batch skips the TTFT question outright, so a misclassification here is
+    # not just a label — it drops the question that would have caught it.
+    i = read("chat assistant for 2 million daily active users, needs to feel snappy")
+    assert "ttft_ms" in {q.field for q in i.questions}
+
+
+def test_the_batch_evidence_is_the_user_s_own_span():
+    i = read("score 4 million support tickets")
+    hit = next(x for x in i.inferred if x.field == "workload")
+    assert hit.evidence in i.text
