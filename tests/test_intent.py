@@ -176,3 +176,30 @@ def test_the_batch_evidence_is_the_user_s_own_span():
     i = read("score 4 million support tickets")
     hit = next(x for x in i.inferred if x.field == "workload")
     assert hit.evidence in i.text
+
+
+# --- what the number was counting ---------------------------------------------
+
+CONCURRENCY = [
+    # A headcount, divided by five because people think between requests.
+    ("coding assistant for about 20 engineers", 4, True),
+    ("chat for 500 people", 100, True),
+    ("assistant for 40 devs", 8, True),
+    ("a tool for 1 user", 1, True),
+    # NOT a headcount: a singular people-noun modifying an item noun. Adding
+    # "process 20000 user records" to the workload table without checking this
+    # is how it shipped inferring four thousand concurrent people.
+    ("process 20000 user records", 64, False),
+    ("index 50000 customer documents", 64, False),
+    ("score 4 million user tickets", 64, False),
+]
+
+
+@pytest.mark.parametrize(("text", "want", "inferred"), CONCURRENCY)
+def test_a_headcount_is_counted_and_a_modifier_is_not(text, want, inferred):
+    i = read(text)
+    assert i.requirements.concurrency == want
+    claimed = [x for x in i.inferred if x.field == "concurrency"]
+    assert bool(claimed) is inferred, claimed
+    # And when it is not inferred, it is asked rather than assumed silently.
+    assert inferred or "concurrency" in {q.field for q in i.questions}

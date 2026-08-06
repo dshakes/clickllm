@@ -315,10 +315,17 @@ def _people(text: str) -> tuple[int, str] | None:
     A team of N does not produce N simultaneous requests — people think, read,
     and go to lunch. Roughly a fifth is the working assumption, floored at 1, and
     it is stated rather than buried so it can be argued with.
+
+    A singular people-noun followed by another word is a MODIFIER, not a
+    headcount — the same rule `_NOT_A_BACKLOG` runs on: "20000 user records"
+    counts records. Without the lookahead it read as four thousand concurrent
+    people and skipped the concurrency question entirely, which is a worse
+    outcome than the batch default it replaced.
     """
     m = re.search(
-        r"(\d[\d,]*)\s*(?:\+\s*)?(?:people|engineers?|users?|devs?|developers?|"
-        r"employees|staff|agents?|analysts?|seats?)",
+        r"(\d[\d,]*)\s*(?:\+\s*)?(?:people|employees|staff|analysts?"
+        r"|(?:engineer|user|dev|developer|agent|seat)s"
+        r"|(?:engineer|user|dev|developer|agent|seat)\b(?!\s+\w))",
         text,
     )
     if not m:
