@@ -153,6 +153,11 @@ WORKLOADS = [
     # Three modifiers, matching what _SERVED_AUDIENCE already allowed for
     # million-scale. The two windows were different numbers for one idea.
     (Workload.INTERACTIVE, "scoring app for 5000 monthly active paying users"),
+    # A grouped number must be consumed whole. Matching only "1,000" of
+    # "1,000,000" let the audience lookahead miss the noun entirely.
+    (Workload.INTERACTIVE, "rank content for 1,000,000 users under 200ms"),
+    (Workload.INTERACTIVE, "classify messages for 1,000,000 customers under 200ms"),
+    (Workload.BATCH, "classify 2,000,000 documents"),
     (Workload.REALTIME, "real-time scoring for 5000 monthly active paying users under 200ms"),
     (Workload.INTERACTIVE, "customer scoring app for 5000 users"),
     (Workload.INTERACTIVE, "interactive scoring app for 5000 users"),

@@ -312,7 +312,11 @@ _ADJECTIVES = (
 #: with a denominator is a pile.
 _VOLUME = (
     rf"(?:\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b)"
-    rf"|(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}})\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b))"
+    # `(?![,\d])` so the match cannot stop at the first thousands group: for
+    # "1,000,000 users" the audience lookahead failed on the whole number, the
+    # engine backtracked to "1,000", and a served audience became a batch job
+    # with "rank content for 1,000" quoted as the evidence.
+    rf"|(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}})\b(?![,\d])(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b))"
 )
 
 #: "…for 2 million users", "…across our 2 million customers", "…for about 2
