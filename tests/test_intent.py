@@ -165,6 +165,11 @@ WORKLOADS = [
     (Workload.INTERACTIVE, "rank content for about 2 million users, needs to feel snappy"),
     (Workload.INTERACTIVE, "classify messages across our 2 million customers under 200ms"),
     (Workload.INTERACTIVE, "rank content for 2 million daily active paying users under 200ms"),
+    # A sentence can state a backlog AND who it is for. Only the second volume
+    # is the audience, so the suppression is scoped to the span rather than the
+    # sentence.
+    (Workload.BATCH, "classify 1 million requests from captured traffic for 2 million customers"),
+    (Workload.BATCH, "score 4 million support tickets for 2 million users"),
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),

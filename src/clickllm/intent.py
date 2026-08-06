@@ -458,7 +458,19 @@ def read(text: str) -> Intent:
     # chat transcripts" as interactive on the word "chat", and it existed only
     # to rescue sentences whose volume counted users. Fixing the volume made it
     # dead weight.
-    bulk = None if _SERVED_AUDIENCE.search(low) else _BULK_VOLUME.search(low)
+    # Scoped to the span, not the sentence: "classify 1 million requests from
+    # captured traffic for 2 million customers" states a backlog AND who it is
+    # for, and only the second volume is the audience. Suppressing on any
+    # served phrase anywhere lost the first one.
+    served = [m.span() for m in _SERVED_AUDIENCE.finditer(low)]
+    bulk = next(
+        (
+            m
+            for m in _BULK_VOLUME.finditer(low)
+            if not any(m.start() < e and s < m.end() for s, e in served)
+        ),
+        None,
+    )
     if bulk is not None:
         workload = Workload.BATCH
         inferred.append(Inference("workload", Workload.BATCH.value, bulk.group(0)))
