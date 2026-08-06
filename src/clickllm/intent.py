@@ -278,8 +278,11 @@ _RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
 _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
 
-#: What may sit between the number and that noun: adjectives, and nothing that
-#: opens a new phrase. This is the part four rounds of review kept moving.
+#: What may sit between the number and that noun: up to three adjectives, and
+#: nothing that opens a new phrase. Three because _SERVED_AUDIENCE allows
+#: three, and two windows for one idea is how "5000 monthly active paying
+#: users" ended up a batch job while "for 2 million monthly active paying
+#: users" did not. This is the part four rounds of review kept moving.
 #: Allowing any two words made "classify 2 million documents for clients" an
 #: audience — the counted items are documents and the clients are a phrase
 #: later. Allowing none made every adjective ("5000 monthly users") a backlog.
@@ -287,7 +290,7 @@ _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
 #: are not prepositions. Same rule rescues "score 4 million tickets from our
 #: users", which the previous spelling conceded as a known miss.
 _ADJECTIVES = (
-    r"(?:\s+(?!for\b|of\b|in\b|on\b|per\b|from\b|to\b|with\b|by\b|across\b|via\b)\w+){0,2}"
+    r"(?:\s+(?!for\b|of\b|in\b|on\b|per\b|from\b|to\b|with\b|by\b|across\b|via\b)\w+){0,3}"
 )
 
 #: `\d{4,}` alone missed every number a person actually types: "4,000" has no

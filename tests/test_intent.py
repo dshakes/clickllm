@@ -150,6 +150,10 @@ WORKLOADS = [
     # A volume of PEOPLE is an audience, through any number of adjectives.
     (Workload.INTERACTIVE, "scoring app for 5000 users"),
     (Workload.INTERACTIVE, "scoring app for 5000 active users"),
+    # Three modifiers, matching what _SERVED_AUDIENCE already allowed for
+    # million-scale. The two windows were different numbers for one idea.
+    (Workload.INTERACTIVE, "scoring app for 5000 monthly active paying users"),
+    (Workload.REALTIME, "real-time scoring for 5000 monthly active paying users under 200ms"),
     (Workload.INTERACTIVE, "customer scoring app for 5000 users"),
     (Workload.INTERACTIVE, "interactive scoring app for 5000 users"),
     (Workload.INTERACTIVE, "chat tool for ranking 5000 users"),
