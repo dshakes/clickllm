@@ -269,7 +269,12 @@ CONCURRENCY = [
     ("2 million events per minute", 4, False),
     ("3600 requests per hrs", 4, False),
     ("1..5 rps", 4, False),  # malformed: refuses to raise
-    # With one, it is Little's Law and the arithmetic is stated.
+    # A stated in-flight count beats a derived one.
+    ("100 concurrent requests at 10 qps under 200ms", 100, True),
+    # "staff" is a collective plural, so it modifies like a singular.
+    ("process 20000 staff records", 64, False),
+    ("chat tool for 5000 staff", 1000, True),
+    # With a budget, it is Little's Law and the arithmetic is stated.
     ("score 4000 requests/sec under 200ms", 800, True),
     ("voice bot at 16.5 qps under 200ms", 4, True),  # ceil(16.5 x 0.2)
     ("7200 requests per hour under 500ms", 1, True),

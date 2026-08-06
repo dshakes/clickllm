@@ -238,7 +238,7 @@ _BULK_VERB = (
 #: "accounts" is deliberately absent — reconciling 20,000 accounts is real
 #: batch work, unlike 20,000 subscribers.
 _AUDIENCE = (
-    r"(?:users|people|humans|customers|clients|employees|engineers|staff|seats"
+    r"(?:users|people|humans|customers|clients|employees|engineers|seats"
     r"|subscribers|members|players|students|patients|developers|devs)"
 )
 
@@ -419,8 +419,11 @@ def _people(text: str) -> tuple[int, str] | None:
         # processes" matched "20 users" and "300 staffordshire branches"
         # matched "300 staff" — the same prefix-matching defect this PR fixed
         # in _find, in the function next door.
-        r"(\d[\d,]*)\s*(?:\+\s*)?(?:(?:people|employees|staff)\b"
+        r"(\d[\d,]*)\s*(?:\+\s*)?(?:(?:people|employees)\b"
         r"|(?:engineer|user|dev|developer|agent|seat|analyst)s\b"
+        # "staff" is a collective plural, so it modifies like a singular:
+        # "20000 staff records" is records. Same guard, same reason.
+        rf"|staff\b(?!\s+(?!{_PHRASE_END}\b)\w)"
         rf"|(?:engineer|user|dev|developer|agent|seat|analyst)\b"
         rf"(?!\s+(?!{_PHRASE_END}\b)\w))",
         text,
@@ -571,19 +574,24 @@ def read(text: str) -> Intent:
     # and remove it, so nobody could correct the answer.
     budget = _latency(low)
     rate = _rate_per_second(low)
-    if rate is not None and budget is not None:
+    if (explicit := _explicit_concurrency(low)) is not None:
+        # A stated in-flight count beats a derived one, the same way a stated
+        # workload beats an inferred one: "100 concurrent requests at 10 qps
+        # under 200ms" says 100, and the derivation said 2.
+        concurrency, evidence = explicit
+        inferred.append(Inference("concurrency", concurrency, evidence))
+    elif rate is not None and budget is not None:
         concurrency = _little(rate[0], budget[0])
         inferred.append(
             Inference(
                 "concurrency",
                 concurrency,
                 f"{rate[1]} at {budget[1]} — Little's Law: arrivals x time in "
-                f"the system. A rate alone does not give this",
+                f"the system. A LOWER bound: the stated budget is time to "
+                f"first token, and a request stays in the system longer than "
+                f"that. A rate alone gives no number at all",
             )
         )
-    elif (explicit := _explicit_concurrency(low)) is not None:
-        concurrency, evidence = explicit
-        inferred.append(Inference("concurrency", concurrency, evidence))
     elif (headcount := _people(low)) is not None:
         concurrency, evidence = headcount
         inferred.append(
