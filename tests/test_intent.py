@@ -266,9 +266,17 @@ CONCURRENCY = [
     # which sized a GPU cluster for a workload a laptop serves, and not the
     # default of 4, which under-provisions a real one. Both shipped here
     # within two rounds, and each was asserted by a version of this row.
-    ("voice bot at 200 requests per minute", 3, True),
+    ("voice bot at 200 requests per minute", 4, True),
     ("10000 requests per day", 1, True),
-    ("2 million events per minute", 33333, True),
+    ("2 million events per minute", 33334, True),
+    # The denominator's spellings come from the same map as its value, so
+    # "hrs" cannot exist in one and not the other — it did, and read as
+    # per-second: a 3600x over-provision from one missing key.
+    ("3600 requests per hrs", 1, True),
+    ("3600 requests per hour", 1, True),
+    ("7200 requests per hour", 2, True),
+    # Ceiling, not round(): banker's rounding sent 16.5 to 16.
+    ("voice bot at 16.5 qps under 200ms", 17, True),
     ("1..5 rps", 5, True),  # malformed: refuses to raise, reads what it can
     ("classify 10000 requests per customer from captured traffic", 64, False),
 ]

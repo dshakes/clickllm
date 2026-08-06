@@ -40,6 +40,7 @@ asks one good question is worth more than one that guesses ten times.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -256,12 +257,22 @@ _RATE_UNIT = r"(?:requests?|queries|calls|messages|events|req|msgs?|evts?)"
 #: customer from captured traffic" is a backlog described per head. The slash
 #: form was already restricted; the spelled-out form was not, because I wrote
 #: it first and widened the wrong one.
-_TIME = r"(?:s|se[ck]|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)"
+#: The denominators, and the seconds in each. The pattern is GENERATED from
+#: this map rather than written beside it: they were two lists, and "hrs"
+#: existed in the pattern and not in the map, so "3600 requests per hrs" fell
+#: back to per-second — a 3600x over-provision from one missing key.
+_SECONDS_IN = {
+    "s": 1,
+    "sec": 1,
+    "second": 1,
+    "min": 60,
+    "minute": 60,
+    "hr": 3600,
+    "hour": 3600,
+    "day": 86400,
+}
+_TIME = "(?:" + "|".join(sorted((k + "s?" for k in _SECONDS_IN), key=len, reverse=True)) + ")"
 _PER = rf"(?:\s+per\s+{_TIME}\b|\s*/\s*{_TIME}\b)"
-
-#: Seconds in each denominator, keyed by the first three characters of the
-#: unit — enough to separate s/sec/second from min/minute and hr/hour/day.
-_SECONDS_IN = {"s": 1, "se": 1, "sec": 1, "min": 60, "hr": 3600, "hou": 3600, "day": 86400}
 
 _RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
@@ -443,8 +454,12 @@ def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     except ValueError:  # a malformed span like "1..5" — refuse rather than raise
         return None
     n *= {"million": 1e6, "billion": 1e9}.get(m.group("scale") or "", 1)
-    per = _SECONDS_IN.get((m.group("unit") or "")[:3], 1)
-    return max(1, round(n / per)), m.group(0)
+    per = _SECONDS_IN.get((m.group("unit") or "s").rstrip("s") or "s")
+    if per is None:  # a denominator we cannot convert is a question, not a guess
+        return None
+    # Ceiling, not round(): banker's rounding sent 16.5 qps to 16, and the
+    # conservative direction for concurrency is the one that reserves more KV.
+    return max(1, math.ceil(n / per)), m.group(0)
 
 
 def _latency(text: str) -> tuple[int, str] | None:
