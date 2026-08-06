@@ -639,3 +639,37 @@ def test_a_workload_declared_unfit_is_reported_but_not_applied():
     # Control: a workload that does fit is still applied.
     _, ok_calls = run_loop([workload(model="meta-llama/Llama-3.1-8B-Instruct")])
     assert "apply" in [c[0][0] for c in ok_calls]
+
+
+def test_a_rollback_lowers_the_phase_and_applies_nothing():
+    """The rollback branch reported Ready=True and returned the Deployment, so
+    the ADR-0013 fit gate never fired on it — an infeasible Deployment shipped
+    on the ONE path that runs without a human watching.
+
+    The two effects are separated rather than sharing a gate:
+
+      lowering `spec.phase`   reduces exposure, must work unattended, always
+                              proceeds
+      applying a Deployment   reshapes the workload, which is not what a
+                              rollback is for
+
+    A rollback is "reduce exposure now". Re-planning is the next ordinary pass's
+    job, by which point the workload sits at a lower phase where getting it
+    wrong costs less.
+    """
+    wl = workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary")
+    wl["metadata"]["annotations"] = {"clickllm.dev/regressed": "true"}
+
+    got, calls = run_loop([wl])
+    r = got["ml/triage"]
+    verbs = [c[0][0] for c in calls]
+
+    assert r.demote_to == "shadow", "the phase must still be lowered, unattended"
+    assert not r.objects, "a rollback must not reshape the Deployment"
+    assert "apply" not in verbs, f"applied during a rollback: {verbs}"
+    assert verbs.count("patch") >= 2, "status and the demote patch must both land"
+
+    # Control: an ordinary pass on the same workload still applies.
+    plain = dict(workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary"))
+    _, ok_calls = run_loop([plain])
+    assert "apply" in [c[0][0] for c in ok_calls]

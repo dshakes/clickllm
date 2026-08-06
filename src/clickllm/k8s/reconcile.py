@@ -428,7 +428,22 @@ def reconcile(
                 f"is a human decision",
             ),
         ]
-        return Reconciled(objects=(obj_dep,) if obj_dep else (), status=status, demote_to=demote)
+        # NO objects on a rollback. The two effects are separated deliberately:
+        #
+        #   lowering `spec.phase`  reduces exposure and must work unattended, so
+        #                          it always proceeds — `demote_to` is carried
+        #                          and the controller acts on it independently
+        #   applying a Deployment  reshapes the workload, which is not what a
+        #                          rollback is for, and doing it here bypassed
+        #                          the ADR-0013 fit gate entirely: this branch
+        #                          reports Ready=True, so an infeasible
+        #                          Deployment shipped on the ONE path that runs
+        #                          without a human watching
+        #
+        # A rollback is "reduce exposure now"; re-planning the Deployment is the
+        # next ordinary pass's job, and by then the workload is at a lower phase
+        # where getting it wrong costs less.
+        return Reconciled(status=status, demote_to=demote)
 
     # `fit.feasible` is reachable now that a model is passed to `plan()`. Two
     # earlier attempts to add this were discarded as dead code because `p.fit`
