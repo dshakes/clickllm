@@ -69,6 +69,11 @@ def test_rag_anchors_at_both_ends_because_there_is_no_plural_of_an_acronym(text)
 
 def test_phonebook_is_not_a_real_time_workload():
     assert read("phonebook search assistant").requirements.workload is Workload.INTERACTIVE
+    assert read("transcribe microphone input").requirements.workload is not Workload.REALTIME
+    # Fixed by anchoring both ends of "phone", not by narrowing it to "phone
+    # call" — that spelling dropped the commonest real-time phrasing there is,
+    # and its ITL budget with it.
+    assert read("phone agent, has to reply under 800ms").requirements.workload is Workload.REALTIME
     assert read("voice agent on a phone call").requirements.workload is Workload.REALTIME
 
 
@@ -103,6 +108,11 @@ def test_a_large_user_count_does_not_make_an_interactive_product_a_batch_job():
         "score 4,000 tickets",
         "classify 2,000,000 documents",
         "rank 1,500 answers",
+        # Noun first, verb after — the other order English uses for the same
+        # instruction. The "to" is what makes it one.
+        "4 million support tickets to score",
+        "2 million documents to classify",
+        "30000 rows to embed",
     ],
 )
 def test_a_bulk_verb_over_a_large_volume_is_still_batch_without_a_batch_word(text):
@@ -146,6 +156,9 @@ def test_evidence_is_a_word_the_user_wrote_not_a_fragment_inside_one():
         "gradual rollout to 2 million users",  # not "grade"
         "gradient work on 900000 samples",  # not "grade"
         "a scoreboard for 5000 players",  # not "score"
+        "label 5 millionaire profiles",  # not "million"
+        # Volume then verb with no "to" is a description, not an instruction.
+        "2 million users, ranked by activity",
     ],
 )
 def test_the_bulk_verbs_are_not_open_stems(text):

@@ -148,9 +148,12 @@ _WORKLOAD_SIGNALS: tuple[tuple[Workload, tuple[str, ...]], ...] = (
             "sub-second",
             "interrupt",
             "live transcription",
-            # "phone call", not "phone" — the bare word made "phonebook search
-            # assistant" a real-time workload.
-            "phone call",
+            # "phone" is in _EXACT, not narrowed to "phone call". The bare
+            # needle's problem was matching inside "phonebook" and
+            # "microphone", which an end anchor fixes; narrowing the phrase
+            # instead dropped "phone agent, has to reply under 800ms" out of
+            # real-time altogether, taking its ITL budget with it.
+            "phone",
         ),
     ),
     (
@@ -215,23 +218,36 @@ _STRUCTURED_SIGNALS = (
 #: matched "parsing". Those verbs are written stem-without-e plus an explicit
 #: ending list, which is also why they are not `grad\w*`: that would match
 #: "gradual" and "gradient".
-_BULK_VOLUME = re.compile(
-    r"\b(?:"
+_BULK_VERB = (
     r"(?:scor|grad|translat|transcrib|annotat|rewrit|summaris|summariz|categoris"
     r"|categoriz)(?:e|es|ed|ing)"
     r"|classif\w*"
     r"|(?:label|tag|rank|process|extract|embed|index)\w*"
-    # `\d{4,}` alone missed every number a person actually types: "4,000" has
-    # no run of four digits in it. Grouped thousands count from 1,000 up, so
-    # any comma-grouped number qualifies without a second threshold.
-    r")\b(?:\s+\S+){0,3}\s+(?:\d{1,3}(?:,\d{3})+|\d{4,}|million|billion)"
+)
+
+#: `\d{4,}` alone missed every number a person actually types: "4,000" has no
+#: run of four digits in it. Grouped thousands count from 1,000 up, so matching
+#: the grouping IS the magnitude test — no second threshold needed. The closing
+#: `\b` keeps "million" out of "millionaire".
+_VOLUME = r"(?:\d{1,3}(?:,\d{3})+|\d{4,}|million|billion)\b"
+
+_NEAR = r"(?:\s+\S+){0,3}\s+"
+
+#: Both orders, because English has both: "score 4 million tickets" and
+#: "4 million tickets to score". The second requires the "to", which is what
+#: makes it an instruction rather than a description — without it "2 million
+#: users, ranked by activity" would read as a batch job, and it is a sentence
+#: about an interactive product.
+_BULK_VOLUME = re.compile(
+    rf"\b(?:{_BULK_VERB})\b{_NEAR}{_VOLUME}"
+    rf"|\b{_VOLUME}{_NEAR}to\s+(?:{_BULK_VERB})\b"
 )
 
 #: Needles with no inflection worth catching, so they anchor at both ends. RAG
 #: is an acronym — there is no "rags" to match — and leaving its end open made
 #: "ragged prompts" and "ragtime" claim retrieval, the same false positive one
 #: word further along than the one this anchoring fixed.
-_EXACT = frozenset({"rag"})
+_EXACT = frozenset({"rag", "phone"})
 
 
 def _find(text: str, needles: tuple[str, ...]) -> str | None:
