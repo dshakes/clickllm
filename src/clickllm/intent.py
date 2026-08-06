@@ -473,6 +473,11 @@ def _rate_per_second(text: str) -> tuple[float, str] | None:
         n = float(m.group("n").replace(",", ""))
     except ValueError:  # a malformed span like "1..5" — refuse rather than raise
         return None
+    if not math.isfinite(n):
+        # 400 digits parses to inf, and math.ceil(inf) raises OverflowError out
+        # of read() — which must always return an Intent. Same defect as the
+        # one in k8s/nodes today: float() accepts it and int() explodes.
+        return None
     n *= {"million": 1e6, "billion": 1e9}.get(m.group("scale") or "", 1)
     per = _SECONDS_IN.get((m.group("unit") or "s").rstrip("s") or "s")
     if per is None:  # a denominator we cannot convert is a question, not a guess
@@ -510,6 +515,8 @@ def _service_time(text: str) -> tuple[int, str] | None:
     if not m:
         return None
     n = float(m.group(1) or m.group(3))
+    if not math.isfinite(n):
+        return None
     unit = (m.group(2) or m.group(4)).rstrip("s")
     per_ms = {"m": 60_000, "min": 60_000, "minute": 60_000, "s": 1000, "sec": 1000, "second": 1000}
     ms = n if unit.startswith("m") and unit not in ("min", "minute") else n * per_ms.get(unit, 1000)

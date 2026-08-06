@@ -320,3 +320,22 @@ def test_a_headcount_is_counted_and_a_modifier_is_not(text, want, inferred):
     assert bool(claimed) is inferred, claimed
     # And when it is not inferred, it is asked rather than assumed silently.
     assert inferred or "concurrency" in {q.field for q in i.questions}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "9" * 400 + " qps, each request takes 1 second",
+        "10 qps, each request takes " + "9" * 400 + " seconds",
+        "1..5 rps, each takes 1 second",
+        "score " + "9" * 400 + " tickets",
+    ],
+)
+def test_a_number_no_float_can_hold_returns_an_intent_rather_than_raising(text):
+    # 400 digits parses to inf and math.ceil(inf) raises OverflowError. read()
+    # must always return an Intent — its contract is that every sentence
+    # produces a plan plus questions, never a traceback. Same defect shape as
+    # the one in k8s/nodes: float() accepts it and int() explodes.
+    i = read(text)
+    assert i.requirements.concurrency >= 1
+    assert "concurrency" in {q.field for q in i.questions}
