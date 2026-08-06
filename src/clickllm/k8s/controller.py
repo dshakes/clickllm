@@ -178,9 +178,16 @@ def gate_from_annotation(wl: dict) -> tuple[bool, str]:
 def _ready(r: Reconciled) -> bool:
     """Whether this pass's own status says the workload is fit to apply.
 
-    No Ready condition means ready: a `Reconciled` carrying objects and no
-    conditions is the rollback/demote path, and refusing there would break the
-    one operation this system must perform unattended.
+    No Ready condition means ready — a defensive default for a `Reconciled`
+    built without one.
+
+    The previous version of this docstring claimed the rollback path is the
+    no-conditions case. It is not: that path sets `Ready=True` with reason
+    `RolledBack`, so this predicate passed and the fit gate never fired there.
+    A comment stating an assumption nobody had checked, in the fix for exactly
+    that shape. The rollback now returns no objects at all, so it does not reach
+    this predicate — but the docstring is corrected rather than deleted, because
+    the wrong version is the more instructive artifact.
     """
     for c in r.status.get("conditions", ()):
         if c.get("type") == "Ready":
