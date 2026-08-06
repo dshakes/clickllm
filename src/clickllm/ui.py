@@ -63,6 +63,14 @@ def _where(model_id: str, ctx: str, conc: int) -> dict:
                 "quant": p.fit.quant if p.fit else None,
                 "total_gb": round(p.fit.total_bytes / GB, 1) if p.fit else None,
                 "tokens_per_sec": round(p.tokens_per_sec) if p.tokens_per_sec else None,
+                # $/Mtok divides by this, not by the single-stream figure above.
+                # A cost claim whose denominator is invisible is a verdict
+                # without its basis.
+                "aggregate_tokens_per_sec": (
+                    round(p.fit.aggregate_tokens_per_sec)
+                    if p.fit and p.fit.aggregate_tokens_per_sec
+                    else None
+                ),
                 "hourly_usd": p.hourly_usd,
                 "usd_per_mtok": round(p.cost_per_mtok_usd, 2) if p.cost_per_mtok_usd else None,
                 "reason": p.reason or None,
@@ -149,6 +157,14 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
             return
+        except Exception as e:  # noqa: BLE001
+            # Anything else is the server's problem, not the request's — a
+            # missing $CLICKLLM_CATALOG file raises FileNotFoundError on every
+            # catalogue route for the life of the process. Uncaught, the socket
+            # closes with no response at all and the panel shows a bare network
+            # error. Report it as JSON like everything else.
+            self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
+            return
         self._send(200, json.dumps(payload, default=_json_default).encode(), "application/json")
 
 
@@ -195,18 +211,35 @@ def demo() -> None:
     assert w["placements"] and any(p["feasible"] for p in w["placements"])
     assert all(p["reason"] for p in w["placements"] if not p["feasible"])
 
+    # The cost figure's denominator must travel with it.
+    cheap = [p for p in w["placements"] if p["usd_per_mtok"]]
+    assert cheap and all(p["aggregate_tokens_per_sec"] for p in cheap)
+
     assert "weights" in _explain("qwen3-32b", "8k", 1)["arithmetic"]
-    assert len(_catalog()["models"]) == len(catalog.load())
+
+    # Not `len(...) == len(...)`: that comprehension emits one row per model by
+    # construction, so it held however badly the fields were mapped.
+    src = {m.id: m for m in catalog.load()}
+    rows = {r["id"]: r for r in _catalog()["models"]}
+    assert rows.keys() == src.keys(), "catalogue rows must not drop or invent a model"
+    for mid, r in rows.items():
+        m = src[mid]
+        assert (r["params_b"], r["repo"], r["license"]) == (m.params_b, m.repo, m.license), mid
+        # active_b is meaningful only for MoE; a dense model must not report one.
+        assert r["active_b"] == (m.active_b if m.is_moe else None), mid
 
     # Every route must be JSON-serialisable — a workbench that 500s on render
-    # is worse than one that is absent.
-    for path, fn in ROUTES.items():
-        q = (
-            {"model": ["qwen3-32b"]}
-            if "model" in path or path.endswith(("where", "explain"))
-            else {}
-        )
-        json.dumps(fn(q), default=_json_default)
+    # is worse than one that is absent. Routes that take no model ignore the
+    # argument, so pass it to all of them: the old spelling guessed which routes
+    # needed it from their path, and half that guess ("model" in path) was never
+    # true of any route.
+    for fn in ROUTES.values():
+        json.dumps(fn({"model": ["qwen3-32b"]}), default=_json_default)
+
+    # No route hands the serialiser a raw object today, so its fallback is only
+    # reachable from here.
+    assert _json_default(hardware.detect())["usable_bytes"] == hardware.detect().usable_bytes
+    assert _json_default(ASSET) == str(ASSET)
 
     # No route writes anything.
     for name in ("deploy", "apply", "promote", "cutover", "rollback", "pull"):

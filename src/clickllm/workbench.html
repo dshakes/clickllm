@@ -264,15 +264,17 @@ async function whereTurn(model, turn) {
       <div class="hd">hardware that runs it</div>
       <div class="bd">${ok.length ? `<table>
         <tr><th>hardware</th><th>quant</th><th class="n">total</th><th class="n">~tok/s</th>
-            <th class="n">$/hr</th><th class="n">$/Mtok</th></tr>
+            <th class="n">agg tok/s</th><th class="n">$/hr</th><th class="n">$/Mtok</th></tr>
         ${ok.map(p => `<tr class="${cheapest && p.id === cheapest.id ? 'pick' : ''}">
           <td><b>${esc(p.name)}</b></td><td>${esc(p.quant)}</td>
           <td class="n">${p.total_gb} G</td><td class="n">${p.tokens_per_sec ?? '—'}</td>
+          <td class="n">${p.aggregate_tokens_per_sec ?? '—'}</td>
           <td class="n">${p.hourly_usd ? '$' + p.hourly_usd.toFixed(2) : '—'}</td>
           <td class="n ${cheapest && p.id === cheapest.id ? 'cy' : ''}">${p.usd_per_mtok ? '$' + p.usd_per_mtok : '—'}</td>
         </tr>`).join('')}</table>`
         : `<div class="say bad">Nothing in the hardware catalogue can serve this at that shape.</div>`}
-        <div class="why">$/Mtok assumes the machine is saturated single-stream; real cost is higher.</div>
+        <div class="why">~tok/s is one stream. $/Mtok is $/hr &divide; agg tok/s, the batched total at
+          this concurrency &mdash; both roofline estimates, and both assume the machine stays busy.</div>
       </div>
     </div>
     ${no.length ? `<div class="card"><div class="hd bad">will not run</div><div class="bd"><table>
