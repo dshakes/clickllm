@@ -150,6 +150,12 @@ WORKLOADS = [
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),
+    # People CAN be the work items, at a magnitude where they are not an
+    # audience for anything interactive. Four million concurrent users is not
+    # a product; four million customer records is a scoring job.
+    (Workload.BATCH, "rank 4 million customers by priority"),
+    (Workload.BATCH, "score 4 million users for churn risk"),
+    (Workload.BATCH, "classify 4 million patients by triage category"),
     # Words that merely contain a signal.
     (Workload.INTERACTIVE, "label 5 millionaire profiles"),  # not "million"
     (Workload.INTERACTIVE, "gradual rollout to 2 million users"),  # not "grade"
@@ -192,6 +198,12 @@ CONCURRENCY = [
     ("chat for 500 people", 100, True),
     ("assistant for 40 devs", 8, True),
     ("a tool for 1 user", 1, True),
+    # A singular headcount with anything after it. Every case I wrote put the
+    # noun at the end of the string, so `(?!\s+\w)` looked correct and
+    # rejected all of these.
+    ("coding assistant for 1 developer who wants to work offline", 1, True),
+    ("translation service for 1 user with low volume", 1, True),
+    ("support bot for 1 agent to reply to emails", 1, True),
     # NOT a headcount: a singular people-noun modifying an item noun. Adding
     # "process 20000 user records" to the workload table without checking this
     # is how it shipped inferring four thousand concurrent people.

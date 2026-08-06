@@ -269,9 +269,31 @@ _ADJECTIVES = (
 #: `\b` keeps "million" out of "millionaire", and the lookahead keeps a user
 #: count from reading as a backlog: "scoring app for 5000 users" is a product,
 #: not a batch job.
+#: Two volumes, differing in whether people can be the work items.
+#:
+#: A plain count of people is an audience — "scoring app for 5000 users" is a
+#: product. Millions of people are not an audience for anything interactive;
+#: at that magnitude the people ARE the records, which is why "rank 4 million
+#: customers by priority" and "score 4 million users for churn risk" are batch
+#: jobs and "chat tool for ranking 5000 users" is not. So the audience
+#: exclusion applies to digit counts and not to million/billion.
+#:
+#: A RATE is excluded at any magnitude — it has a denominator, and nothing
+#: with a denominator is a pile.
 _VOLUME = (
-    rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}}|million|billion)\b"
-    rf"(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b)"
+    rf"(?:(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}})\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b)"
+    rf"|(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b))"
+)
+
+#: Words that cannot be the noun a singular people-noun modifies. Seeing one
+#: means the headcount was the head of its phrase after all: "1 developer WHO
+#: wants to work offline" is one developer, while "20000 user RECORDS" is
+#: records. A bare `(?!\s+\w)` could not tell those apart and rejected every
+#: singular headcount that had anything at all after it — invisible because
+#: every test case I wrote put the noun at the end of the string.
+_PHRASE_END = (
+    r"(?:who|that|which|whom|and|or|but|with|to|for|of|in|on|at|by|from|per"
+    r"|using|needs?|wants?|will|would|can|only|each|about|max|maximum|plus)"
 )
 
 _NEAR = r"(?:\s+\S+){0,3}\s+"
@@ -333,7 +355,7 @@ def _people(text: str) -> tuple[int, str] | None:
     m = re.search(
         r"(\d[\d,]*)\s*(?:\+\s*)?(?:people|employees|staff|analysts?"
         r"|(?:engineer|user|dev|developer|agent|seat)s"
-        r"|(?:engineer|user|dev|developer|agent|seat)\b(?!\s+\w))",
+        rf"|(?:engineer|user|dev|developer|agent|seat)\b(?!\s+(?!{_PHRASE_END}\b)\w))",
         text,
     )
     if not m:
