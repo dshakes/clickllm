@@ -386,8 +386,12 @@ def _people(text: str) -> tuple[int, str] | None:
     outcome than the batch default it replaced.
     """
     m = re.search(
-        r"(\d[\d,]*)\s*(?:\+\s*)?(?:people|employees|staff"
-        r"|(?:engineer|user|dev|developer|agent|seat|analyst)s"
+        # Every branch ends at a word boundary: without one, "20 userspace
+        # processes" matched "20 users" and "300 staffordshire branches"
+        # matched "300 staff" — the same prefix-matching defect this PR fixed
+        # in _find, in the function next door.
+        r"(\d[\d,]*)\s*(?:\+\s*)?(?:(?:people|employees|staff)\b"
+        r"|(?:engineer|user|dev|developer|agent|seat|analyst)s\b"
         rf"|(?:engineer|user|dev|developer|agent|seat|analyst)\b"
         rf"(?!\s+(?!{_PHRASE_END}\b)\w))",
         text,

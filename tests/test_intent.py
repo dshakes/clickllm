@@ -236,6 +236,10 @@ CONCURRENCY = [
     # "analyst" kept its optional plural in the UNGUARDED branch, so it skipped
     # the modifier check the other five nouns got.
     ("process 20000 analyst records", 64, False),
+    # A plural stem needs a trailing boundary too: "userspace" is not users.
+    ("20 userspace processes", 4, False),
+    ("20 devservers", 4, False),
+    ("tool for 300 staffordshire branches", 4, False),
     ("200 analysts", 40, True),
     # A rate IS the concurrency, however it is spelled — and reading it as a
     # backlog cost both the workload and this number.
