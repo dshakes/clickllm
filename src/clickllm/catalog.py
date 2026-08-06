@@ -132,6 +132,52 @@ def _fingerprint(paths: list[Path]) -> tuple:
     return tuple(out)
 
 
+#: Quantisation labels the solver knows how to size. A label outside this set
+#: reaches `QUANT_BITS` as a KeyError deep in the solver, naming neither the
+#: model nor the file it came from.
+_KNOWN_QUANTS = frozenset(QUANT_BITS)
+_KNOWN_KV_SCHEMES = frozenset({"mha", "gqa", "mla"})
+
+
+def _check_invariants(spec: ModelSpec, path: Path) -> None:
+    """Refuse an entry the solver would size wrongly, naming the file.
+
+    CLAUDE.md makes the MLA rank load-bearing: "any new catalog entry with
+    `kv_scheme: mla` MUST set `kv_lora_rank`". That was enforced by a test which
+    parametrises over `load()` at collection time — so it only ever sees the
+    built-in `models.json`, and never an entry supplied through
+    `CLICKLLM_CATALOG` or the `models.d` drop-in directory, which `sources()`
+    documents as the first-class way to add a model.
+
+    An MLA entry with no rank is sized with the GQA formula and overestimates KV
+    by ~50x. That is a wrong number, not a crash, so it surfaces as a model that
+    "does not fit" on hardware that would hold it — or worse, the reverse.
+
+    Enforced here because `load()` is the funnel every catalogue passes through,
+    built-in or not: ADR-0011's rule, applied to the catalogue. Refusing names
+    the file and the model, because "missing kv_lora_rank" is unactionable when
+    six drop-ins are in play.
+    """
+    if spec.kv_scheme not in _KNOWN_KV_SCHEMES:
+        raise ValueError(
+            f"{path}: model {spec.id!r} has kv_scheme {spec.kv_scheme!r}, which the "
+            f"solver cannot size. Known: {', '.join(sorted(_KNOWN_KV_SCHEMES))}"
+        )
+    if spec.kv_scheme == "mla" and not spec.kv_lora_rank:
+        raise ValueError(
+            f"{path}: model {spec.id!r} declares kv_scheme 'mla' but no "
+            f"kv_lora_rank. MLA stores a compressed latent; sizing it with the "
+            f"GQA formula overestimates KV by ~50x, so it is refused rather "
+            f"than guessed."
+        )
+    if unknown := set(spec.quants) - _KNOWN_QUANTS:
+        raise ValueError(
+            f"{path}: model {spec.id!r} lists quantisation(s) "
+            f"{', '.join(sorted(unknown))} the solver has no bit-width for. "
+            f"Known: {', '.join(sorted(_KNOWN_QUANTS))}"
+        )
+
+
 def load() -> tuple[ModelSpec, ...]:
     """The catalogue: built-ins plus anything dropped in. See [`sources`].
 
@@ -157,6 +203,7 @@ def load() -> tuple[ModelSpec, ...]:
                 # Name the file and the model: "missing kv_heads" is unactionable
                 # when six drop-ins are in play.
                 raise ValueError(f"{path}: model {m['id']!r} is not a valid spec — {e}") from e
+            _check_invariants(spec, path)
             by_id[spec.id] = spec  # later file wins, by design
 
     out = tuple(by_id.values())
