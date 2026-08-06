@@ -190,6 +190,45 @@ def _count(v: str | int | None) -> int:
         return 0
 
 
+def _devices(v: str | int | None) -> tuple[int, str]:
+    """A whole accelerator count, or a refusal saying why not.
+
+    Not `_count`. Extended resources like `nvidia.com/gpu` are integer-only in
+    Kubernetes — `3000m` is a legal spelling of 3, `1500m` is rejected by the
+    API server outright — so there is no fractional form here to truncate the
+    way `cpu` has. Truncating one anyway invents a count; reading it as 0 is
+    worse, because the node then falls through to the CPU branch and the
+    planner sizes a model against host RAM on a box with eight H100s in it.
+    Either way an unreadable count must make the node unsizable, which is what
+    `unknown` is for.
+
+    Suffixed forms go through `_quantity`, which already knows the Ki/Mi/Gi/K/M
+    table — a count is a quantity like any other.
+    """
+    if v is None:
+        return 0, ""
+    s = str(v).strip()
+    if not s:
+        return 0, ""
+    if s.endswith("m"):
+        try:
+            milli = float(s[:-1])
+        except ValueError:
+            return 0, f"unreadable accelerator count {s!r}"
+        if milli % 1000:
+            return 0, f"fractional accelerator count {s!r} — these are whole units"
+        return int(milli // 1000), ""
+    try:
+        n = float(s)
+    except ValueError:
+        if suffixed := _quantity(s):
+            return suffixed, ""
+        return 0, f"unreadable accelerator count {s!r}"
+    if n != int(n):
+        return 0, f"fractional accelerator count {s!r} — these are whole units"
+    return int(n), ""
+
+
 def _gpu_bytes(raw: str) -> tuple[int | None, str]:
     """Per-GPU memory in bytes, and a note when the units had to be inferred.
 
@@ -263,10 +302,13 @@ def from_json(payload: dict | str) -> list[Node]:
         host_bytes = _quantity(alloc.get("memory"))
         cpus = _count(alloc.get("cpu"))
 
-        gpus = _count(alloc.get("nvidia.com/gpu"))
-        tpus = _count(alloc.get("google.com/tpu"))
+        gpus, gpu_refusal = _devices(alloc.get("nvidia.com/gpu"))
+        tpus, tpu_refusal = _devices(alloc.get("google.com/tpu"))
 
-        if gpus:
+        # `or refusal` on the branch test, not just the count: a node whose
+        # accelerator count we could not read is still an accelerator node, and
+        # falling through to the CPU branch would hide it rather than refuse it.
+        if gpus or gpu_refusal:
             device_bytes, note = _gpu_bytes(labels.get(GPU_MEMORY_LABEL, ""))
             unsized = device_bytes is None
             out.append(
@@ -283,15 +325,18 @@ def from_json(payload: dict | str) -> list[Node]:
                     # collapsing them would either hide the caveat or reject a
                     # perfectly usable node.
                     unknown=(
-                        f"{note} — install GPU Feature Discovery or size this node manually"
-                        if unsized
-                        else ""
+                        gpu_refusal
+                        or (
+                            f"{note} — install GPU Feature Discovery or size this node manually"
+                            if unsized
+                            else ""
+                        )
                     ),
                     note="" if unsized else note,
                     labels=labels,
                 )
             )
-        elif tpus:
+        elif tpus or tpu_refusal:
             device_bytes, bw, product, note, chips = _tpu(labels, tpus)
             out.append(
                 Node(
@@ -303,7 +348,7 @@ def from_json(payload: dict | str) -> list[Node]:
                     product=product,
                     host_bytes=host_bytes,
                     cpus=cpus,
-                    unknown=note if device_bytes is None else "",
+                    unknown=tpu_refusal or (note if device_bytes is None else ""),
                     # Same split as the GPU branch above, and it was missing:
                     # `_tpu` computes "no published bandwidth for TPU v4" for
                     # the generations absent from TPU_BANDWIDTH, and that note

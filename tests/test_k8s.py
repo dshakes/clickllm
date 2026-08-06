@@ -713,9 +713,30 @@ def test_a_millicpu_allocatable_reads_rather_than_killing_the_whole_cluster_read
     assert nodes[1].schedulable
 
 
-def test_a_millicpu_device_count_does_not_round_a_partial_card_up_to_a_whole_one():
+def test_a_fractional_accelerator_count_refuses_rather_than_truncating():
+    # Extended resources are integer-only — the API server rejects "7500m"
+    # outright — so there is no fractional form here to truncate the way cpu
+    # has. Truncating one to 7 invents a count no cluster reported.
     n = from_json({"items": [gpu(count="7500m")]})[0]
-    assert n.devices == 7, "over-reporting devices is the direction that makes things appear to fit"
+    assert not n.schedulable and "fractional" in n.unknown
+
+
+def test_a_whole_count_in_milli_notation_still_reads():
+    assert from_json({"items": [gpu(count="3000m")]})[0].devices == 3
+
+
+def test_a_suffixed_accelerator_count_is_not_read_as_zero():
+    # "3Ki" is a legal whole quantity. Read as 0 the node fell through to the
+    # CPU branch, hiding eight cards behind a host-RAM sizing.
+    n = from_json({"items": [gpu(count="3Ki")]})[0]
+    assert n.kind == "nvidia" and n.devices == 3072
+
+
+def test_an_unreadable_accelerator_count_is_unsizable_not_a_cpu_node():
+    n = from_json({"items": [gpu(count="junk")]})[0]
+    assert n.kind == "nvidia", "a node we cannot count is still a GPU node"
+    assert not n.schedulable and "unreadable" in n.unknown
+    assert n.to_hardware() is None
 
 
 def test_an_unreadable_count_is_none_not_an_exception():
