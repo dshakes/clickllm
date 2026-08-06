@@ -50,12 +50,26 @@ def test_phone_is_not_found_inside_microphone():
 
 
 def test_the_stems_these_signals_are_written_as_still_match():
-    # The anchor is on the START of the needle only, so the plural and the
-    # participle must survive it — otherwise the fix trades one wrong answer
-    # for another.
-    assert read("parsing the output into json").requirements.structured_output
-    assert read("batching overnight jobs").requirements.workload is Workload.BATCH
+    # The anchor is on the START of the needle only, so the inflections have to
+    # survive it — otherwise the fix trades one wrong answer for another. Each
+    # of these has exactly one signal in it, so a pass means that signal matched
+    # its inflected form and not some other word in the sentence.
+    assert read("batching jobs").requirements.workload is Workload.BATCH
+    assert read("run it over our datasets").requirements.workload is Workload.BATCH
     assert read("a fleet of agents").requirements.prefix_sharing == 0.7
+    assert read("we reuse templates").requirements.prefix_sharing == 0.6
+
+
+@pytest.mark.parametrize("text", ["ragged prompts", "ragtime music assistant"])
+def test_rag_anchors_at_both_ends_because_there_is_no_plural_of_an_acronym(text):
+    assert read(text).requirements.prefix_sharing == 0.0
+    # Not a blanket end-anchor, though: the acronym itself still reads.
+    assert read("a rag pipeline over our docs").requirements.prefix_sharing == 0.6
+
+
+def test_phonebook_is_not_a_real_time_workload():
+    assert read("phonebook search assistant").requirements.workload is Workload.INTERACTIVE
+    assert read("voice agent on a phone call").requirements.workload is Workload.REALTIME
 
 
 def test_a_large_user_count_does_not_make_an_interactive_product_a_batch_job():
@@ -64,8 +78,28 @@ def test_a_large_user_count_does_not_make_an_interactive_product_a_batch_job():
     # decides scheduling in opposite directions.
     i = read("chat assistant for 2 million daily active users, needs to feel snappy")
     assert i.requirements.workload is Workload.INTERACTIVE
-    # And a batch job still reads as one, on the words that actually mean it.
-    assert read("score 4 million support tickets overnight").requirements.workload is Workload.BATCH
+    # It is latency-sensitive, so the TTFT question must still be asked — a
+    # batch classification skips that question entirely.
+    assert "ttft_ms" in {q.field for q in i.questions}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "score 4 million support tickets",  # no "overnight" to fall back on
+        "classify 2 million documents",
+        "rank 500000 candidate answers",
+    ],
+)
+def test_a_bulk_verb_over_a_large_volume_is_still_batch_without_a_batch_word(text):
+    # Dropping bare "million" fixed the interactive case and broke this one:
+    # these are batch work by any reading and carry no "overnight"/"offline".
+    # The verb is what separates the two — nothing scores four million tickets
+    # while someone waits.
+    i = read(text)
+    assert i.requirements.workload is Workload.BATCH
+    # And the evidence is the user's own span, not a bare magnitude.
+    assert next(x for x in i.inferred if x.field == "workload").evidence in text
 
 
 def test_one_agent_is_not_a_fleet():

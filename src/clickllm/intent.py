@@ -133,12 +133,8 @@ _WORKLOAD_SIGNALS: tuple[tuple[Workload, tuple[str, ...]], ...] = (
             "dataset",
             "corpus",
             "reprocess",
-            # No bare "million". A magnitude is not a mode: "chat assistant for
-            # 2 million daily active users, needs to feel snappy" matched it,
-            # and because BATCH is checked first it beat "chat" and "assistant"
-            # — sizing a latency-sensitive product for offline throughput and
-            # skipping the TTFT question entirely. The batch words below carry
-            # the real signal.
+            # No bare "million" — see _BULK_VOLUME. A magnitude alone is not a
+            # mode, but a magnitude with a bulk verb is.
         ),
     ),
     (
@@ -152,7 +148,9 @@ _WORKLOAD_SIGNALS: tuple[tuple[Workload, tuple[str, ...]], ...] = (
             "sub-second",
             "interrupt",
             "live transcription",
-            "phone",
+            # "phone call", not "phone" — the bare word made "phonebook search
+            # assistant" a real-time workload.
+            "phone call",
         ),
     ),
     (
@@ -203,6 +201,26 @@ _STRUCTURED_SIGNALS = (
 )
 
 
+#: A bulk verb with a volume close behind it. Bare "million" used to be a BATCH
+#: signal on its own, which made "chat assistant for 2 million daily active
+#: users, needs to feel snappy" an offline batch job — BATCH is checked first,
+#: so it beat both "chat" and "assistant". Dropping the volume signal entirely
+#: went too far the other way: "score 4 million support tickets" with no
+#: "overnight" in it is batch work by any reading. The verb is what separates
+#: them. Nothing scores four million tickets while someone waits.
+_BULK_VOLUME = re.compile(
+    r"\b(?:score|grade|classify|classif\w*|categoris\w*|categoriz\w*|label|tag|rank"
+    r"|process|extract|summaris\w*|summariz\w*|translate|transcribe|embed|index"
+    r"|annotate|rewrite)\w*\b(?:\s+\S+){0,3}\s+(?:\d{4,}|million|billion)"
+)
+
+#: Needles with no inflection worth catching, so they anchor at both ends. RAG
+#: is an acronym — there is no "rags" to match — and leaving its end open made
+#: "ragged prompts" and "ragtime" claim retrieval, the same false positive one
+#: word further along than the one this anchoring fixed.
+_EXACT = frozenset({"rag"})
+
+
 def _find(text: str, needles: tuple[str, ...]) -> str | None:
     """First needle present at a word start, so it can be quoted back as evidence.
 
@@ -217,7 +235,14 @@ def _find(text: str, needles: tuple[str, ...]) -> str | None:
     sentence that opens the colliding word, which is a far narrower door than
     matching anywhere inside any word.
     """
-    return next((n for n in needles if re.search(rf"\b{re.escape(n)}", text)), None)
+    return next(
+        (
+            n
+            for n in needles
+            if re.search(rf"\b{re.escape(n)}\b" if n in _EXACT else rf"\b{re.escape(n)}", text)
+        ),
+        None,
+    )
 
 
 def _people(text: str) -> tuple[int, str] | None:
@@ -292,12 +317,22 @@ def read(text: str) -> Intent:
 
     # --- workload -------------------------------------------------------------
     workload = Workload.INTERACTIVE
-    for candidate, signals in _WORKLOAD_SIGNALS:
-        if (hit := _find(low, signals)) is not None:
-            workload = candidate
-            inferred.append(Inference("workload", candidate.value, hit))
-            break
+    # Checked ahead of the signal table for the same reason BATCH sits first in
+    # it: a bulk verb over a large volume is the least ambiguous thing a
+    # sentence can say about its workload.
+    if (bulk := _BULK_VOLUME.search(low)) is not None:
+        workload = Workload.BATCH
+        inferred.append(Inference("workload", Workload.BATCH.value, bulk.group(0)))
+        signal_hit = True
     else:
+        signal_hit = False
+        for candidate, signals in _WORKLOAD_SIGNALS:
+            if (hit := _find(low, signals)) is not None:
+                workload = candidate
+                signal_hit = True
+                inferred.append(Inference("workload", candidate.value, hit))
+                break
+    if not signal_hit:
         questions.append(
             Question(
                 "workload",
