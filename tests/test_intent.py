@@ -147,6 +147,10 @@ WORKLOADS = [
     # bare noun must stay a backlog.
     (Workload.REALTIME, "realtime classification API for 10000 requests per second under 200ms"),
     (Workload.REALTIME, "voice bot at 200 requests per second"),
+    # A denominator spelled with a slash is still a denominator.
+    (Workload.INTERACTIVE, "score 4000 requests/sec under 200ms"),
+    (Workload.INTERACTIVE, "classify 5000 events/sec"),
+    (Workload.INTERACTIVE, "rank 8000 req/s"),
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),
@@ -210,6 +214,11 @@ CONCURRENCY = [
     ("process 20000 user records", 64, False),
     ("index 50000 customer documents", 64, False),
     ("score 4 million user tickets", 64, False),
+    # A rate IS the concurrency, however it is spelled — and reading it as a
+    # backlog cost both the workload and this number.
+    ("score 4000 requests/sec under 200ms", 4000, True),
+    ("rank 8000 req/s", 8000, True),
+    ("score 4000 requests per second", 4000, True),
 ]
 
 

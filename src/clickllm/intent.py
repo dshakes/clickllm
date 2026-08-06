@@ -247,7 +247,12 @@ _AUDIENCE = (
 #: captured traffic" is as central a sentence as clickllm has. Excluding the
 #: bare noun took that out. Only "per <something>" makes it a rate; qps/rps/tps
 #: carry their denominator in the word.
-_RATE = r"(?:qps|rps|tps|(?:requests?|queries|calls|messages|events)\s+per\s+\w+)"
+#: The unit noun, and then a denominator in any of the spellings people use:
+#: "per second", "/sec", "/s". Without the slash forms "score 4000
+#: requests/sec under 200ms" read as a backlog of four thousand.
+_RATE_UNIT = r"(?:requests?|queries|calls|messages|events|req|msgs?|evts?)"
+_PER = r"(?:\s+per\s+\w+|\s*/\s*(?:s|se[ck]|second|min|minute|hr|hour|day)\b)"
+_RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
 _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
 
@@ -368,7 +373,7 @@ def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     """Concurrency stated outright."""
     m = re.search(
         r"(\d[\d,]*)\s*(?:concurrent|simultaneous|parallel|in flight|in-flight|"
-        r"at once|qps|rps|requests? per second)",
+        rf"at once|qps|rps|{_RATE_UNIT}{_PER})",
         text,
     )
     if not m:
