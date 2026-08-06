@@ -226,5 +226,13 @@ def test_a_gap_past_the_plausible_line_is_not_sold_with_the_same_confidence():
     far = only(recommend(receipt(cs("c", 600, 1000)), {"c": 5000}), "c")  # gap 0.30
     assert near.method is far.method is Method.LORA
     assert "often, not always" in near.risks[0]
-    assert f"past the {PLAUSIBLE_GAP:.0%}" in far.risks[0]
+    assert f"past the {PLAUSIBLE_GAP:.1%}" in far.risks[0]
     assert "failing outright" in far.risks[0]
+
+
+def test_a_borderline_gap_does_not_render_as_past_itself():
+    # 15.2% is past the 15% line, but both sides printed at :.0% made the
+    # warning read "the gap is 15%, past the 15% where...".
+    r = only(recommend(receipt(cs("c", 748, 1000)), {"c": 5000}), "c")  # gap 0.152
+    assert "past the" in r.risks[0]
+    assert "15.2%" in r.risks[0] and "15.0%" in r.risks[0]

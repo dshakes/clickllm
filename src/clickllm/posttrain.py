@@ -177,8 +177,8 @@ def _prompt(cluster: str, examples: int) -> Recipe:
         examples=read,
         source=f"the failing captures themselves — read {read} of them",
         steps=(
-            f"read the {read} worst-scoring captured pairs for this "
-            f"cluster before writing any training config",
+            f"read the {read} worst-scoring captured pair{'' if read == 1 else 's'} "
+            f"for this cluster before writing any training config",
             "a gap this small is usually a missing instruction or an "
             "output-format mismatch, not a capability gap",
             "re-prove after the prompt change; it is free and reversible, which no training run is",
@@ -220,8 +220,11 @@ def _lora(cluster: str, examples: int, gap: float, incumbent: str) -> Recipe:
                 f"not always. Budget for the possibility that it does not"
             )
             if gap <= PLAUSIBLE_GAP
+            # One decimal on both sides of this comparison: at 0.152 the whole
+            # branch rendered as "the gap is 15%, past the 15% where…", which
+            # reads as a contradiction rather than a warning.
             else (
-                f"the gap is {gap:.0%}, past the {PLAUSIBLE_GAP:.0%} where "
+                f"the gap is {gap:.1%}, past the {PLAUSIBLE_GAP:.1%} where "
                 f"distillation routinely closes it. It is under the wide-gap line, "
                 f"so the attempt is defensible — but this is the range where it "
                 f"often does not work, and the recipe below is the same one used "
