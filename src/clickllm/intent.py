@@ -258,6 +258,13 @@ _RATE_UNIT = r"(?:requests?|queries|calls|messages|events|req|msgs?|evts?)"
 #: it first and widened the wrong one.
 _TIME = r"(?:s|se[ck]|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)"
 _PER = rf"(?:\s+per\s+{_TIME}\b|\s*/\s*{_TIME}\b)"
+
+#: Only a PER-SECOND rate is a statement about concurrency, and only roughly:
+#: 200 requests per MINUTE is about three in flight, not two hundred, and
+#: reading it as two hundred sizes a GPU cluster for a workload a laptop
+#: serves. Any denominator still means "not a backlog" for _RATE; only this
+#: one licenses a number.
+_PER_SECOND = r"(?:\s+per\s+(?:s|se[ck]|second|seconds)\b|\s*/\s*(?:s|se[ck]|second|seconds)\b)"
 _RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
 _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
@@ -291,9 +298,25 @@ _ADJECTIVES = (
 #:
 #: A RATE is excluded at any magnitude — it has a denominator, and nothing
 #: with a denominator is a pile.
+#: "for"/"serving"/"across" in front of the number says the people are being
+#: SERVED, whatever the magnitude: "rank content FOR 2 million users under
+#: 200ms" is a product, and "rank 4 million customers by priority" is a scoring
+#: job. Millions-of-people-are-records was right about the second and wrong
+#: about the first, because magnitude was never the thing that differed.
+#:
+#: Only the million/billion branch needs it — a plain count of people is an
+#: audience in either position, so the digit branch excludes them outright.
+_SERVED = r"(?<!for )(?<!serving )(?<!across )"
+
+#: The lookbehind has to sit before the NUMERAL, not before "million" — the
+#: preposition is three words from the word it qualifies ("for 2 million
+#: users"), and a lookbehind cannot see past the digits. So the million branch
+#: spells out its number. Each lookbehind is separately fixed-width, which is
+#: the only kind Python allows.
 _VOLUME = (
-    rf"(?:(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}})\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b)"
-    rf"|(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b))"
+    rf"(?:{_SERVED}\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b)"
+    rf"|\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b)"
+    rf"|(?:\d{{1,3}}(?:,\d{{3}})+|\d{{4,}})\b(?!{_ADJECTIVES}\s+{_NOT_A_BACKLOG}\b))"
 )
 
 #: Words that cannot be the noun a singular people-noun modifies. Seeing one
@@ -364,9 +387,10 @@ def _people(text: str) -> tuple[int, str] | None:
     outcome than the batch default it replaced.
     """
     m = re.search(
-        r"(\d[\d,]*)\s*(?:\+\s*)?(?:people|employees|staff|analysts?"
-        r"|(?:engineer|user|dev|developer|agent|seat)s"
-        rf"|(?:engineer|user|dev|developer|agent|seat)\b(?!\s+(?!{_PHRASE_END}\b)\w))",
+        r"(\d[\d,]*)\s*(?:\+\s*)?(?:people|employees|staff"
+        r"|(?:engineer|user|dev|developer|agent|seat|analyst)s"
+        rf"|(?:engineer|user|dev|developer|agent|seat|analyst)\b"
+        rf"(?!\s+(?!{_PHRASE_END}\b)\w))",
         text,
     )
     if not m:
@@ -379,7 +403,7 @@ def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     """Concurrency stated outright."""
     m = re.search(
         r"(\d[\d,]*)\s*(?:concurrent|simultaneous|parallel|in flight|in-flight|"
-        rf"at once|qps|rps|{_RATE_UNIT}{_PER})",
+        rf"at once|qps|rps|{_RATE_UNIT}{_PER_SECOND})",
         text,
     )
     if not m:

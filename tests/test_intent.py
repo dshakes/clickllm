@@ -154,6 +154,12 @@ WORKLOADS = [
     # "per <not a time>" is a ratio, not a rate — still a backlog.
     (Workload.BATCH, "classify 10000 requests per customer from captured traffic"),
     (Workload.BATCH, "score 20000 events per user"),
+    # An audience is an audience at any magnitude when the sentence says it is
+    # being SERVED. "millions of people are records" was right about scoring
+    # them and wrong about serving them.
+    (Workload.INTERACTIVE, "scoring app for 2 million users"),
+    (Workload.INTERACTIVE, "rank content for 2 million users under 200ms"),
+    (Workload.INTERACTIVE, "classify messages for 2 million customers under 200ms"),
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),
@@ -217,12 +223,21 @@ CONCURRENCY = [
     ("process 20000 user records", 64, False),
     ("index 50000 customer documents", 64, False),
     ("score 4 million user tickets", 64, False),
+    # "analyst" kept its optional plural in the UNGUARDED branch, so it skipped
+    # the modifier check the other five nouns got.
+    ("process 20000 analyst records", 64, False),
+    ("200 analysts", 40, True),
     # A rate IS the concurrency, however it is spelled — and reading it as a
     # backlog cost both the workload and this number.
     ("score 4000 requests/sec under 200ms", 4000, True),
     ("rank 8000 req/s", 8000, True),
     ("score 4000 requests per second", 4000, True),
-    ("voice bot at 200 requests per minute", 200, True),
+    # A per-MINUTE rate is not a concurrency statement: 200 per minute is
+    # about three in flight. Reading it as 200 sized a GPU cluster for a
+    # workload a laptop serves — and the previous version of this row asserted
+    # exactly that, which is the "test enshrines the bug" shape again.
+    ("voice bot at 200 requests per minute", 4, False),
+    ("10000 requests per day", 4, False),
     ("classify 10000 requests per customer from captured traffic", 64, False),
 ]
 
