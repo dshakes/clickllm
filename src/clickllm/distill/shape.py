@@ -74,11 +74,26 @@ class Capture:
 
 
 def _sha(*parts: str) -> str:
+    """A stable key over an ordered list of parts.
+
+    64 bits, not 48. These are grouping keys held in memory for one run, never
+    persisted, so the width costs nothing — and a truncation collision here
+    merges two genuinely different task shapes into one cluster silently,
+    which is the one failure this module has no way to detect. Cheap insurance
+    against the only outcome that would be invisible.
+    """
     h = hashlib.sha256()
     for p in parts:
-        h.update(p.encode())
-        h.update(b"\x00")  # separator, so ("ab","c") != ("a","bc")
-    return h.hexdigest()[:12]
+        b = p.encode()
+        # Length-prefixed, netstring style — not a NUL separator. A separator
+        # is only unambiguous while no part contains it, and tool names come
+        # out of captured schemas, which this repo treats as untrusted data.
+        # One tool named "get\x00weather" hashed identically to two named "get"
+        # and "weather": the same collision the comma join had, one layer down.
+        # A length cannot be forged by its own payload.
+        h.update(f"{len(b)}:".encode())
+        h.update(b)
+    return h.hexdigest()[:16]
 
 
 def context_bucket(tokens: int) -> str:
@@ -133,7 +148,13 @@ class TaskShape:
         """Stable cluster key. Identical shapes share it exactly."""
         return _sha(
             self.system_prompt_hash,
-            ",".join(self.tool_names),
+            # Each name its own part, so _sha's NUL separator applies to them
+            # too. Joined on a comma they did not: one tool named "get,weather"
+            # and two named "get" and "weather" produced the same string, and a
+            # one-tool bot and a two-tool bot merged into one cluster with
+            # nothing downstream able to tell. The separator two functions up
+            # exists for exactly this and was being bypassed here.
+            *self.tool_names,
             str(self.used_tools),
             self.output_format,
             self.context_bucket,
@@ -145,7 +166,8 @@ class TaskShape:
         will act on, and the regret set has to be nameable to be useful."""
         bits = []
         if self.used_tools:
-            bits.append(f"tool-calling ({len(self.tool_names)} tools)")
+            n = len(self.tool_names)
+            bits.append(f"tool-calling ({n} tool{'' if n == 1 else 's'})")
         elif self.tool_names:
             bits.append("tools offered, unused")
         bits.append(
@@ -177,11 +199,15 @@ def extract_shape(cap: Capture) -> TaskShape:
 
 
 def _tool_names(tools: tuple[dict[str, Any], ...]) -> list[str]:
-    names = []
+    """Unique tool names. A gateway that accumulates schemas across turns
+    declares the same tool twice, and `describe()` rendered that as
+    "tool-calling (2 tools)" for a bot with one — the number a human uses to
+    judge whether a cluster deserves its own eval."""
+    names: list[str] = []
     for t in tools:
         # Both the flat and the OpenAI-nested spellings appear in the wild.
         name = t.get("name") or (t.get("function") or {}).get("name")
-        if name:
+        if name and str(name) not in names:
             names.append(str(name))
     return names
 
