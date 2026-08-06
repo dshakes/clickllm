@@ -175,6 +175,19 @@ def gate_from_annotation(wl: dict) -> tuple[bool, str]:
     return regressed, reason
 
 
+def _ready(r: Reconciled) -> bool:
+    """Whether this pass's own status says the workload is fit to apply.
+
+    No Ready condition means ready: a `Reconciled` carrying objects and no
+    conditions is the rollback/demote path, and refusing there would break the
+    one operation this system must perform unattended.
+    """
+    for c in r.status.get("conditions", ()):
+        if c.get("type") == "Ready":
+            return str(c.get("status", "True")).lower() == "true"
+    return True
+
+
 def reconcile_once(
     kc: Kubectl,
     namespace: str | None = None,
@@ -207,8 +220,18 @@ def reconcile_once(
             # never once have fired in production.
             regressed, reason = check(wl)
             r = reconcile(wl, nodes, regressed=regressed, regression_reason=reason)
-            for obj in r.objects:
-                kc.apply(obj)
+            # Do not apply what this pass just declared unfit. Dead code until
+            # ADR-0013 made `reconcile` actually size the model — two earlier
+            # attempts at this gate were discarded precisely because nothing
+            # ever reported Ready=False while returning objects (#114).
+            #
+            # The status is still written: "a workload that cannot be sized
+            # still produces a status explaining why" is the documented and
+            # useful half. What changes is that reporting a problem no longer
+            # coexists with shipping it.
+            if _ready(r):
+                for obj in r.objects:
+                    kc.apply(obj)
             if r.status:
                 kc.patch_status(name, ns, r.status)
             if r.demote_to:
