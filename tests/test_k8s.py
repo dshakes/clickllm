@@ -839,3 +839,77 @@ def test_every_float_parse_in_this_file_goes_through_the_finiteness_check():
     }
     stray = sorted(float_calls(tree) - inside)
     assert not stray, f"float() outside _finite at nodes.py:{stray}"
+
+
+# --- the manifest records what the engine could not express ----------------------
+
+
+def _plan_with_gaps():
+    """A plan whose engine cannot express everything the planner asked for."""
+    from clickllm import catalog
+    from clickllm.hardware import Hardware
+    from clickllm.plan import Engine, Requirements, Workload, plan
+
+    hw = Hardware(
+        kind="nvidia",
+        name="H100",
+        total_bytes=80 * 2**30,
+        usable_bytes=76 * 2**30,
+        bandwidth_gbps=3350.0,
+        cores=132,
+        devices=4,
+    )
+    p = plan(
+        hw,
+        Requirements(Workload.REALTIME),
+        model=catalog.get("llama-3.1-8b"),
+        force_engine=Engine.OLLAMA,
+    )
+    return p
+
+
+def test_the_deployment_records_settings_the_engine_could_not_express():
+    # `gaps` was computed inside `deployment_for` and handed back to the
+    # caller, and every other artifact surfaces it — launch.json's
+    # `not_expressed`, the box README, the JSON manifest. This file is the one
+    # a GitOps pipeline applies directly, without ever reading a README, and it
+    # was the only one carrying no record that anything had been dropped.
+    from clickllm.k8s.reconcile import deployment_for
+
+    dep, gaps = deployment_for("demo", "default", "meta-llama/Llama-3.1-8B", _plan_with_gaps())
+    assert gaps, "fixture must actually produce gaps or this proves nothing"
+    ann = dep["metadata"]["annotations"]
+    assert "clickllm.dev/not-expressed" in ann
+    for g in gaps:
+        assert g in ann["clickllm.dev/not-expressed"]
+
+
+def test_a_plan_with_nothing_dropped_carries_no_such_annotation():
+    # An annotation reading "nothing was dropped" on every manifest is noise,
+    # and an empty one would read as a value nobody set.
+    from clickllm import catalog
+    from clickllm.hardware import Hardware
+    from clickllm.k8s.reconcile import deployment_for
+    from clickllm.plan import Requirements, Workload, plan
+
+    hw = Hardware(
+        kind="nvidia",
+        name="H100",
+        total_bytes=80 * 2**30,
+        usable_bytes=76 * 2**30,
+        bandwidth_gbps=3350.0,
+        cores=132,
+    )
+    p = plan(hw, Requirements(Workload.BATCH), model=catalog.get("llama-3.1-8b"))
+    dep, gaps = deployment_for("demo", "default", "meta-llama/Llama-3.1-8B", p)
+    assert not gaps, "fixture must be gap-free or this proves nothing"
+    assert "clickllm.dev/not-expressed" not in dep["metadata"]["annotations"]
+
+
+def test_the_provenance_annotations_are_all_still_there():
+    from clickllm.k8s.reconcile import deployment_for
+
+    dep, _ = deployment_for("demo", "default", "meta-llama/Llama-3.1-8B", _plan_with_gaps())
+    ann = dep["metadata"]["annotations"]
+    for key in ("clickllm.dev/engine", "clickllm.dev/engine-reason", "clickllm.dev/standalone"):
+        assert key in ann

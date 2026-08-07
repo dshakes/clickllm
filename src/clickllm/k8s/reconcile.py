@@ -282,6 +282,15 @@ def deployment_for(
                 "clickllm.dev/engine-reason": p.engine_why,
                 "clickllm.dev/standalone": "these args are the engine's own; "
                 "this Deployment runs with clickllm uninstalled",
+                # What the engine could NOT express. `gaps` was computed on the
+                # line above and returned to the caller, and every other artifact
+                # surfaces it — launch.json's `not_expressed`, the box README,
+                # the JSON manifest. This file is the one a GitOps pipeline
+                # applies directly, without ever reading a README, and it was the
+                # only one that carried no record that anything had been dropped.
+                # Same contract as `standalone`: the manifest has to be readable
+                # on its own.
+                **({"clickllm.dev/not-expressed": "; ".join(gaps)} if gaps else {}),
             },
         },
         "spec": {

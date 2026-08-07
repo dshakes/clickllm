@@ -33,9 +33,16 @@ from dataclasses import replace
 import pytest
 
 from clickllm import catalog
-from clickllm.engines import LoraFleet, adapter_for
+from clickllm.engines import (
+    SGLANG_KV_DTYPE,
+    LoraFleet,
+    SglangAdapter,
+    Translated,
+    Unsupported,
+    adapter_for,
+)
 from clickllm.hardware import Hardware
-from clickllm.plan import Requirements, Workload, plan
+from clickllm.plan import Requirements, Setting, Workload, plan
 
 #: Synthetic accelerators. The CI runner has no GPU and never will — this check
 #: is about what the engine's argument parser accepts, not about running a model.
@@ -387,3 +394,43 @@ def test_a_real_draft_request_is_still_answered_on_its_merits():
     assert isinstance(
         adapter_for("ollama").translate(Setting.SPECULATIVE, "org/draft-model"), Unsupported
     )
+
+
+# --- SGLang shares vLLM's flag name, not its accepted values ---------------------
+
+
+@pytest.mark.parametrize("dtype", sorted(SGLANG_KV_DTYPE))
+def test_sglang_emits_every_kv_dtype_it_documents(dtype):
+    r = SglangAdapter().translate(Setting.KV_CACHE_DTYPE, dtype)
+    assert isinstance(r, Translated)
+    assert r.argv == ("--kv-cache-dtype", dtype)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "whose"),
+    [
+        ("fp8_inc", "vLLM's Gaudi-only value"),
+        ("fp8", "a vLLM alias SGLang does not document"),
+        ("q8_0", "llama.cpp's vocabulary"),
+        ("f16", "llama.cpp's vocabulary"),
+    ],
+)
+def test_sglang_refuses_a_kv_dtype_from_another_engines_dialect(dtype, whose):
+    # The flag name is shared with vLLM and the accepted values are not. The
+    # code carried a comment saying exactly that — "passing vLLM's fp8_inc here
+    # would be rejected at startup" — with no check behind it, which is the
+    # cross-dialect leak this layer exists to prevent, committed inside the
+    # layer itself.
+    r = SglangAdapter().translate(Setting.KV_CACHE_DTYPE, dtype)
+    assert isinstance(r, Unsupported), whose
+    assert dtype in r.reason
+    assert "fp8_e4m3" in r.reason, "a refusal must name the set it will take"
+
+
+def test_the_value_the_planner_actually_emits_is_accepted():
+    # `_kv_cache_dtype` emits "fp8_e4m3". If the allowlist ever stopped
+    # containing it, every KV-pressured SGLang plan would silently lose the
+    # setting it was built to apply — a refusal is only correct for values the
+    # planner does not produce.
+    r = SglangAdapter().translate(Setting.KV_CACHE_DTYPE, "fp8_e4m3")
+    assert isinstance(r, Translated)

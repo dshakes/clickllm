@@ -444,9 +444,20 @@ class SglangAdapter(Adapter):
                     )
                 return Translated(("--quantization", method))
             case Setting.KV_CACHE_DTYPE:
-                # Same flag name as vLLM, different accepted values. Passing
-                # vLLM's `fp8_inc` here would be rejected at startup.
-                return Translated(("--kv-cache-dtype", str(value)))
+                # Same flag name as vLLM, different accepted values — and this
+                # comment used to say exactly that while passing the value
+                # straight through. A hazard named in a comment and not guarded
+                # is the shape this whole layer exists to prevent, committed
+                # inside the layer itself. See `SGLANG_KV_DTYPE`.
+                dtype = str(value)
+                if dtype not in SGLANG_KV_DTYPE:
+                    return Unsupported(
+                        setting,
+                        f"SGLang does not document {dtype!r} as a KV cache type; it "
+                        f"takes one of {', '.join(sorted(SGLANG_KV_DTYPE))}. The flag "
+                        f"name matches vLLM's, the accepted values do not",
+                    )
+                return Translated(("--kv-cache-dtype", dtype))
             case Setting.SPECULATIVE:
                 if not value or value == "off":
                     return Translated((), "speculative decoding is off by default")
@@ -634,6 +645,23 @@ class MlxAdapter(Adapter):
                 argv.extend(out.argv)
         return argv, gaps
 
+
+#: SGLang shares vLLM's flag *name* and not its accepted values. The overlap is
+#: wide enough to look interchangeable and is not: `fp8_inc` is vLLM's
+#: Gaudi-specific value and SGLang rejects it at start-up, and plain `fp8` is a
+#: vLLM alias SGLang does not document. Enumerated rather than passed through,
+#: because "same flag name" is precisely the assumption this layer exists to
+#: stop, and the code already carried a comment saying so without a check
+#: behind it.
+#:
+#: Verified against docs.sglang.io/docs/advanced_features/server_arguments and
+#: `python/sglang/srt/server_args.py` on main (2026-08-07). `bf16`/`bfloat16`
+#: and `fp4_e2m1` are recent additions; an older build may take only `auto`,
+#: `fp8_e5m2`, `fp8_e4m3`, which is why a refusal here names the set rather
+#: than asserting the value is impossible.
+SGLANG_KV_DTYPE: frozenset[str] = frozenset(
+    {"auto", "bf16", "bfloat16", "fp8_e5m2", "fp8_e4m3", "fp4_e2m1"}
+)
 
 #: The planner speaks vLLM's KV-cache vocabulary; llama.cpp has its own, and the
 #: allowed set is read off `llama-server --help`. 8-bit maps to q8_0 because
