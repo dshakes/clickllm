@@ -188,7 +188,22 @@ class CandidateReport:
         return tuple(c for c in self.clusters if c.band(bar) == "regressed")
 
     def unproven(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> tuple[ClusterScore, ...]:
-        return tuple(c for c in self.clusters if c.band(bar) == "unproven")
+        """Everything that is neither proven nor regret — including unmeasured.
+
+        `unknown` belongs here with `unproven`: traffic nobody measured cannot
+        move, for the same reason traffic that straddles the bar cannot. Naming
+        only the straddlers dropped an unmeasured cluster out of the hybrid
+        policy entirely, so a share the report showed as `?` reached
+        `SuiteResult.policy` and the MCP surface as if it did not exist. The
+        receipt has always partitioned it this way — `Receipt.unproven` holds
+        both — and the two spellings of one word disagreeing is what let it
+        through.
+        """
+        return tuple(c for c in self.clusters if c.band(bar) in ("unproven", "unknown"))
+
+    def measured_share(self) -> float:
+        """Fraction of traffic any evidence was actually collected for."""
+        return sum(c.share for c in self.clusters if c.known)
 
     def movable_share(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> float:
         """Fraction of traffic that can move today, on the evidence available."""
@@ -327,6 +342,16 @@ class Matrix:
             else:
                 iv = cand.weighted_interval()
                 row += f"   {ws * 100:.0f}% [{iv.low * 100:.0f}–{iv.high * 100:.0f}] weighted"
+                # Both the score and the interval renormalise over the traffic
+                # that was actually measured, which is the only arithmetic
+                # available — an unmeasured cluster has no rate to contribute.
+                # Renormalising silently is what makes it a lie: 70% covered and
+                # all passing printed a flat "100% weighted" while 30% of traffic
+                # had never been looked at. The denominator travels with the
+                # number, like the method does.
+                measured = cand.measured_share()
+                if measured < 0.999:
+                    row += f" of {measured * 100:.0f}%"
             out.append(row)
         out.append("-" * len(head))
         out.append(
@@ -393,7 +418,16 @@ class Matrix:
 
         agg = best.weighted_interval()
         if agg.total:
-            out.append(f"weighted verdict {agg.render()} — {agg.method}")
+            measured = best.measured_share()
+            coverage = (
+                ""
+                if measured >= 0.999
+                else (
+                    f" — over {measured:.0%} of traffic; the other "
+                    f"{1 - measured:.0%} was never measured and is not in this number"
+                )
+            )
+            out.append(f"weighted verdict {agg.render()}{coverage} — {agg.method}")
             out.append(
                 "  per-cluster cells above are Wilson score intervals, 95%; the weighted "
                 "figure is a sum of proportions, which Wilson does not cover"
