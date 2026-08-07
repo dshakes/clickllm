@@ -57,7 +57,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from clickllm.prove.equivalence import DEFAULT_EQUIVALENCE_BAR, ClusterScore
+from clickllm.prove.equivalence import DEFAULT_EQUIVALENCE_BAR, ClusterScore, check_bar
 from clickllm.prove.graders import ItemResult, Tier
 from clickllm.prove.judge import Agreement, Calibration
 from clickllm.prove.stats import MIN_SAMPLES_FOR_CONFIDENCE, Interval
@@ -349,6 +349,13 @@ def decide(
         A [`Decision`]. `ROLL_BACK` may be applied automatically; `ADVANCE` is a
         proposal for a human.
     """
+    # The fourth door to the same number. `Matrix` and `Receipt` guard the bar
+    # in their constructors, and `run`/`suite`/`issue` reach it through them —
+    # but this takes a bare float and builds neither, so it inherited nothing.
+    # It is also the one that matters most: at bar=0.0 a 41/80 cluster returns
+    # ADVANCE reading "100% of traffic is proven at or above the 0% bar", which
+    # is the rollout surface invariant 8 exists to protect.
+    check_bar(bar)
     live = [r for r in readings if r.cluster not in pinned]
 
     # 1. Health first. A broken candidate is not a quality question, and running

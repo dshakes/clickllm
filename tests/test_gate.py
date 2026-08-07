@@ -396,3 +396,33 @@ def test_a_single_judge_only_cluster_still_reads_the_same():
     d = decide([reading("flaky", 34, 40, judge=True)], Stage("shadow", 0))
     assert d.clusters == ("flaky",)
     assert "judge alone never moves traffic" in d.reason
+
+
+# --- the fourth door to the same number ------------------------------------------
+
+
+@pytest.mark.parametrize("bar", [0.0, -1.0, -100.0, 1.0, 2.0])
+def test_the_gate_refuses_a_bar_outside_the_open_unit_interval(bar):
+    """`decide()` never builds a `Matrix` or a `Receipt`, so it inherited neither
+    constructor's guard. It is also the surface that matters most: this is what
+    proposes moving production traffic.
+
+    At `bar=0.0` a 41/80 cluster — a candidate nobody should migrate to —
+    returned ADVANCE to canary 5%, reasoning "100% of traffic is proven at or
+    above the 0% bar". At `bar=-1.0` it rendered "the -100% bar" and advanced
+    anyway. The endpoints above 1 hold, but for the wrong reason: nothing can
+    ever clear a 100% bar, so the gate would sit forever calling every candidate
+    unproven.
+    """
+    with pytest.raises(ValueError, match="equivalence bar"):
+        decide([reading(passed=41, total=80)], SHADOW, bar=bar)
+
+
+def test_a_real_bar_still_advances_on_evidence_that_earns_it():
+    d = decide([reading(passed=40, total=40)], SHADOW, bar=0.90)
+    assert d.action is Action.ADVANCE
+
+
+def test_a_real_bar_still_holds_the_regression_the_degenerate_one_advanced():
+    d = decide([reading(passed=41, total=80)], SHADOW, bar=0.90)
+    assert d.action is Action.HOLD
