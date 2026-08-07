@@ -133,6 +133,13 @@ WORKLOADS = [
     (Workload.BATCH, "evaluate 1 million captured prompts"),
     (Workload.BATCH, "eval 1 million captured requests"),
     (Workload.BATCH, "2 million requests to evaluate"),
+    # English spells small counts as words, and bare "million" used to carry
+    # all of these. Digit-led only, they fell through to the question.
+    (Workload.BATCH, "score a million support tickets"),
+    (Workload.BATCH, "score one million support tickets"),
+    (Workload.BATCH, "a million tickets to score"),
+    (Workload.BATCH, "two million tickets to triage"),
+    (Workload.INTERACTIVE, "rank content for a million users under 200ms"),
     # ...unless the noun carries a denominator. A rate whose unit happens to
     # be a work item is still a rate.
     (Workload.REALTIME, "realtime classify 2 million events/sec under 200ms"),

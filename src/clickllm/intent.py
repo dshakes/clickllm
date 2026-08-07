@@ -310,8 +310,21 @@ _ADJECTIVES = (
 #:
 #: A RATE is excluded at any magnitude — it has a denominator, and nothing
 #: with a denominator is a pile.
+#: A magnitude, however it is written. English spells small counts as words —
+#: "score a million support tickets" and "one million tickets to score" are the
+#: same instruction as "4 million", and bare "million" used to carry all three.
+#: Digit-led only, they fell through to the workload question.
+#:
+#: One definition, three uses (_VOLUME, _SERVED_AUDIENCE, the backlog-noun
+#: branch). Written out three times it would be the shape that put "hrs" in one
+#: list and not the other.
+_MAGNITUDE = (
+    r"(?:\d[\d,.]*|an?|one|two|three|four|five|six|seven|eight|nine|ten|half a)"
+    r"\s+(?:million|billion)"
+)
+
 _VOLUME = (
-    rf"(?:\d[\d,.]*\s+(?:million|billion)\b(?!{_ADJECTIVES}\s+{_RATE}\b)"
+    rf"(?:{_MAGNITUDE}\b(?!{_ADJECTIVES}\s+{_RATE}\b)"
     # `(?![,\d])` so the match cannot stop at the first thousands group: for
     # "1,000,000 users" the audience lookahead failed on the whole number, the
     # engine backtracked to "1,000", and a served audience became a batch job
@@ -330,7 +343,7 @@ _VOLUME = (
 #: fixed-width, and enumerating "for about "/"across our "/… as fixed widths is
 #: how the previous spelling missed all three phrasings the reviewer sent.
 _SERVED_AUDIENCE = re.compile(
-    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+\d[\d,.]*\s+(?:million|billion)"
+    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+{_MAGNITUDE}"
     rf"(?:\s+\w+){{0,3}}\s+{_AUDIENCE}\b"
 )
 
@@ -374,7 +387,7 @@ _BULK_VOLUME = re.compile(
     # ...unless that noun carries a denominator. "2 million events/sec" is a
     # rate whose unit happens to be a work item, and the noun branch skipped
     # the rate test the other two branches get from _VOLUME.
-    rf"|\b\d[\d,.]*\s+(?:million|billion)\b{_ADJECTIVES}\s+{_BACKLOG_NOUN}\b(?!{_PER})"
+    rf"|\b{_MAGNITUDE}\b{_ADJECTIVES}\s+{_BACKLOG_NOUN}\b(?!{_PER})"
 )
 
 #: Needles with no inflection worth catching, so they anchor at both ends. RAG
