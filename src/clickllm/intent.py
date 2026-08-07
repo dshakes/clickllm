@@ -221,9 +221,10 @@ _STRUCTURED_SIGNALS = (
 #: "gradual" and "gradient".
 _BULK_VERB = (
     r"(?:scor|grad|translat|transcrib|annotat|rewrit|summaris|summariz|categoris"
-    r"|categoriz|analys|analyz)(?:e|es|ed|ing)"
+    r"|categoriz|analys|analyz|triag)(?:e|es|ed|ing)"
+    r"|verif(?:y|ies|ied|ying)"
     r"|classif\w*"
-    r"|(?:label|tag|rank|process|extract|embed|index|eval|review|audit|inspect|verify|triage)\w*"
+    r"|(?:label|tag|rank|process|extract|embed|index|eval|review|audit|inspect)\w*"
 )
 
 #: Nouns that make a number something other than a backlog: an audience, or a
@@ -443,6 +444,11 @@ _PHRASE_END = (
 _BACKLOG_NOUN = (
     r"(?:tickets|documents|docs|records|rows|messages|emails|transcripts|prompts"
     r"|invoices|orders|claims|receipts|transactions|cases|reports|forms"
+    # requests/queries are backlog nouns as well as rate units — a corpus of
+    # captured requests is what this tool processes. The branch that uses this
+    # carries a (?!_PER) guard, so "2 million requests per second" is still a
+    # rate and only the bare noun reads as a pile.
+    r"|requests|queries|prompts|completions|responses"
     r"|conversations|items|files|images|photos|articles|reviews|logs|events"
     r"|pages|posts|comments|chunks|entries|samples|examples|labels|pairs"
     r"|utterances|snippets|abstracts|papers|listings|products|sessions)"

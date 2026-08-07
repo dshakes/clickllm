@@ -254,6 +254,21 @@ WORKLOADS = [
     (Workload.BATCH, "classify 1 million requests from captured traffic"),
     (Workload.BATCH, "embed 1 million queries from logs"),
     (Workload.BATCH, "score 4 million captured requests"),
+    # A corpus of captured requests with no verb at all — the phrasing this
+    # tool exists for. requests/queries are backlog nouns as well as rate
+    # units, and the branch that reads them keeps its denominator guard.
+    (Workload.BATCH, "1 million captured requests"),
+    (Workload.BATCH, "2 million support requests"),
+    (Workload.BATCH, "1 million queries from logs"),
+    (Workload.INTERACTIVE, "2 million requests per second"),
+    # Silent-e verbs again: "triage" is not a prefix of "triaging", nor
+    # "verify" of "verifying".
+    # "widgets" is in no noun list, so only the verb can classify these — the
+    # first spelling I wrote used backlog nouns and passed with the verbs
+    # removed, which proved nothing.
+    (Workload.BATCH, "triaging 2 million widgets"),
+    (Workload.BATCH, "verifying 2 million widgets"),
+    (Workload.BATCH, "triage 2 million widgets"),
     # People CAN be the work items, at a magnitude where they are not an
     # audience for anything interactive. Four million concurrent users is not
     # a product; four million customer records is a scoring job.
