@@ -133,6 +133,26 @@ class CandidateReport:
     clusters: tuple[ClusterScore, ...]
     monthly_cost: float | None = None
 
+    def __post_init__(self) -> None:
+        """Refuse a set of shares that add up to more traffic than exists.
+
+        Per-share validation on `ClusterScore` is not enough, and missing that
+        is the same mistake twice: `movable_share()` *sums* shares, so the
+        value reaching the arithmetic is the total, not any one element. Two
+        individually legal shares — `{"a": 0.9, "b": 0.9}` — rendered "Move
+        180% of traffic to candidate" and a receipt claiming "Movable: 180% of
+        captured traffic".
+
+        Tolerance because these are floats and a caller who split traffic
+        exactly can still land a few ulps above 1.0.
+        """
+        total = sum(c.share for c in self.clusters)
+        if total > 1.0 + 1e-6:
+            raise ValueError(
+                f"cluster shares must not exceed all of the traffic, got {total:.6g} "
+                f"across {len(self.clusters)} clusters"
+            )
+
     def weighted_score(self) -> float | None:
         """Traffic-weighted equivalence, or ``None`` if nothing was graded."""
         usable = [c for c in self.clusters if c.known]

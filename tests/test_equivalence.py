@@ -138,3 +138,65 @@ def test_the_product_entrypoint_refuses_an_impossible_share():
     items = [EvalItem(f"i{i}", "good", f"p{i}", '{"a": 1}', '{"a": 1}') for i in range(120)]
     with pytest.raises(ValueError, match="fraction of traffic"):
         suite(items, shares={"good": 10.0}, issued="2026-08-07")
+
+
+def test_shares_that_add_up_to_more_traffic_than_exists_are_refused():
+    # Per-share validation was not enough, and missing that was the same
+    # mistake twice: `movable_share()` *sums* shares, so the value reaching the
+    # arithmetic is the total, not any one element. Two individually legal
+    # shares rendered "Move 180% of traffic to candidate".
+    good = ClusterScore("a", "a", 0.9, wilson(118, 120), 0)
+    also = ClusterScore("b", "b", 0.9, wilson(118, 120), 0)
+    with pytest.raises(ValueError, match="exceed all of the traffic"):
+        CandidateReport("m", (good, also))
+
+
+def test_shares_that_add_to_exactly_one_are_fine():
+    parts = tuple(
+        ClusterScore(k, k, s, wilson(118, 120), 0)
+        for k, s in (("a", 0.6), ("b", 0.15), ("c", 0.25))
+    )
+    assert CandidateReport("m", parts).clusters == parts
+
+
+def test_shares_that_add_to_less_than_one_are_fine():
+    # Under-allocation is legitimate: a cluster scored at share 0 because it
+    # was absent from the share map contributes nothing to the total.
+    parts = (
+        ClusterScore("a", "a", 0.4, wilson(9, 10), 0),
+        ClusterScore("b", "b", 0.0, wilson(9, 10), 0),
+    )
+    assert CandidateReport("m", parts)
+
+
+def test_a_split_landing_a_hair_over_one_is_tolerated_not_refused():
+    # Shares are floats and arrive from division upstream, so a caller who
+    # split traffic exactly can still land above 1.0. Refusing that would make
+    # the guard fire on correct input, which is how a guard gets deleted.
+    parts = (
+        ClusterScore("a", "a", 0.5, wilson(9, 10), 0),
+        ClusterScore("b", "b", 0.5000001, wilson(9, 10), 0),
+    )
+    assert sum(c.share for c in parts) > 1.0, "precondition: this really does overshoot"
+    assert CandidateReport("m", parts)
+
+
+def test_an_overshoot_past_the_tolerance_is_still_refused():
+    # The other side of the same line: tolerance is for representation error,
+    # not for a share map that is genuinely wrong.
+    parts = (
+        ClusterScore("a", "a", 0.5, wilson(9, 10), 0),
+        ClusterScore("b", "b", 0.51, wilson(9, 10), 0),
+    )
+    with pytest.raises(ValueError, match="exceed all of the traffic"):
+        CandidateReport("m", parts)
+
+
+def test_the_product_entrypoint_refuses_over_allocated_shares():
+    from clickllm.prove import suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"a{i}", "a", f"p{i}", '{"x":1}', '{"x":1}') for i in range(120)]
+    items += [EvalItem(f"b{i}", "b", f"q{i}", '{"x":1}', '{"x":1}') for i in range(120)]
+    with pytest.raises(ValueError, match="exceed all of the traffic"):
+        suite(items, shares={"a": 0.9, "b": 0.9}, issued="2026-08-07")
