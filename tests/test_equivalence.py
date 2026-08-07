@@ -8,8 +8,16 @@ excluded from their scores.
 
 from __future__ import annotations
 
-from clickllm.prove.equivalence import CandidateReport, Matrix, score_cluster
+import pytest
+
+from clickllm.prove.equivalence import (
+    CandidateReport,
+    ClusterScore,
+    Matrix,
+    score_cluster,
+)
 from clickllm.prove.graders import EvalItem, grade
+from clickllm.prove.stats import wilson
 
 
 def results(cluster: str, n_pass: int, n_fail: int, n_ungraded: int = 0):
@@ -85,3 +93,48 @@ def test_a_matrix_with_nothing_gradeable_still_renders():
     m = Matrix([empty], incumbent_cost=1000.0)
     assert m.best() is None
     assert m.render()
+
+
+# --- an impossible traffic share cannot be constructed ---------------------------
+
+
+def test_a_share_above_one_is_refused_at_the_type():
+    # The guard was first written in `stats`, on `weighted_point` and
+    # `weighted_posterior` — the wrong layer. Shares arrive through
+    # `run(shares=...)`, land here, and `movable_share()` sums them raw without
+    # calling a weighted function at all, so `{"good": 10.0}` produced a policy
+    # reading "Move 900% of traffic to candidate".
+    with pytest.raises(ValueError, match="fraction of traffic"):
+        ClusterScore("c", "c", 10.0, wilson(9, 10), 0)
+
+
+def test_a_negative_share_is_refused_at_the_type():
+    with pytest.raises(ValueError, match="fraction of traffic"):
+        ClusterScore("c", "c", -1.0, wilson(9, 10), 0)
+
+
+@pytest.mark.parametrize("share", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_share_is_refused_at_the_type(share):
+    # NaN is the one that used to reach the receipt, because it fails every
+    # ordinary comparison silently rather than raising.
+    with pytest.raises(ValueError, match="finite"):
+        ClusterScore("c", "c", share, wilson(9, 10), 0)
+
+
+@pytest.mark.parametrize("share", [0.0, 0.5, 1.0])
+def test_the_shares_a_caller_should_pass_are_accepted(share):
+    # Zero is a legitimate "cannot move traffic", and 1.0 is a single-cluster
+    # eval set. A guard that rejected either would break documented behaviour.
+    assert ClusterScore("c", "c", share, wilson(9, 10), 0).share == share
+
+
+def test_the_product_entrypoint_refuses_an_impossible_share():
+    # The finding was that `suite()` reached `best()` and issued a receipt
+    # before any weighted function validated anything. This is the end-to-end
+    # check that the guard is now on the path the product actually takes.
+    from clickllm.prove import suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "good", f"p{i}", '{"a": 1}', '{"a": 1}') for i in range(120)]
+    with pytest.raises(ValueError, match="fraction of traffic"):
+        suite(items, shares={"good": 10.0}, issued="2026-08-07")

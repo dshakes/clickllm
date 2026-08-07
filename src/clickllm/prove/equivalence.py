@@ -21,6 +21,7 @@ as unknown rather than as a confident score. See :mod:`.stats`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .graders import ItemResult
@@ -61,6 +62,23 @@ class ClusterScore:
     #: the copies narrows the interval on evidence that was never collected.
     #: Zero for the normal case; the report only mentions it when it is not.
     duplicates: int = 0
+
+    def __post_init__(self) -> None:
+        """Refuse a share that is not a fraction of traffic.
+
+        Guarding the estimators in `stats` was guarding the wrong layer: shares
+        arrive through `run(shares=…)`, reach `ClusterScore.share`, and
+        `movable_share()` sums them raw without ever calling a weighted
+        function. `{"good": 10.0}` produced a policy reading **"Move 900% of
+        traffic to candidate"**, and a NaN share was carried into the receipt
+        as `nan`. The check belongs on the value that reaches the arithmetic,
+        which is this field, so every construction path is covered rather than
+        the one the report happened to take.
+        """
+        if not math.isfinite(self.share):
+            raise ValueError(f"traffic share must be a finite number, got {self.share!r}")
+        if not 0.0 <= self.share <= 1.0:
+            raise ValueError(f"traffic share must be a fraction of traffic, got {self.share}")
 
     @property
     def known(self) -> bool:
