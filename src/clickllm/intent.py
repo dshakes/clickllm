@@ -319,8 +319,11 @@ _ADJECTIVES = (
 #: branch). Written out three times it would be the shape that put "hrs" in one
 #: list and not the other.
 _MAGNITUDE = (
-    r"(?:\d[\d,.]*|an?|one|two|three|four|five|six|seven|eight|nine|ten|half a)"
-    r"\s+(?:million|billion)"
+    # Any token, or none, in front of the magnitude — rather than a list of
+    # number words, which stopped at ten and lost "twenty million". Bare
+    # "million" is what main matched; requiring a bulk verb or a work-item
+    # noun near it, as _BULK_VOLUME does, is strictly narrower than that.
+    r"(?:\S+\s+)?(?:million|billion)s?"
 )
 
 _VOLUME = (

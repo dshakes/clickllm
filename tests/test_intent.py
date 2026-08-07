@@ -141,6 +141,10 @@ WORKLOADS = [
     (Workload.BATCH, "score one million support tickets"),
     (Workload.BATCH, "a million tickets to score"),
     (Workload.BATCH, "two million tickets to triage"),
+    # Any spelling of the count, not a list of number words that stopped at ten.
+    (Workload.BATCH, "score twenty million support tickets"),
+    (Workload.BATCH, "triage fifty million tickets"),
+    (Workload.BATCH, "score millions of tickets"),
     (Workload.INTERACTIVE, "rank content for a million users under 200ms"),
     # ...unless the noun carries a denominator. A rate whose unit happens to
     # be a work item is still a rate.
