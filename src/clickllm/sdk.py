@@ -209,7 +209,21 @@ def explain(
 def models(
     license_filter: Literal["all", "permissive"] = "all",
 ) -> list[ModelSpec]:
-    """The catalogue, optionally restricted to cleanly-commercial licences."""
+    """The catalogue, optionally restricted to cleanly-commercial licences.
+
+    Raises:
+        ValueError: on any other filter, naming the offending value.
+
+    A `Literal` is a type-checker's promise, not a runtime one, and the failure
+    it does not catch is silent and in the unsafe direction: anything that was
+    not exactly `"permissive"` — `"PERMISSIVE"`, `"Permissive"`, a typo — fell
+    through to the unfiltered list. A caller asking for cleanly-commercial
+    models got every Llama-licensed one back and no indication of it. The
+    default is `"all"`, so a refusal here can only reach someone who passed
+    something, and what they passed was wrong.
+    """
+    if license_filter not in ("all", "permissive"):
+        raise ValueError(f"license_filter must be 'all' or 'permissive', got {license_filter!r}")
     all_models = list(catalog.load())
     if license_filter == "permissive":
         return [m for m in all_models if m.license_ok]

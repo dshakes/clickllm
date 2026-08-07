@@ -328,6 +328,28 @@ class Matrix:
     #: anything is a claim, not a measurement.
     calibration: Calibration | None = None
 
+    def __post_init__(self) -> None:
+        """Refuse a bar that is not an equivalence threshold.
+
+        `clearly_above(bar)` is `interval.low > bar`, so a bar at or below zero
+        is true for essentially any interval: a cluster scoring 51% reads
+        `equivalent`, `movable_share` says move everything, and the report a
+        human uses to authorise a cutover says a clearly-regressed candidate
+        holds. The MCP schema advertises `minimum: 0, maximum: 1`, but a JSON
+        Schema is advisory — nothing enforced it, and this is the one tool whose
+        output exists to justify moving production traffic (invariant 8).
+
+        Checked here rather than at the MCP boundary for the reason ADR-0011
+        gives: the constraint belongs to the thing it protects, and `bar`
+        reaches this object from the CLI, the SDK and the MCP server alike.
+
+        Open interval, matching `family_wise_z`'s treatment of `alpha`: a bar of
+        0 admits everything and a bar of 1 admits nothing, and neither is a
+        threshold somebody meant to set.
+        """
+        if not 0.0 < self.bar < 1.0:
+            raise ValueError(f"equivalence bar must be between 0 and 1, exclusive, got {self.bar}")
+
     @property
     def judge_trustworthy(self) -> bool:
         """Whether judge-derived cells should be presented as evidence."""
