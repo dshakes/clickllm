@@ -185,6 +185,17 @@ def _merge(a: ItemResult, b: ItemResult) -> ItemResult:
     return ItemResult(item_id=a.item_id, cluster=a.cluster, scores=a.scores + b.scores)
 
 
+def _uncovered(shares: dict[str, float], covered) -> set[str]:
+    """Clusters holding real traffic that the eval set produced no items for.
+
+    Positive shares only, and one definition for both callers: `run()` decides
+    what to synthesise from it and `suite()` decides whether a capture count
+    can be defaulted from it, and those two disagreeing is the kind of split
+    that this module has already been bitten by.
+    """
+    return {k for k, share in shares.items() if share > 0 and k not in covered}
+
+
 def run(
     items: list[EvalItem],
     *,
@@ -275,9 +286,13 @@ def run(
     # traffic the report silently redefined to exclude it. Scored as unknown
     # instead, which is what it is: it lands in `unproven` and cannot move
     # anything.
+    # Positive shares only. A cluster at share 0 holds no traffic, so having no
+    # items for it is not a gap in coverage — synthesising one would put a
+    # `deprecated: 0.0` entry into `unproven`, flip `complete` to False, and
+    # report unmeasured traffic where there is none to measure.
     scores += [
         score_cluster(key, names.get(key, key), shares[key], [])
-        for key in sorted(set(shares) - set(by_cluster))
+        for key in sorted(_uncovered(shares, by_cluster))
     ]
     scores.sort(key=lambda c: c.cluster)  # one order, however a cluster got here
     report = CandidateReport(model=candidate, clusters=tuple(scores), monthly_cost=monthly_cost)
@@ -384,7 +399,7 @@ def suite(
     # withheld and the line simply does not print. An explicit
     # `traffic_captures` is still honoured: the caller knows the real number
     # and this cannot second-guess it.
-    uncovered = set(shares) - {i.cluster for i in items}
+    uncovered = _uncovered(shares, {i.cluster for i in items})
     captures = traffic_captures or (0 if uncovered else len(items))
     return SuiteResult(
         matrix=matrix,

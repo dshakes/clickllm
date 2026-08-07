@@ -217,3 +217,32 @@ def test_an_explicit_capture_count_is_honoured_over_the_gap_rule():
     )
     assert r.receipt.traffic_captures == 12_400
     assert "Drawn from 12400 captured requests" in r.receipt.render()
+
+
+def test_a_zero_share_cluster_with_no_items_is_not_a_coverage_gap():
+    # A cluster at share 0 holds no traffic, so having no items for it is not
+    # a gap. Synthesising one put `deprecated` into `unproven`, flipped
+    # `complete` to False, and suppressed the capture count — reporting
+    # unmeasured traffic where there was none to measure.
+    items = [EvalItem(f"i{i}", "covered", f"p-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)]
+    r = suite(items, shares={"covered": 1.0, "deprecated": 0.0}, issued="2026-08-07")
+    assert [c.cluster for c in r.receipt.unproven] == []
+    assert r.receipt.complete
+    assert r.receipt.traffic_captures == 45
+    assert "Drawn from 45 captured requests" in r.receipt.render()
+
+
+def test_a_positive_share_with_no_items_is_still_a_coverage_gap():
+    # The distinction the fix turns on, asserted next to it so neither side can
+    # drift: zero share is not a gap, any positive share is.
+    items = [EvalItem(f"i{i}", "covered", f"p-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)]
+    r = suite(items, shares={"covered": 0.7, "gap": 0.3}, issued="2026-08-07")
+    assert [c.cluster for c in r.receipt.unproven] == ["gap"]
+    assert not r.receipt.complete
+
+
+def test_a_zero_share_cluster_that_does_have_items_still_appears():
+    # Unchanged behaviour, pinned: items outside `shares` are kept at share 0
+    # and reported. Only the *synthesised* entries are filtered by share.
+    m = run([item("orphan")], shares={})
+    assert [c.cluster for c in m.candidates[0].clusters] == ["orphan"]
