@@ -70,10 +70,15 @@ class SampleReport:
     sampled: dict[str, list[Capture]]
     total_captures: int
     small_clusters: tuple[str, ...]
-    #: The per-cluster minimum sampling actually achieved. Lower than the
-    #: requested ``min_per_cluster`` when the budget could not cover every
-    #: cluster at that rate, which is a fact about the eval set a caller has to
-    #: be able to see.
+    #: The per-cluster floor the budget could **afford** — lower than the
+    #: requested ``min_per_cluster`` when it could not cover every cluster at
+    #: that rate, which is a fact about the eval set a caller has to see.
+    #:
+    #: Not the smallest sample actually taken, and deliberately so: a cluster
+    #: holding fewer captures than the floor contributes all of them, and that
+    #: is the cluster's size rather than a budget shortfall. Reading it as
+    #: "every cluster got at least this many" is wrong — use ``uncovered`` for
+    #: what got nothing, and the sample lengths for what each one got.
     floor_applied: int = 0
     #: Clusters that received no samples at all. A cluster sampled to nothing
     #: still has a key in ``sampled``, so ``key in report.sampled`` reads as
@@ -137,6 +142,11 @@ def sample(
     """
     if budget < 0:
         raise ValueError(f"budget must be >= 0, got {budget}")
+    # A negative floor is not merely meaningless, it breaks the allocator: it
+    # makes `want` negative for a small cluster, so the surplus pass reads a
+    # deficit that was never spent and hands out more than `budget`.
+    if min_per_cluster < 0:
+        raise ValueError(f"min_per_cluster must be >= 0, got {min_per_cluster}")
     total = sum(c.size for c in clusters)
     if not clusters or total == 0:
         return SampleReport({}, 0, (), 0, ())

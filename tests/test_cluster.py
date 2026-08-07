@@ -194,6 +194,41 @@ def test_a_negative_budget_still_refuses_with_the_offending_value():
         sample(make(3, 10), budget=-1)
 
 
+def test_a_negative_floor_refuses_rather_than_overspending_the_budget():
+    # Raised by the Codex audit. A negative `min_per_cluster` was unvalidated,
+    # and the surplus pass turned it into an over-spend: a negative floor makes
+    # `want` negative for a small cluster, so `budget - sum(want)` reads a
+    # deficit that was never spent and hands the phantom units out. With sizes
+    # [1, 1000], `budget=10, min_per_cluster=-1` returned 11 samples.
+    with pytest.raises(ValueError, match="-1"):
+        sample(make(3, 10), min_per_cluster=-1)
+
+
+def test_the_budget_holds_for_every_floor_a_caller_can_pass():
+    # The property the guard exists to protect, checked across the range
+    # rather than at the one value that broke.
+    cs = make(6, 40)
+    for budget in (0, 1, 5, 17, 200):
+        for mpc in range(0, 8):
+            rep = sample(cs, budget=budget, min_per_cluster=mpc)
+            assert rep.total_sampled <= budget, (budget, mpc, rep.total_sampled)
+
+
+def test_floor_applied_is_the_affordable_floor_not_the_smallest_sample():
+    # Also from the audit. The field said "the minimum actually achieved",
+    # which a cluster smaller than the floor contradicts — sizes [1, 1000] at
+    # budget 100 report floor_applied 3 while one cluster yields its single
+    # capture. That is the cluster's size, not a budget shortfall, so the
+    # number is right and the claim about it was wrong.
+    caps = [cap(0, "tiny", "a")]
+    caps += [cap(100 + i, "bulk", "b" * (i % 9 + 1)) for i in range(1000)]
+    cs = cluster(caps)
+    rep = sample(cs, budget=100, min_per_cluster=3)
+    assert rep.floor_applied == 3, "the budget could afford a floor of 3"
+    assert min(len(v) for v in rep.sampled.values()) == 1, "and a 1-capture cluster gives 1"
+    assert rep.uncovered == (), "which is not the same as being uncovered"
+
+
 def test_no_clusters_is_an_empty_report_not_a_crash():
     rep = sample([], budget=100)
     assert rep.total_sampled == 0
