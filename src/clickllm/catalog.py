@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -139,6 +140,78 @@ _KNOWN_QUANTS = frozenset(QUANT_BITS)
 _KNOWN_KV_SCHEMES = frozenset({"mha", "gqa", "mla"})
 
 
+#: field -> (accepted types, must be > 0). The dataclass does not coerce and
+#: JSON does not type-check, so without this a row loads as whatever the file
+#: happened to contain. `bool` is listed before `int` deliberately: in Python
+#: `isinstance(True, int)` is True, so the boolean must be matched first.
+_TYPES: dict[str, tuple[tuple[type, ...], bool]] = {
+    "id": ((str,), False),
+    "name": ((str,), False),
+    "params_b": ((int, float), True),
+    "active_b": ((int, float), True),
+    "layers": ((int,), True),
+    "kv_heads": ((int,), True),
+    "head_dim": ((int,), True),
+    "kv_scheme": ((str,), False),
+    "max_context": ((int,), True),
+    "license": ((str,), False),
+    "license_ok": ((bool,), False),
+    "verified": ((bool,), False),
+    "kv_lora_rank": ((int,), True),
+    "repo": ((str,), False),
+}
+
+
+def _check_types(spec: ModelSpec, path: Path) -> None:
+    """Refuse a row whose fields are the wrong type or an impossible size.
+
+    The dataclass accepts whatever JSON contained, and two of these are wrong in
+    the flattering direction rather than the loud one:
+
+    - `"license_ok": "false"` — a quoted boolean, which JSON and Python spell
+      differently enough to invite — is the string "false", and every non-empty
+      string is truthy. A model the author meant to mark restricted reports as
+      commercially clean.
+    - `"params_b": "70"` loads fine here and fails much later inside
+      `weight_bytes()` as a bare TypeError, with none of the file-and-model
+      attribution this module otherwise attaches.
+
+    Sizes are checked as well as types: `layers: 0` and `params_b: -5` both
+    described a model that cannot exist, and produced a weight figure to match.
+    """
+    for field, (types, positive) in _TYPES.items():
+        value = getattr(spec, field)
+        if value is None and field in ("kv_lora_rank", "repo"):
+            continue
+        if type(value) not in types:  # not isinstance: bool is a subclass of int
+            want = " or ".join(t.__name__ for t in types)
+            raise ValueError(
+                f"{path}: model {spec.id!r} has {field}={value!r} "
+                f"({type(value).__name__}), which is not {want}"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            # On the VALUE, not on the spelling. `parse_constant` catches the
+            # bare NaN/Infinity literals and nothing else — "1e400" is ordinary
+            # JSON that parses to inf through the normal float path — and a NaN
+            # slips the `<= 0` test below, since every comparison with NaN is
+            # False. Neither survives sizing: Infinity raises OverflowError
+            # inside weight_bytes() and NaN raises ValueError, both as
+            # tracebacks out of a CLI that promises a message.
+            raise ValueError(
+                f"{path}: model {spec.id!r} has {field}={value!r}, which is not "
+                f"a number a model can be sized with"
+            )
+        if positive and value <= 0:
+            raise ValueError(
+                f"{path}: model {spec.id!r} has {field}={value!r}; it describes "
+                f"a model that cannot exist, and sizes one to match"
+            )
+    if not spec.quants:
+        raise ValueError(f"{path}: model {spec.id!r} lists no quantisations")
+    if bad := [q for q in spec.quants if not isinstance(q, str)]:
+        raise ValueError(f"{path}: model {spec.id!r} has non-string quants {bad!r}")
+
+
 def _check_invariants(spec: ModelSpec, path: Path) -> None:
     """Refuse an entry the solver would size wrongly, naming the file.
 
@@ -195,6 +268,15 @@ def load() -> tuple[ModelSpec, ...]:
         for m in _read(path):
             if not isinstance(m, dict) or "id" not in m:
                 raise ValueError(f"{path}: every model needs an 'id'; got {m!r}")
+            # A key ModelSpec does not have is a typo, not a comment. Dropped
+            # silently, `"kv_lora_rank_": 512` looks set and is not — which is
+            # the easiest way to reach the MLA defect below through a door the
+            # MLA check cannot see, since the field keeps its default.
+            if extra := sorted(set(m) - set(fields)):
+                raise ValueError(
+                    f"{path}: model {m['id']!r} has unknown field(s) "
+                    f"{', '.join(extra)}. Known: {', '.join(sorted(fields))}"
+                )
             try:
                 spec = ModelSpec(
                     **{k: (tuple(v) if k == "quants" else v) for k, v in m.items() if k in fields}
@@ -203,6 +285,7 @@ def load() -> tuple[ModelSpec, ...]:
                 # Name the file and the model: "missing kv_heads" is unactionable
                 # when six drop-ins are in play.
                 raise ValueError(f"{path}: model {m['id']!r} is not a valid spec — {e}") from e
+            _check_types(spec, path)
             _check_invariants(spec, path)
             by_id[spec.id] = spec  # later file wins, by design
 
