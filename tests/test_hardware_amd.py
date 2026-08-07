@@ -69,6 +69,27 @@ def test_an_unreadable_vram_figure_is_not_a_vram_figure(tmp_path, monkeypatch):
     assert hardware._detect_amd() is None
 
 
+def test_used_vram_is_not_read_as_installed_vram(tmp_path, monkeypatch):
+    # "VRAM Total Used Memory (B)" contains both "vram" and "total", so a broad
+    # match reads a busy card as a small one depending on key order.
+    used_first = {
+        "card0": {
+            "Card Series": "MI300X",
+            "VRAM Total Used Memory (B)": "1073741824",
+            "VRAM Total Memory (B)": "206158430208",
+        }
+    }
+    fake_smi(tmp_path, monkeypatch, json.dumps(used_first))
+    assert hardware._detect_amd().total_bytes == 206158430208
+
+
+def test_amd_smi_is_not_claimed_as_supported(tmp_path, monkeypatch):
+    # It takes a different CLI, so invoking it with rocm-smi's flags fails and
+    # the fallback did nothing but look like support.
+    fake_smi(tmp_path, monkeypatch, json.dumps(CARDS), name="amd-smi")
+    assert hardware._detect_amd() is None
+
+
 def test_no_rocm_smi_is_simply_not_an_amd_box(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert hardware._detect_amd() is None

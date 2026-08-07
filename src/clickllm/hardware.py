@@ -216,7 +216,12 @@ def _detect_amd() -> Hardware | None:
     unexpected returns None rather than a guess: this file's contract is that a
     number it reports is one it read.
     """
-    smi = shutil.which("rocm-smi") or shutil.which("amd-smi")
+    # rocm-smi only. `amd-smi` was here as a fallback and it takes a different
+    # CLI entirely — invoking it with these flags fails, so the fallback did
+    # nothing but look like support. A dead branch that reads as coverage is
+    # worse than an honest gap, and an amd-smi-only host is better served by
+    # nothing here than by something that silently declines.
+    smi = shutil.which("rocm-smi")
     if not smi:
         return None
     try:
@@ -239,8 +244,17 @@ def _detect_amd() -> Hardware | None:
         if not isinstance(card, dict):
             continue
         # Key spelling has moved between ROCm versions; match on shape.
+        # "VRAM Total Used Memory (B)" also contains "vram" and "total", so a
+        # broad match could read used VRAM as installed VRAM depending on key
+        # order — reporting a busy card as a small one, or an idle one as
+        # right-sized. Capacity only.
         total = next(
-            (v for k, v in card.items() if "vram" in k.lower() and "total" in k.lower()), None
+            (
+                v
+                for k, v in card.items()
+                if "vram" in k.lower() and "total" in k.lower() and "used" not in k.lower()
+            ),
+            None,
         )
         if total is None:
             continue
