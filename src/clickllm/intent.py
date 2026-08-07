@@ -387,13 +387,20 @@ _REALTIME_PHRASE = re.compile(
     + rf")(?:\s+(?!{_PREPOSITION})\w+){{0,{_GOVERNS_WORDS}}}"
 )
 
-#: A mode word in the FINAL position governs the whole sentence: "score 5000
+#: A mode ADVERB in the final position governs the sentence: "score 5000
 #: accounts interactively" is an interactive product described back to front.
-#: Final position only — reaching backwards by a few words instead would
-#: swallow "score 4 million tickets, realtime dashboard after", which is a
-#: different clause about a different thing.
+#:
+#: An adverb, not any trailing mode word — that spelling erased real backlogs
+#: in "score 4 million support tickets with copilot" and "...tickets realtime",
+#: where the word is a preposition's object or an appended noun and modifies
+#: nothing. In practice this is a rule about "interactively", and saying so is
+#: better than a general-looking pattern that generalises the wrong way.
+#:
+#: Final position only — reaching backwards a few words instead would swallow
+#: "score 4 million tickets, realtime dashboard after", a different clause
+#: about a different thing.
 _TRAILING_MODE = re.compile(
-    "(?:" + "|".join(rf"\b{re.escape(w)}" for w in _GOVERNING_MODES) + r")\w*\s*[.!?]?\s*$"
+    "(?:" + "|".join(rf"\b{re.escape(w)}" for w in _GOVERNING_MODES) + r")\w*ly\b\s*[.!?]?\s*$"
 )
 
 #: Behind a preposition, these are an audience too — "classification API FOR
@@ -618,10 +625,11 @@ def _service_time(text: str) -> tuple[int, str] | None:
     # The subject is REQUIRED. Optional, it matched "first token takes 2
     # seconds" and "startup takes 2 seconds" — the first being exactly the
     # figure the docstring above says must not be used as time-in-system.
-    subject = (
-        r"(?:(?:each|every)(?:\s+(?:request|call|job|generation|response|one))?"
-        r"|(?:a|the|one)\s+(?:request|call|job|generation|response))"
-    )
+    # The unit nouns match the ones _RATE_UNIT accepts: "100 events/sec, each
+    # event takes 1 second" derived nothing while the same sentence about
+    # "calls" worked, because two lists of the same units had drifted apart.
+    unit = r"(?:request|call|job|generation|response|message|event|item|one)"
+    subject = rf"(?:(?:each|every)(?:\s+{unit})?|(?:a|the|one)\s+{unit})"
     m = re.search(
         rf"{subject}\s+(?:can\s+|may\s+|will\s+|usually\s+|typically\s+)?"
         rf"(?:takes?|taking|lasts?|runs? for)\s*(?:about|around|roughly|up to)?\s*"

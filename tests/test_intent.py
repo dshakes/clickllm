@@ -184,6 +184,11 @@ WORKLOADS = [
     # A count the sentence itself calls in-flight is not a pile — and the
     # concurrency parser further down was already reading it correctly.
     (Workload.INTERACTIVE, "process 1000 concurrent requests under 200ms"),
+    # A trailing mode ADVERB governs; a trailing mode NOUN does not, because
+    # it is a preposition's object or an appended label and modifies nothing.
+    (Workload.INTERACTIVE, "score 5000 accounts interactively"),
+    (Workload.BATCH, "score 4 million support tickets with copilot"),
+    (Workload.BATCH, "score 4 million support tickets realtime"),
     # Ordinary backlog wording the verb and noun lists had missed.
     (Workload.BATCH, "review 2 million invoices"),
     (Workload.BATCH, "analyze 2 million invoices"),
@@ -348,6 +353,10 @@ CONCURRENCY = [
     ("chat API at 120 requests per minute, each can take 30 seconds", 60, True),
     ("10 qps, each request takes 2 seconds", 20, True),
     ("100 rps with 500ms per request", 50, True),
+    # The service-time units match the rate units; two lists of the same
+    # things had drifted, so "events" and "messages" derived nothing.
+    ("100 events/sec, each event takes 1 second", 100, True),
+    ("100 messages per second, each message takes 1 second", 100, True),
     # The subject is required. Optional, it matched "first token takes 2
     # seconds" — the exact figure this must not use as time-in-system.
     ("100 rps, first token takes 2 seconds", 4, False),
