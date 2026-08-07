@@ -49,7 +49,12 @@ def test_mixed_cards_are_summed_and_the_smallest_is_named(tmp_path, monkeypatch)
     fake_smi(tmp_path, monkeypatch, json.dumps(mixed))
     hw = hardware._detect_amd()
     assert hw.total_bytes == 206158430208 + 68719476736
-    assert "MIXED" in hw.note and "bounded by the smallest" in hw.note
+    assert "MIXED" in hw.note
+    # The arithmetic has to agree with the note. Summed, usable/devices was
+    # ~115 GiB per card and the planner picked shards the 64 GiB card cannot
+    # hold — tensor parallelism shards evenly, so the smallest binds.
+    assert hw.usable_bytes == int(68719476736 * 2 * 0.90)
+    assert hw.usable_bytes // hw.devices <= 68719476736
 
 
 @pytest.mark.parametrize(

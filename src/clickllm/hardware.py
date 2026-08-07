@@ -187,16 +187,23 @@ def _detect_nvidia() -> Hardware | None:
         name=name,
         total_bytes=total,
         # Engines reserve headroom; vLLM's default gpu-memory-utilization is 0.90.
-        usable_bytes=int(total * 0.90),
+        #
+        # On a MIXED rig the usable figure is the smallest card times the count,
+        # not the sum. Tensor parallelism shards evenly, so a model is bounded
+        # by the smallest device — the note said exactly that while the
+        # arithmetic summed anyway, and downstream planning divides usable by
+        # `devices` to size a shard. A 192+64 GiB pair reported ~115 GiB per
+        # device and picked shards the 64 GiB card cannot hold.
+        usable_bytes=int((smallest * len(gpus) if mixed else total) * 0.90),
         bandwidth_gbps=None,
         cores=0,
         devices=len(gpus),
         note="assumes gpu-memory-utilization=0.90"
         + (f"; {len(gpus)}× {name} — tensor parallelism required" if len(gpus) > 1 else "")
         + (
-            f"; MIXED cards ({', '.join(sorted(set(names)))}) — a sharded model is "
-            f"bounded by the smallest at {smallest / 1024**3:.0f} GiB, not by the "
-            f"aggregate"
+            f"; MIXED cards ({', '.join(sorted(set(names)))}) — usable is the smallest "
+            f"at {smallest / 1024**3:.0f} GiB × {len(gpus)}, not the "
+            f"{total / 1024**3:.0f} GiB aggregate — tensor parallelism shards evenly"
             if mixed
             else ""
         ),
@@ -288,16 +295,17 @@ def _detect_amd() -> Hardware | None:
         kind="amd",
         name=name,
         total_bytes=total_bytes,
-        # Same reservation as the NVIDIA path: vLLM's default on ROCm too.
-        usable_bytes=int(total_bytes * 0.90),
+        # Same reservation as the NVIDIA path, and the same mixed-rig rule:
+        # what a sharded model can use is the smallest card times the count.
+        usable_bytes=int((min(sizes) * len(sizes) if mixed else total_bytes) * 0.90),
         bandwidth_gbps=None,
         cores=0,
         devices=len(sizes),
         note="assumes gpu-memory-utilization=0.90"
         + (f"; {len(sizes)}× {name} — tensor parallelism required" if len(sizes) > 1 else "")
         + (
-            f"; MIXED cards ({', '.join(sorted(set(names)))}) — a sharded model is "
-            f"bounded by the smallest at {min(sizes) / 1024**3:.0f} GiB"
+            f"; MIXED cards ({', '.join(sorted(set(names)))}) — usable is the smallest "
+            f"at {min(sizes) / 1024**3:.0f} GiB × {len(sizes)}, not the aggregate"
             if mixed
             else ""
         ),
