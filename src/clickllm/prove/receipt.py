@@ -202,6 +202,25 @@ class Receipt:
     tool_version: str = ""
     format: str = FORMAT
 
+    def __post_init__(self) -> None:
+        """Refuse a receipt whose bar is not a threshold, however it arrived.
+
+        Guarding `issue()` covered the receipts this tool writes. It did not
+        cover the ones it *reads*: `from_json` is the disk-ingest path behind
+        `clickllm receipt`, `clickllm guard` and the box, and a file with
+        `bar: 0.0` and a perfectly valid digest parsed and rendered "Proven at
+        or above the 0% bar" with `movable_share == 1.0`.
+
+        The digest is no help here — it is computed over that content, so a
+        receipt claiming a degenerate bar is internally consistent. Tamper
+        detection answers "was this altered", not "was this ever true".
+
+        On the type, so construction and parsing share it. This is the third
+        place the same rule needed to be, and the last one that is not a route
+        into another: `Matrix` for the report, `Receipt` for the artifact.
+        """
+        check_bar(self.bar)
+
     # --- the claim ------------------------------------------------------------
 
     @property
@@ -349,8 +368,10 @@ def issue(
             builds one — so a receipt, the portable proof artifact, was
             issuable at `bar=0.0` and rendered "Proven at or above the 0% bar"
             over a 41/80 regression while `Matrix` refused the same value.
+            Enforced by `Receipt.__post_init__`, which this constructs — so it
+            is not repeated here, where it would be the unreachable half of a
+            pair.
     """
-    check_bar(bar)
     proven, regret, unproven = [], [], []
     for s in report.clusters:
         claim = Claim.of(s, bar)

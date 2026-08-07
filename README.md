@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1522-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1525-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -558,14 +558,17 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1295 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1298 Python
 ```
 
-**1,522 tests.** 1295 Python, 227 Rust. Ten of the Python tests skip on a bare
-machine: eight exercise the PyO3 bridge (`maturin develop` in `clickllm-py/`
-turns them on), and two ask vLLM and SGLang for their own flags, which needs
-those engines installed. CI runs both inside the engines' published images, so
-neither skip reaches a green tick unasked. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
+**1,525 tests.** 1298 Python, 227 Rust. Nineteen of the Python tests skip on a
+bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
+develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
+own flags, which needs those engines installed. CI runs both inside the engines'
+published images, so neither skip reaches a green tick unasked. The other nine
+are the mutation harness reporting honestly that it had nothing to do — eight
+modules declare no numeric constant to perturb, and one demo does not pass
+unperturbed here, so a surviving mutant would prove nothing either way. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
 **Every engine flag is verified against published docs, never recalled.** That
 rule exists because breaking it shipped a bug: `--guided-decoding-backend` had

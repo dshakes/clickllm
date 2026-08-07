@@ -361,6 +361,12 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                     "context": {"type": "integer"},
                     "ttft_ms": {"type": "integer"},
                     "itl_ms": {"type": "integer"},
+                    # Accepted by `_apply_fields` and, until this PR, broken on
+                    # arrival. Advertised now so a schema-driven agent can find
+                    # it rather than learning it exists from an error message
+                    # listing the known fields — which is how it was being
+                    # discovered, and how the broken call was being made.
+                    "workload": {"enum": ["interactive", "realtime", "batch"]},
                     "prefix_sharing": {"type": "number", "minimum": 0, "maximum": 1},
                 },
             },

@@ -157,3 +157,44 @@ def test_the_mcp_schema_advertises_the_bounds_the_code_enforces():
     assert bar.get("exclusiveMinimum") == 0
     assert bar.get("exclusiveMaximum") == 1
     assert "minimum" not in bar and "maximum" not in bar
+
+
+def test_a_receipt_read_from_disk_with_a_degenerate_bar_is_refused():
+    # `issue()` covers the receipts this tool writes. `from_json` is what it
+    # *reads* — the ingest path behind `clickllm receipt`, `clickllm guard` and
+    # the box — and a file with `bar: 0.0` and a perfectly valid digest parsed
+    # and rendered "Proven at or above the 0% bar" with movable_share 1.0.
+    #
+    # The digest is no help: it is computed over that content, so such a
+    # receipt is internally consistent. Tamper detection answers "was this
+    # altered", not "was this ever true".
+    import json as _json
+
+    from clickllm.prove import Receipt, issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["bar"] = 0.0
+    with pytest.raises(ValueError, match="equivalence bar"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+def test_an_honest_receipt_still_round_trips():
+    from clickllm.prove import Receipt, issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    assert Receipt.from_json(good.to_json()) == good
+
+
+def test_the_build_schema_advertises_the_workload_it_now_accepts():
+    # It was accepted by the code and absent from the schema, so a schema-driven
+    # agent could only discover it from the error message that lists the known
+    # fields — which is exactly how the broken call was being made.
+    from clickllm.mcp import TOOLS
+
+    _, schema = TOOLS["clickllm_build"]
+    workload = schema["inputSchema"]["properties"].get("workload")
+    assert workload, "clickllm_build must advertise workload"
+    assert set(workload["enum"]) == {"interactive", "realtime", "batch"}
