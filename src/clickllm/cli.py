@@ -1081,7 +1081,19 @@ def cmd_receipt(args: argparse.Namespace) -> int:
     ok, diffs = verify(r, other)
     print()
     if ok:
-        print(f"verified · both receipts agree · {r.digest()[:12]}")
+        if r.digest() == other.digest():
+            print(f"verified · both receipts agree · {r.digest()[:12]}")
+        else:
+            # `verify` compares evidence, not identity — a rerun carries a
+            # later date and often a newer build. Saying "both receipts agree"
+            # over one digest invites the reader to check it against the other
+            # file, find a different string, and distrust the verification.
+            # Name what actually matched, and show both.
+            print(
+                f"verified · the evidence agrees · {r.issued} {r.digest()[:12]} "
+                f"vs {other.issued} {other.digest()[:12]} "
+                f"(the receipts differ in when they were issued, not in what they claim)"
+            )
         print()
         return 0
     print(f"DOES NOT VERIFY · {r.digest()[:12]} vs {other.digest()[:12]}")
