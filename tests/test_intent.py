@@ -153,6 +153,11 @@ WORKLOADS = [
     (Workload.REALTIME, "realtime classification API for 5000 accounts under 200ms"),
     # ...and the table still checks BATCH first, so this stays batch.
     (Workload.BATCH, "score 4 million support tickets overnight, real-time dashboards after"),
+    # ...and without "overnight" to fall back on. The realtime phrase is a
+    # different clause about a different thing; it governs a verb only when it
+    # is right in front of one.
+    (Workload.BATCH, "score 4 million support tickets, realtime dashboard after"),
+    (Workload.REALTIME, "voice bot scoring 5000 calls under 200ms"),
     (Workload.INTERACTIVE, "handle 2 million messages per second"),
     # Items named by an interactive-sounding word are still items.
     (Workload.BATCH, "score 4 million chat transcripts"),

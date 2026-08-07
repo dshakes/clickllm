@@ -342,6 +342,23 @@ _VOLUME = (
 #: several words from the numeral ("for about 2 million"), lookbehinds must be
 #: fixed-width, and enumerating "for about "/"across our "/… as fixed widths is
 #: how the previous spelling missed all three phrasings the reviewer sent.
+#: Needles with no inflection worth catching, so they anchor at both ends. RAG
+#: is an acronym — there is no "rags" to match — and leaving its end open made
+#: "ragged prompts" and "ragtime" claim retrieval, the same false positive one
+#: word further along than the one this anchoring fixed.
+_EXACT = frozenset({"rag", "phone"})
+
+#: How far a realtime word reaches forward to govern a verb: "voice scoring",
+#: "real-time scoring", "voice bot scoring". Two words, not the sentence.
+_GOVERNS = 12
+
+_REALTIME_PHRASE = re.compile(
+    "|".join(
+        rf"\b{re.escape(w)}\b" if w in _EXACT else rf"\b{re.escape(w)}"
+        for w in _WORKLOAD_SIGNALS[1][1]
+    )
+)
+
 _SERVED_AUDIENCE = re.compile(
     rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+{_MAGNITUDE}"
     rf"(?:\s+\w+){{0,3}}\s+{_AUDIENCE}\b"
@@ -389,12 +406,6 @@ _BULK_VOLUME = re.compile(
     # the rate test the other two branches get from _VOLUME.
     rf"|\b{_MAGNITUDE}\b{_ADJECTIVES}\s+{_BACKLOG_NOUN}\b(?!{_PER})"
 )
-
-#: Needles with no inflection worth catching, so they anchor at both ends. RAG
-#: is an acronym — there is no "rags" to match — and leaving its end open made
-#: "ragged prompts" and "ragtime" claim retrieval, the same false positive one
-#: word further along than the one this anchoring fixed.
-_EXACT = frozenset({"rag", "phone"})
 
 
 def _find(text: str, needles: tuple[str, ...]) -> str | None:
@@ -640,10 +651,14 @@ def read(text: str) -> Intent:
     # This only disables _BULK_VOLUME. The signal table still checks BATCH
     # first, so "score 4 million tickets overnight, real-time dashboards after"
     # is still batch on "overnight".
-    if _find(low, _WORKLOAD_SIGNALS[1][1]) is not None:
-        served = [(0, len(low))]
-    else:
-        served = [m.span() for m in _SERVED_AUDIENCE.finditer(low)]
+    served = [m.span() for m in _SERVED_AUDIENCE.finditer(low)]
+    # A realtime word suppresses the bulk match only when it GOVERNS it —
+    # immediately before the verb, as in "voice scoring 5000 calls". Applied to
+    # the whole sentence it also caught "score 4 million tickets, realtime
+    # dashboard after", where the realtime phrase is a different clause about a
+    # different thing. Same scoping mistake as the sentence-wide served-audience
+    # guard two commits ago, so the same fix: a span, not a flag.
+    served += [(rt.start(), rt.end() + _GOVERNS) for rt in _REALTIME_PHRASE.finditer(low)]
     bulk = next(
         (
             m
