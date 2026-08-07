@@ -176,6 +176,13 @@ def _check_weights(pairs: list[tuple[Interval, float]]) -> None:
     raises on an impossible count rather than coercing it; the same posture
     belongs on an impossible weight.
     """
+    # Non-finite first, because NaN slips through both comparisons: `w < 0` is
+    # False so it is not caught as impossible, and `w > 0` is False so it is
+    # dropped — silently, which is the behaviour this guard exists to stop.
+    # `inf` passes both and poisons the weighted sum to NaN instead.
+    unusable = [w for _, w in pairs if not math.isfinite(w)]
+    if unusable:
+        raise ValueError(f"traffic share must be a finite number, got {unusable}")
     bad = [w for _, w in pairs if w < 0]
     if bad:
         raise ValueError(f"traffic share cannot be negative, got {bad}")

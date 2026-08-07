@@ -338,3 +338,16 @@ def test_a_family_too_large_to_correct_refuses_with_its_own_numbers():
 def test_the_families_anyone_would_actually_pass_still_compute():
     for m in (1, 12, 1000, 10**6):
         assert family_wise_z(m) > 0
+
+
+@pytest.mark.parametrize("share", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_traffic_share_is_refused(share):
+    # NaN slips through both comparisons: `w < 0` is False so the negative
+    # guard misses it, and `w > 0` is False so the filter drops it — silently,
+    # which is exactly what that guard exists to stop. `inf` passes both and
+    # turns the weighted sum into NaN. Neither is a traffic share.
+    pairs = [(wilson(9, 10), share), (wilson(5, 10), 1.0)]
+    with pytest.raises(ValueError):
+        weighted_point(pairs)
+    with pytest.raises(ValueError):
+        weighted_posterior(pairs)
