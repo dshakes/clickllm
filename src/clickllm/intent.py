@@ -461,8 +461,8 @@ def _people(text: str) -> tuple[int, str] | None:
     )
     if not m:
         return None
-    n = int(m.group(1).replace(",", ""))
-    if n > _SANE_MAX:  # before the divide: 10**300 / 5 raises OverflowError
+    n = _digits(m.group(1))
+    if n is None:
         return None
     whole = _whole(n / 5)
     return (whole, m.group(0)) if whole else None
@@ -473,6 +473,19 @@ def _people(text: str) -> tuple[int, str] | None:
 #: are better as the question than as a claim. It also keeps arbitrary-precision
 #: integers away from float arithmetic: `10**300 / 5` raises OverflowError.
 _SANE_MAX = 10**9
+
+
+def _digits(raw: str) -> int | None:
+    """A captured digit string as an int, or None when it is not usable.
+
+    Python 3.11 caps int() at 4300 digits (the CVE-2020-10735 mitigation), so a
+    long enough run of digits in a prompt raises ValueError before any bound
+    can look at the value — `int()` is not the safe conversion I had been
+    treating it as. A string longer than _SANE_MAX is out of range by
+    definition, so one length check answers both questions without converting.
+    """
+    clean = raw.replace(",", "")
+    return None if len(clean) > len(str(_SANE_MAX)) else int(clean)
 
 
 def _whole(n: float | int) -> int | None:
@@ -505,7 +518,8 @@ def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     )
     if not m:
         return None
-    whole = _whole(int(m.group(1).replace(",", "")))
+    n = _digits(m.group(1))
+    whole = _whole(n) if n is not None else None
     return (whole, m.group(0)) if whole else None
 
 

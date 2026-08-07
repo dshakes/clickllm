@@ -13,7 +13,7 @@ import pathlib
 
 import pytest
 
-from clickllm.intent import _SANE_MAX, _whole, read
+from clickllm.intent import _SANE_MAX, _digits, _whole, read
 from clickllm.plan import Workload
 
 
@@ -376,6 +376,13 @@ def test_a_number_no_float_can_hold_returns_an_intent_rather_than_raising(text):
         "9" * 300 + " concurrent",
         "9" * 400 + " qps, each request takes 1 second",
         "9" * 300 + " billion qps, each request takes 1 second",
+        # Python 3.11 caps int() at 4300 digits, so int() is not the safe
+        # conversion I had been treating it as — these raise ValueError before
+        # any bound can look at the value.
+        "9" * 5000 + " users",
+        "9" * 5000 + " concurrent",
+        "9" * 5000 + " requests per second",
+        "chat for " + "9" * 5000 + " people",
     ],
 )
 def test_no_number_can_make_read_raise(text):
@@ -433,3 +440,17 @@ def test_every_rounding_in_this_module_goes_through_the_one_guarded_helper():
 )
 def test_the_one_conversion_helper(value, want):
     assert _whole(value) == want
+
+
+@pytest.mark.parametrize(
+    ("raw", "want"),
+    [
+        ("9" * 5000, None),  # past Python 3.11's 4300-digit int() limit
+        ("9" * 11, None),  # past _SANE_MAX, so out of range anyway
+        ("4,000", 4000),
+        ("900000000", 900000000),
+        ("0", 0),
+    ],
+)
+def test_the_digit_string_conversion(raw, want):
+    assert _digits(raw) == want
