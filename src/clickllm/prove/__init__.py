@@ -185,6 +185,17 @@ def _merge(a: ItemResult, b: ItemResult) -> ItemResult:
     return ItemResult(item_id=a.item_id, cluster=a.cluster, scores=a.scores + b.scores)
 
 
+def _uncovered(shares: dict[str, float], covered) -> set[str]:
+    """Clusters holding real traffic that the eval set produced no items for.
+
+    Positive shares only, and one definition for both callers: `run()` decides
+    what to synthesise from it and `suite()` decides whether a capture count
+    can be defaulted from it, and those two disagreeing is the kind of split
+    that this module has already been bitten by.
+    """
+    return {k for k, share in shares.items() if share > 0 and k not in covered}
+
+
 def run(
     items: list[EvalItem],
     *,
@@ -219,7 +230,10 @@ def run(
     Returns:
         A :class:`~.equivalence.Matrix`. Clusters present in ``items`` but absent
         from ``shares`` are scored at share 0 — they appear in the report and
-        cannot move traffic, which beats dropping them silently.
+        cannot move traffic, which beats dropping them silently. The mirror case
+        is handled the same way: a cluster named in ``shares`` that the eval set
+        never covered is scored as unknown, so traffic nobody measured is
+        visible as a gap rather than quietly excluded from the denominator.
 
     Raises:
         ValueError: if ``items`` is empty, or ``judge`` is given without
@@ -264,6 +278,23 @@ def run(
         )
         for key, results in sorted(by_cluster.items())
     ]
+    # A cluster the eval set never covered is a coverage gap, and this module
+    # discloses the other two rather than dropping them: items outside `shares`
+    # are kept at share 0, items with no applicable grader are counted in
+    # `ungraded`. A cluster named in `shares` with no items at all used to be
+    # the exception — absent entirely, so `movable_share` was a fraction of
+    # traffic the report silently redefined to exclude it. Scored as unknown
+    # instead, which is what it is: it lands in `unproven` and cannot move
+    # anything.
+    # Positive shares only. A cluster at share 0 holds no traffic, so having no
+    # items for it is not a gap in coverage — synthesising one would put a
+    # `deprecated: 0.0` entry into `unproven`, flip `complete` to False, and
+    # report unmeasured traffic where there is none to measure.
+    scores += [
+        score_cluster(key, names.get(key, key), shares[key], [])
+        for key in sorted(_uncovered(shares, by_cluster))
+    ]
+    scores.sort(key=lambda c: c.cluster)  # one order, however a cluster got here
     report = CandidateReport(model=candidate, clusters=tuple(scores), monthly_cost=monthly_cost)
     return Matrix(
         candidates=[report],
@@ -343,10 +374,33 @@ def suite(
     )
     best = matrix.best()
     if best is None:
+        # `best()` is None for two unrelated reasons and this said only the
+        # first, sending anyone with the second to the wrong subsystem: a
+        # candidate answering perfectly was reported as "every item was
+        # ungraded, supply a judge".
+        scored = sorted({c.cluster for cand in matrix.candidates for c in cand.clusters if c.known})
+        if not scored:
+            raise ValueError(
+                "no cluster could be scored — every item was ungraded. "
+                "Supply a judge, or check that the candidate produced output at all."
+            )
         raise ValueError(
-            "no cluster could be scored — every item was ungraded. "
-            "Supply a judge, or check that the candidate produced output at all."
+            f"nothing can be weighted: every scored cluster has zero traffic "
+            f"share. Scored {', '.join(scored)}; `shares` names "
+            f"{', '.join(sorted(shares)) or 'nothing'}. The eval set and the "
+            f"share map describe different clusters."
         )
+    # `len(items)` stands in for the capture count, and it stops standing for
+    # anything once `shares` names traffic the eval set never covered: every
+    # item comes from the clusters that *were* covered, so "drawn from 45
+    # captured requests" would attribute the whole traffic distribution to a
+    # sample that never saw part of it. The receipt is the proof artifact, and
+    # fabricated provenance in it is worse than none — so the default is
+    # withheld and the line simply does not print. An explicit
+    # `traffic_captures` is still honoured: the caller knows the real number
+    # and this cannot second-guess it.
+    uncovered = _uncovered(shares, {i.cluster for i in items})
+    captures = traffic_captures or (0 if uncovered else len(items))
     return SuiteResult(
         matrix=matrix,
         receipt=issue(
@@ -357,7 +411,7 @@ def suite(
             bar=bar,
             agreement=agreement,
             calibration=matrix.calibration,
-            traffic_captures=traffic_captures or len(items),
+            traffic_captures=captures,
             traffic_window=traffic_window,
             redacted=redacted,
             fingerprints=fingerprints,
@@ -386,19 +440,31 @@ def demo() -> None:
     assert good.band() == "equivalent", good.render_cell()
     assert bad.band() == "regressed", bad.render_cell()
 
-    # A judge is never consulted for an item the graders already disqualified:
-    # this one would raise if called, and the run still completes.
-    def exploding_judge(c: Comparison) -> Reply:
-        raise AssertionError("judge called on a structurally failed item")
+    # A judge is never consulted for an item the graders already disqualified.
+    #
+    # Counted, not raised. This used to inject a judge that raised
+    # AssertionError and rely on the run completing — which proved nothing:
+    # `judge_item` catches every exception from the injected callable by
+    # design, so the raise would have been swallowed and turned into UNCERTAIN,
+    # which scores NOT_APPLICABLE and is excluded from the conjunctive `passed`.
+    # These items already fail deterministically, so the band read "regressed"
+    # whether or not the judge ran. Deleting the guard in `_judged` left this
+    # check green.
+    consulted: list[Comparison] = []
+
+    def spy(c: Comparison) -> Reply:
+        consulted.append(c)
+        return Reply("A")
 
     only_bad = [i for i in items if i.cluster == "rare-json"]
     m2 = run(
         only_bad,
         shares={"rare-json": 1.0},
-        judge=exploding_judge,
+        judge=spy,
         judge_model="claude-opus-5",
         agreement=Agreement(agreed=19, total=20, model="claude-opus-5"),
     )
+    assert not consulted, f"judge consulted on {len(consulted)} disqualified item(s)"
     assert m2.candidates[0].clusters[0].band() == "regressed"
 
     # An anonymous judge is refused: an undisclosed judge is an unauditable score.

@@ -183,8 +183,14 @@ def test_a_cluster_that_vanished_between_runs_is_reported():
 
 def test_differing_digests_never_report_zero_discrepancies():
     # "It does not verify, and I cannot tell you why" is a bug, not an answer.
-    a = receipt(cs("e", 118, 120))
-    b = receipt(cs("e", 118, 120), tool_version="0.2.0")
+    #
+    # The trigger used to be `tool_version`, which is no longer evidentiary —
+    # a rerun from a newer build reproducing the same numbers is a
+    # reproduction. `traffic_captures` still is: drawing the eval set from a
+    # different amount of traffic is different evidence. It is not itemised in
+    # `verify`, so it still reaches the generic fallback this guards.
+    a = receipt(cs("e", 118, 120), traffic_captures=12_400)
+    b = receipt(cs("e", 118, 120), traffic_captures=900)
     ok, diffs = verify(a, b)
     assert not ok and diffs, "a failed verify must always explain itself"
 
@@ -316,3 +322,70 @@ def test_an_intact_receipt_still_round_trips():
         unproven=(),
     )
     assert Receipt.from_json(real.to_json()).proven[0].passed == 95
+
+
+# --- reproduction ---------------------------------------------------------------
+
+
+def test_a_rerun_on_a_later_date_still_verifies():
+    # The one case this feature exists for, and the one it failed. `digest()`
+    # covers `issued` (correctly — editing the date is tampering), and `verify`
+    # used to compare full digests, so reproducing identical evidence a month
+    # later reported DOES NOT VERIFY with the opaque "content differs outside
+    # the compared fields" — indistinguishable from a real regression.
+    clusters = (cs("extract", 118, 120, 0.6), cs("long", 41, 80, 0.4))
+    ok, diffs = verify(
+        receipt(*clusters, issued="2026-07-27"),
+        receipt(*clusters, issued="2026-08-24"),
+    )
+    assert ok, [d.render() for d in diffs]
+
+
+def test_a_rerun_from_a_newer_build_still_verifies():
+    clusters = (cs("extract", 118, 120, 1.0),)
+    ok, _ = verify(
+        receipt(*clusters, issued="2026-07-27", tool_version="0.9.0"),
+        receipt(*clusters, issued="2026-08-24", tool_version="1.0.0"),
+    )
+    assert ok
+
+
+def test_the_date_is_still_part_of_the_tamper_digest():
+    # Excluding `issued` from the *reproduction* check must not excuse it from
+    # the content address. Editing a receipt's date is still tampering.
+    clusters = (cs("extract", 118, 120, 1.0),)
+    a = receipt(*clusters, issued="2026-07-27")
+    b = receipt(*clusters, issued="2026-08-24")
+    assert a.digest() != b.digest()
+
+
+def test_a_real_regression_still_fails_and_is_named():
+    # The property the loosening must not cost: same date, different numbers.
+    ok, diffs = verify(
+        receipt(cs("extract", 118, 120, 1.0), issued="2026-07-27"),
+        receipt(cs("extract", 85, 120, 1.0), issued="2026-08-24"),
+    )
+    assert not ok
+    assert any("extract" in d.what for d in diffs), [d.render() for d in diffs]
+    assert not any("outside the compared fields" in d.found for d in diffs), (
+        "a named discrepancy must not fall through to the generic message"
+    )
+
+
+def test_a_swapped_eval_set_still_fails_even_on_the_same_date():
+    ok, diffs = verify(
+        receipt(cs("extract", 118, 120, 1.0), eval_set="a" * 64),
+        receipt(cs("extract", 118, 120, 1.0), eval_set="b" * 64),
+    )
+    assert not ok
+    assert any(d.what == "eval set" for d in diffs)
+
+
+def test_a_claim_with_nothing_graded_still_discloses_what_was_merged():
+    # `render()` returned a bare "?" before reaching the duplicates check, so a
+    # cluster whose every item was duplicate-merged and then ungraded dropped
+    # the one disclosure explaining why the denominator is nothing.
+    assert Claim("c", "c", 0.1, 0, 0, 0.0, 0.0, duplicates=3).render() == (
+        "? (3 duplicate prompt(s) merged)"
+    )
+    assert Claim("c", "c", 0.1, 0, 0, 0.0, 0.0).render() == "?"
