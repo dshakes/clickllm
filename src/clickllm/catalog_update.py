@@ -74,6 +74,22 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
             produce a confident, wrong memory figure — the failure mode this whole
             module exists to remove.
     """
+    # `json.loads` succeeds on `null`, `[]`, `3` and `"text"` as readily as on an
+    # object, and every field read below starts with `cfg.get(...)`. Without this
+    # the first one raises `AttributeError`, which is not a `ConfigError` — and
+    # `propose()` catches only `ConfigError`, so a single such response escaped
+    # the list comprehension in `cmd_catalog`, skipped every model after it, and
+    # reached the user as a traceback. The convention is a sentence and exit 2.
+    #
+    # Here rather than at any one caller: `cli.py` and `watch.py` also call this
+    # with a freshly-parsed body, and all three already handle `ConfigError`
+    # specifically, so this reaches them as the sentence they know how to print.
+    if not isinstance(cfg, dict):
+        raise ConfigError(
+            f"config is not a JSON object, got {type(cfg).__name__} — "
+            "the URL returned something other than a model config"
+        )
+
     layers = _first_int(cfg, "num_hidden_layers", "n_layer", "num_layers")
     if layers is None:
         raise ConfigError("no layer count in config (num_hidden_layers)")
@@ -154,6 +170,29 @@ def _first_int(cfg: dict[str, Any], *keys: str) -> int | None:
     return None
 
 
+#: The fields `propose` compares against a published config, and the same list
+#: `FieldChange.significant` reads. It was two hand-written lists, and the field
+#: that appeared in only one of them was `max_context`: a change to it rendered
+#: without the `!` marker and was excluded from `UpdateReport.significant`, so
+#: `clickllm catalog update --apply` never printed "re-run fit before
+#: deploying" — while `fit.max_context()` caps every context figure it prints
+#: at `min(model.max_context, ...)`. A vendor advertising 128k against a config
+#: publishing 32k is an ordinary discrepancy, and it read as cosmetic.
+#:
+#: Every field here moves a solver answer, which is why they share one list. A
+#: label the comparison starts carrying — a licence, a display name — would be
+#: the first entry that does not, and would need `significant` to become a
+#: lookup rather than a membership test.
+SOLVER_FIELDS: tuple[str, ...] = (
+    "layers",
+    "kv_heads",
+    "head_dim",
+    "kv_scheme",
+    "max_context",
+    "kv_lora_rank",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class FieldChange:
     """One catalogue field that the model's own config contradicts."""
@@ -164,8 +203,8 @@ class FieldChange:
 
     @property
     def significant(self) -> bool:
-        """Whether this changes a memory figure rather than a label."""
-        return self.field in {"layers", "kv_heads", "head_dim", "kv_scheme", "kv_lora_rank"}
+        """Whether this moves a number the solver computes with."""
+        return self.field in SOLVER_FIELDS
 
     def render(self) -> str:
         mark = "!" if self.significant else " "
@@ -200,9 +239,7 @@ class Proposal:
             return f"{head} architecture confirmed — now verified"
         lines = [head, *(c.render() for c in self.changes)]
         if self.significant:
-            lines.append(
-                "    ! marks fields that change a memory calculation — re-run fit after applying"
-            )
+            lines.append("    ! marks fields the solver computes with — re-run fit after applying")
         if self.now_verified:
             lines.append("    architecture confirmed — will be marked verified")
         return "\n".join(lines)
@@ -226,15 +263,8 @@ def propose(spec: ModelSpec, repo: str, fetch: Fetcher) -> Proposal:
         p.error = str(e)
         return p
 
-    for name, proposed in (
-        ("layers", arch.layers),
-        ("kv_heads", arch.kv_heads),
-        ("head_dim", arch.head_dim),
-        ("kv_scheme", arch.kv_scheme),
-        ("max_context", arch.max_context),
-        ("kv_lora_rank", arch.kv_lora_rank),
-    ):
-        current = getattr(spec, name)
+    for name in SOLVER_FIELDS:
+        current, proposed = getattr(spec, name), getattr(arch, name)
         if current != proposed:
             p.changes.append(FieldChange(name, current, proposed))
 
@@ -269,7 +299,7 @@ class UpdateReport:
             return f"All {len(self.proposals)} entries confirmed against their published configs."
         summary = (
             f"{len(self.changed)} of {len(self.proposals)} entries would change"
-            f"{f', {len(self.significant)} affecting memory' if self.significant else ''}"
+            f"{f', {len(self.significant)} affecting sizing' if self.significant else ''}"
             f"{f', {len(self.failed)} could not be checked' if self.failed else ''}."
         )
         out.append("")

@@ -588,12 +588,26 @@ def test_mla_is_detected_from_its_rank_not_inferred():
     assert parse_config({**base, "kv_lora_rank": 512}).kv_scheme == "mla"
 
 
-def test_significant_changes_are_the_ones_that_move_memory():
+def test_significant_changes_are_the_ones_the_solver_computes_with():
+    """`max_context` used to be asserted *not* significant here, on the reading
+    that it is a cap rather than a term in the KV formula.
+
+    That is true and it does not matter: `fit.max_context()` returns
+    `min(model.max_context, ...)`, so a catalogue entry stale at 131072 against
+    a config publishing 32768 answers "largest context that fits" with 88497
+    instead of 32768 — measured, on an M4 Max at q8 and concurrency 8. The
+    change rendered without the `!` marker and was excluded from the "re-run fit
+    before deploying" line, which is the one line that would have caught it.
+
+    So the set is "what the solver computes with", not "what appears in the
+    memory formula", and this test moved with it.
+    """
     from clickllm.catalog_update import FieldChange
 
     assert FieldChange("kv_heads", 8, 4).significant
     assert FieldChange("kv_scheme", "gqa", "mla").significant
-    assert not FieldChange("max_context", 1, 2).significant
+    assert FieldChange("max_context", 131072, 32768).significant
+    assert not FieldChange("license", "MIT", "Apache-2.0").significant
 
 
 def test_module_import_opens_no_socket():
