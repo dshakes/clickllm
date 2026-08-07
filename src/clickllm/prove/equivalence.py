@@ -311,10 +311,21 @@ class Matrix:
                     out.append(f"  {c.name}  ({c.share * 100:.0f}% of traffic)  {c.render_cell()}")
                 out.append("")
 
-        clusters = self.candidates[0].clusters
-        head = f"{'':<22}" + "".join(f"{c.name[:16]:>18}" for c in clusters)
+        # The header only needs cluster names and traffic shares, which every
+        # candidate carries identically, so the first candidate is fine for it.
+        header_clusters = self.candidates[0].clusters
+        # The disclosures below are not. `ungraded` depends on the candidate's
+        # own output — ToolArgs returns NOT_APPLICABLE when the candidate made
+        # no tool calls — so ungraded, interval.total and therefore
+        # `underpowered` genuinely differ per candidate. Reporting the first
+        # candidate's excluded items next to a recommendation to migrate to a
+        # different one attributes a real measurement to the wrong model.
+        disclosed = (best or self.candidates[0]).clusters
+        head = f"{'':<22}" + "".join(f"{c.name[:16]:>18}" for c in header_clusters)
         out.append(head)
-        out.append(f"{'':<22}" + "".join(f"{f'({c.share * 100:.0f}%)':>18}" for c in clusters))
+        out.append(
+            f"{'':<22}" + "".join(f"{f'({c.share * 100:.0f}%)':>18}" for c in header_clusters)
+        )
         out.append("-" * len(head))
         for cand in self.candidates:
             row = f"{cand.model[:20]:<22}"
@@ -344,7 +355,8 @@ class Matrix:
             out.append(row)
         out.append("-" * len(head))
         out.append(
-            f"{self.incumbent + ' (incumbent)':<22}" + "".join(f"{'100%':>18}" for _ in clusters)
+            f"{self.incumbent + ' (incumbent)':<22}"
+            + "".join(f"{'100%':>18}" for _ in header_clusters)
         )
 
         out += self._render_statistics(best)
@@ -368,11 +380,11 @@ class Matrix:
         if self.calibration is not None:
             out.append(self.calibration.render())
 
-        thin = [c for c in clusters if c.interval.underpowered]
+        thin = [c for c in disclosed if c.interval.underpowered]
         if thin:
             names = ", ".join(c.name for c in thin)
             out.append(f"⚠ underpowered clusters (too few samples to conclude): {names}")
-        ung = sum(c.ungraded for c in clusters)
+        ung = sum(c.ungraded for c in disclosed)
         if ung:
             out.append(
                 f"⚠ {ung} items had no applicable grader and are excluded, not counted as passes"
@@ -380,7 +392,7 @@ class Matrix:
         # Collapsing silently would be its own defect: the reader sees a
         # denominator smaller than the file they wrote and has no way to know
         # why, and the eval set stays wrong because nothing told them.
-        dup = [c for c in clusters if c.duplicates]
+        dup = [c for c in disclosed if c.duplicates]
         if dup:
             total = sum(c.duplicates for c in dup)
             detail = ", ".join(f"{c.name} ({c.duplicates})" for c in dup)
