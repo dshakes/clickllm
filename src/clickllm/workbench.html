@@ -271,7 +271,17 @@ async function whereTurn(model, turn) {
           <td class="n">${p.aggregate_tokens_per_sec ?? '—'}</td>
           <td class="n">${p.hourly_usd ? '$' + p.hourly_usd.toFixed(2) : '—'}</td>
           <td class="n ${cheapest && p.id === cheapest.id ? 'cy' : ''}">${p.usd_per_mtok ? '$' + p.usd_per_mtok : '—'}</td>
-        </tr>`).join('')}</table>`
+        </tr>`).join('')}</table>
+        ${(() => {
+          // The API carries `moe_batch_optimism`; rendering the cost column
+          // without it puts the optimistic end of a band in front of someone
+          // who never asked for the arithmetic. This table also RANKS by it.
+          const s = Math.max(...ok.map(p => p.moe_batch_optimism || 1));
+          return s > 1 ? `<div class="say">MoE: the weight read is held at the
+            active-parameter count, exact only at batch 1. agg tok/s and $/Mtok
+            above are the optimistic end of a band up to <b>${s.toFixed(1)}x</b>
+            wide at this concurrency.</div>` : '';
+        })()}`
         : `<div class="say bad">Nothing in the hardware catalogue can serve this at that shape.</div>`}
         <div class="why">~tok/s is one stream. $/Mtok is $/hr &divide; agg tok/s, the batched total at
           this concurrency &mdash; both roofline estimates, and both assume the machine stays busy.</div>

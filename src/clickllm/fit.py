@@ -13,6 +13,8 @@ from .catalog import QUANT_BITS, ModelSpec
 from .hardware import Hardware
 
 GB = 1024**3
+MB = 1024**2
+KB = 1024
 
 # Non-weight, non-KV memory: activations, workspace, allocator fragmentation.
 # Scales with model size plus a fixed runtime floor.
@@ -84,6 +86,18 @@ class Fit:
         An estimate, like everything else here: it ignores prefill, scheduler
         overhead and compute-bound regimes at very large batch, all of which make
         the true number lower. Named `roofline` wherever it is printed.
+
+        **For MoE, `weight_read` is the optimistic end of a range.** It is held
+        at `active_b` for every batch size, which is exact only at B=1: each
+        sequence routes to its own top-k experts, so the number of *distinct*
+        experts touched in one forward pass grows with B and saturates toward
+        the full set. The true read is somewhere in
+        `[active_b, min(total_b, B * active_b)]`, and this takes the low end —
+        which makes the aggregate figure high and `$/Mtok` low, the direction
+        that flatters self-hosting. Both bounds are arithmetic; the curve
+        between them depends on the router and the traffic, so it is disclosed
+        rather than guessed at. `moe_batch_optimism` reports the spread, and
+        `explain()` prints it. Measuring is the upgrade path, not a constant.
         """
         if self.effective_bw is None or self.concurrency < 1:
             return None
@@ -92,6 +106,26 @@ class Fit:
             return None
         kv_read = self.model.kv_bytes_per_token() * self.context
         return (self.concurrency * self.effective_bw) / (weight_read + self.concurrency * kv_read)
+
+    @property
+    def moe_batch_optimism(self) -> float | None:
+        """How much the aggregate figure could be overstating an MoE at this batch.
+
+        The ratio of the pessimistic weight read to the optimistic one that
+        `aggregate_tokens_per_sec` actually uses. `1.0` means the two agree and
+        the number carries no MoE routing risk — true for every dense model,
+        and for MoE at concurrency 1. `None` when there is nothing to say.
+
+        Not a correction factor. It is the width of the band the real answer
+        sits in, so a reader can tell a figure that is solid from one that is
+        the good end of a wide range.
+        """
+        if not self.model.is_moe or self.concurrency < 2:
+            return None
+        active, total = self.model.active_b, self.model.params_b
+        if active <= 0 or total <= active:
+            return None
+        return min(total, self.concurrency * active) / active
 
     @property
     def slow(self) -> bool:
@@ -129,6 +163,17 @@ class Fit:
                 f"  ~{self.tokens_per_sec:.0f} tok/s single-stream"
                 "  (roofline estimate, not measured)",
             ]
+            spread = self.moe_batch_optimism
+            if spread is not None and spread > 1.0:
+                lines += [
+                    f"  ! MoE at batch {self.concurrency}: the weight read above is held at"
+                    f" {m.active_b:g}B, which is exact only at batch 1.",
+                    f"    Sequences route to different experts, so the real read is between"
+                    f" {m.active_b:g}B and {min(m.params_b, self.concurrency * m.active_b):g}B"
+                    f" — up to {spread:.1f}x.",
+                    "    The aggregate throughput and $/Mtok figures take the low end, so"
+                    " they flatter rather than warn.",
+                ]
         if not m.verified:
             lines += ["", "  ! architecture unverified — KV figures are estimates"]
         return "\n".join(lines)
@@ -292,6 +337,19 @@ class Placement:
         return self.fit.tokens_per_sec if self.fit else None
 
     @property
+    def moe_batch_optimism(self) -> float | None:
+        """Carried through from the fit, because this is where the number is read.
+
+        The caveat first landed only in `Fit.explain()`, which is a command
+        someone runs deliberately. `cost_per_mtok_usd` below — and the aggregate
+        throughput it divides — are what `clickllm where`, `clickllm host` and
+        the workbench put in front of people who never ask for the arithmetic. A
+        disclosure attached to the explanation and not to the figure is a
+        disclosure the reader of the figure does not get.
+        """
+        return self.fit.moe_batch_optimism if self.fit else None
+
+    @property
     def cost_per_mtok_usd(self) -> float | None:
         """Rough USD per million output tokens at the requested concurrency.
 
@@ -328,7 +386,21 @@ def _shortfall(n: int) -> str:
         return f"{n / GB:,.0f} GB"
     if n >= GB:
         return f"{n / GB:,.1f} GB"
-    return f"{n / (1024**2):,.0f} MB"
+    if n >= 10 * MB:
+        return f"{n / MB:,.0f} MB"
+    if n >= MB:
+        return f"{n / MB:,.1f} MB"
+    # The MB branch had the same bug one order down: anything under half a
+    # mebibyte rendered "0 MB". That is reachable — a GQA model's KV is a few
+    # hundred KB per token, so a shortfall at small context lands here — and a
+    # refusal short by "0 MB" is the exact sentence this function was written
+    # to delete. Bytes are the floor because a shortfall is a whole number of
+    # them and cannot round to nothing.
+    if n >= 10 * KB:
+        return f"{n / KB:,.0f} KB"
+    if n >= KB:
+        return f"{n / KB:,.1f} KB"
+    return f"{n:,} B"
 
 
 def where(model: ModelSpec, context: int, concurrency: int = 1) -> list[Placement]:

@@ -484,6 +484,16 @@ class HostOption:
                 f"    ~{f.tokens_per_sec:.0f} tok/s   (roofline estimate, not measured)"
                 + (f"   ~{_usd(self.usd_per_mtok, '/Mtok')}" if self.usd_per_mtok else "")
             )
+        # This row is printed beside hosted providers' per-token prices, so a
+        # self-hosting figure that is the optimistic end of a band has to say so
+        # here rather than only in `fit --explain`. That is the comparison the
+        # whole product turns on.
+        spread = self.placement.moe_batch_optimism
+        if spread and spread > 1.0:
+            lines.append(
+                f"    MoE: weight read held at the active count — optimistic end of a"
+                f" band up to {spread:.1f}x wide at this batch"
+            )
         lines.append(f"    cold start: {self.provider.cold_start}")
         if self.provider.free:
             lines += [f"    free tier: {self.provider.free.what}"]
@@ -569,11 +579,28 @@ class Survey:
             "own page; every source URL is in the detail below.",
             "  They move. Re-read the source before committing spend — nothing here "
             "checks it for you.",
-            "  ? = no published rate. $/Mtok assumes the machine is saturated "
-            "single-stream, so real cost is higher.",
+            # "saturated single-stream" described an older `cost_per_mtok_usd`
+            # that divided by one stream's output. It uses aggregate throughput
+            # now, and its own docstring records that "real cost is higher" was
+            # wrong by more in the other direction. The identical sentence was
+            # corrected in `cli.py`'s `where` footer and left standing here —
+            # one fact, two files, fixed in one.
+            "  ? = no published rate. $/Mtok assumes the machine is busy at the "
+            "requested concurrency; idle time is what makes it optimistic.",
             "  Throughput figures are roofline estimates, not measurements.",
-            "",
         ]
+        # This table RANKS providers by $/Mtok, so an MoE figure that is the
+        # optimistic end of a band has to be qualified beside the ranking — not
+        # only in the per-option detail rows printed below it. The ranking is
+        # what someone reads when comparing self-hosting to hosted prices.
+        spread = max((o.placement.moe_batch_optimism or 1.0 for o in self.options), default=1.0)
+        if spread > 1.0:
+            tail.append(
+                f"  MoE: the weight read is held at the active-parameter count, exact "
+                f"only at batch 1, so $/Mtok above is the optimistic end of a band up "
+                f"to {spread:.1f}x wide."
+            )
+        tail.append("")
         return "\n".join(head + tail)
 
 
@@ -1393,6 +1420,11 @@ def to_dict(s: Survey) -> dict:
                 "tokens_per_sec": round(o.fit.tokens_per_sec) if o.fit.tokens_per_sec else None,
                 "usd_per_hour": o.usd_per_hour,
                 "usd_per_mtok": round(o.usd_per_mtok, 2) if o.usd_per_mtok is not None else None,
+                "moe_batch_optimism": (
+                    round(o.placement.moe_batch_optimism, 1)
+                    if o.placement.moe_batch_optimism
+                    else None
+                ),
                 "free": o.free,
                 "price_source": o.provider.source,
                 "price_checked": o.provider.checked,

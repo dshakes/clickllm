@@ -194,6 +194,12 @@ def cmd_where(args: argparse.Namespace) -> int:
                             "usd_per_mtok": (
                                 round(p.cost_per_mtok_usd, 2) if p.cost_per_mtok_usd else None
                             ),
+                            # How optimistic the two figures above are for an
+                            # MoE at this batch. Absent for dense models and at
+                            # batch 1, where they carry no routing risk.
+                            "moe_batch_optimism": (
+                                round(p.moe_batch_optimism, 1) if p.moe_batch_optimism else None
+                            ),
                             "reason": p.reason or None,
                         }
                         for p in placements
@@ -234,10 +240,24 @@ def cmd_where(args: argparse.Namespace) -> int:
         for p in no:
             print(f"  {p.profile_name[:24]:<26}{p.reason}")
 
-    print(
-        "\n  $/Mtok assumes the machine is saturated single-stream; real cost is higher."
-        "\n  Throughput figures are roofline estimates, not measurements.\n"
-    )
+    # "saturated single-stream" was true of an older `cost_per_mtok_usd` that
+    # divided by one stream's output. It uses aggregate throughput now, and its
+    # own docstring records that "real cost is higher" was wrong by more in the
+    # other direction. A stale caveat is worse than none: it tells the reader to
+    # correct in a direction that no longer applies.
+    notes = [
+        "\n  $/Mtok assumes the machine is busy at the requested concurrency;",
+        "  a box at 10% utilisation costs about ten times this per token.",
+        "  Throughput figures are roofline estimates, not measurements.",
+    ]
+    spread = max((p.moe_batch_optimism or 1.0) for p in placements) if placements else 1.0
+    if spread > 1.0:
+        notes.append(
+            f"  MoE: the weight read is held at the active-parameter count, exact only at"
+            f" batch 1. Throughput and $/Mtok are the optimistic end of a band up to"
+            f" {spread:.1f}x wide — see `clickllm fit --explain`."
+        )
+    print("\n".join(notes) + "\n")
     return 0
 
 
