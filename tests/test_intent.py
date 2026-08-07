@@ -165,6 +165,15 @@ WORKLOADS = [
     # Three words of reach, counted in words. Twelve characters stopped inside
     # this one and made a voice product a batch job.
     (Workload.REALTIME, "real-time support bot scoring 5000 calls under 200ms"),
+    # "interactive" and "copilot" govern too — they name the service and
+    # nothing else. "chat"/"agent"/"customer" still do not, because those
+    # double as descriptions of the items.
+    (Workload.INTERACTIVE, "interactive scoring for 5000 accounts"),
+    (Workload.INTERACTIVE, "score 5000 accounts interactively"),  # trailing adverb
+    # Served position decides, at any scale: "for 5000 accounts" is an
+    # audience, while "process 20000 accounts overnight" is a backlog.
+    (Workload.INTERACTIVE, "classification API for 5000 accounts under 200ms"),
+    (Workload.BATCH, "process 20000 accounts overnight"),
     # Ordinary backlog wording the verb and noun lists had missed.
     (Workload.BATCH, "review 2 million invoices"),
     (Workload.BATCH, "analyze 2 million invoices"),

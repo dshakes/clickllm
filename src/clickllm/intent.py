@@ -359,18 +359,44 @@ _EXACT = frozenset({"rag", "phone"})
 #: unit cannot disagree again.
 _GOVERNS_WORDS = 3
 
+#: Mode words that describe the SERVICE and nothing else, so they may govern a
+#: bulk verb near them. Every realtime signal qualifies. From the interactive
+#: table only "interactive" and "copilot" do: "chat", "agent", "customer" and
+#: "conversation" double as descriptions of the ITEMS ("chat transcripts",
+#: "customer tickets"), and letting those govern made real backlogs
+#: interactive — that is round six of this PR, and it is why the list is
+#: explicit rather than "the whole table".
+_GOVERNING_MODES = (*_WORKLOAD_SIGNALS[1][1], "interactive", "copilot")
+
 _REALTIME_PHRASE = re.compile(
     "(?:"
     + "|".join(
-        rf"\b{re.escape(w)}\b" if w in _EXACT else rf"\b{re.escape(w)}"
-        for w in _WORKLOAD_SIGNALS[1][1]
+        rf"\b{re.escape(w)}\b" if w in _EXACT else rf"\b{re.escape(w)}" for w in _GOVERNING_MODES
     )
     + rf")(?:\s+\w+){{0,{_GOVERNS_WORDS}}}"
 )
 
+#: A mode word in the FINAL position governs the whole sentence: "score 5000
+#: accounts interactively" is an interactive product described back to front.
+#: Final position only — reaching backwards by a few words instead would
+#: swallow "score 4 million tickets, realtime dashboard after", which is a
+#: different clause about a different thing.
+_TRAILING_MODE = re.compile(
+    "(?:" + "|".join(rf"\b{re.escape(w)}" for w in _GOVERNING_MODES) + r")\w*\s*[.!?]?\s*$"
+)
+
+#: Behind a preposition, these are an audience too — "classification API FOR
+#: 5000 accounts" serves account holders. They are absent from _AUDIENCE
+#: itself, and deliberately: as a direct object they are records, and
+#: "reconcile 20000 accounts" is real batch work. The position is what
+#: separates the two readings, which is exactly what this pattern encodes.
+_SERVED_ONLY = r"(?:accounts|tenants|orgs|organisations|organizations|teams|workspaces)"
+
 _SERVED_AUDIENCE = re.compile(
-    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+{_MAGNITUDE}"
-    rf"(?:\s+\w+){{0,3}}\s+{_AUDIENCE}\b"
+    # Any count, not just a magnitude: it is the SERVED POSITION that decides,
+    # and "for 5000 accounts" is as much an audience as "for 2 million".
+    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+(?:{_MAGNITUDE}|\d[\d,]*)"
+    rf"(?:\s+\w+){{0,3}}\s+(?:{_AUDIENCE}|{_SERVED_ONLY})\b"
 )
 
 #: Words that cannot be the noun a singular people-noun modifies. Seeing one
@@ -687,6 +713,8 @@ def read(text: str) -> Intent:
     # different thing. Same scoping mistake as the sentence-wide served-audience
     # guard two commits ago, so the same fix: a span, not a flag.
     served += [rt.span() for rt in _REALTIME_PHRASE.finditer(low)]
+    if _TRAILING_MODE.search(low):
+        served.append((0, len(low)))
     bulk = next(
         (
             m
