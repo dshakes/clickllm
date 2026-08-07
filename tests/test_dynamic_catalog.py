@@ -366,3 +366,18 @@ def test_the_error_names_the_file_and_the_model(tmp_path, monkeypatch):
     with pytest.raises(ValueError) as e:
         drop_in(tmp_path, monkeypatch, license_ok="false")
     assert "m.json" in str(e.value) and "acme-70b" in str(e.value)
+
+
+@pytest.mark.parametrize("literal", ["Infinity", "-Infinity", "NaN"])
+def test_a_json_non_number_is_refused_at_the_parse(tmp_path, monkeypatch, literal):
+    # json.loads accepts these bare by default, and neither survives sizing:
+    # Infinity raises OverflowError inside weight_bytes() and NaN raises
+    # ValueError, both as tracebacks out of a CLI that promises a message.
+    # A NaN also slips the range check, since every comparison with NaN is
+    # False — which is why this is refused at the parse and not beside it.
+    f = tmp_path / "m.json"
+    f.write_text(json.dumps([SPEC])[:-2] + f', "params_b": {literal}}}]')
+    monkeypatch.setenv("CLICKLLM_CATALOG", str(f))
+    catalog._CACHE.clear()
+    with pytest.raises(ValueError, match="not a number a model can be sized with"):
+        catalog.load()

@@ -101,7 +101,22 @@ def _read(path: Path) -> list[dict]:
     would be a sizing answer that omits it with no explanation.
     """
     try:
-        raw = json.loads(path.read_text())
+        # `json.loads` accepts bare NaN/Infinity/-Infinity by default, and
+        # neither survives contact with sizing: Infinity raises OverflowError
+        # inside weight_bytes() and NaN raises ValueError, both as tracebacks
+        # out of a CLI whose contract is a message and a nonzero exit.
+        #
+        # Refused at the parse rather than in _check_types, because a NaN slips
+        # a `value <= 0` check — every comparison with NaN is False — so the
+        # range check cannot see it and a second guard beside it would be one
+        # more thing to keep in step. Nothing else can introduce these: JSON
+        # has no other spelling for them.
+        raw = json.loads(
+            path.read_text(),
+            parse_constant=lambda c: (_ for _ in ()).throw(
+                ValueError(f"{path}: {c} is not a number a model can be sized with")
+            ),
+        )
     except FileNotFoundError as e:
         raise FileNotFoundError(f"catalogue file not found: {path}") from e
     except json.JSONDecodeError as e:
