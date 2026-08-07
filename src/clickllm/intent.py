@@ -674,8 +674,14 @@ def _context(text: str) -> tuple[int, str] | None:
         # Through _digits like the other two captures: this one was missed when
         # I fixed those, which is the duplicated-fact shape inside the fix for
         # it. A 5000-digit "k tokens" raised ValueError out of read().
+        # Through _whole as well as _digits: _digits bounds the CAPTURE, and
+        # the x1024 happens after it, so a large-but-legal "k" produced a
+        # context of 10^12 tokens that fed straight into sizing as a confident
+        # requirement. Same shape as the two overflow fixes above — the guard
+        # has to be on the value that leaves the function.
         k = _digits(m.group(1))
-        return (k * 1024, m.group(0)) if k else None
+        ctx = _whole(k * 1024) if k else None
+        return (ctx, m.group(0)) if ctx else None
     if (
         m := re.search(r"(?:long|large|big)\s*(?:context|documents?|files?|pdfs?)", text)
     ) is not None:

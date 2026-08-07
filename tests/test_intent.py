@@ -518,3 +518,21 @@ def test_the_one_conversion_helper(value, want):
 )
 def test_the_digit_string_conversion(raw, want):
     assert _digits(raw) == want
+
+
+@pytest.mark.parametrize(
+    ("text", "want", "asked"),
+    [
+        ("128k context", 131_072, False),
+        ("32k tokens", 32_768, False),
+        ("long documents", 131_072, False),
+        # _digits bounds the CAPTURE and the x1024 happens after it, so this
+        # produced a context of 10**12 tokens as a confident requirement.
+        ("999999999k tokens", 32_768, True),
+        ("9" * 5000 + "k tokens", 32_768, True),
+    ],
+)
+def test_a_context_length_is_bounded_after_its_multiplier_not_before(text, want, asked):
+    i = read(text)
+    assert i.requirements.context == want
+    assert ("context" in {q.field for q in i.questions}) is asked
