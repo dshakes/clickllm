@@ -139,3 +139,49 @@ def test_the_share_map_is_named_in_the_mismatch_message():
         suite([item("actual")], shares={"expected": 1.0}, issued="2026-08-04")
     msg = str(e.value)
     assert "actual" in msg and "expected" in msg, msg
+
+
+# --- an uncovered share reaches the policy and the headline ----------------------
+
+
+def covered_plus_gap():
+    # Distinct prompts: identical ones are duplicate-merged into a single
+    # observation, which is correct and would collapse this to 1/1.
+    items = [EvalItem(f"i{i}", "covered", f"prompt-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)]
+    return run(items, shares={"covered": 0.7, "never-sampled": 0.3})
+
+
+def test_an_unmeasured_cluster_reaches_the_hybrid_policy():
+    # Surfacing the gap in the report but not in the policy would have been
+    # worse than not surfacing it: `SuiteResult.policy` is what the MCP tools
+    # and the API hand to an agent, and traffic nobody measured cannot move
+    # for exactly the same reason traffic straddling the bar cannot.
+    m = covered_plus_gap()
+    policy = m.hybrid_for(m.best())
+    assert "never-sampled" in policy.unproven_clusters
+    assert any("never-sampled" in n for n in policy.needs)
+
+
+def test_an_unmeasured_cluster_is_not_counted_as_movable():
+    m = covered_plus_gap()
+    assert m.best().movable_share(m.bar) == pytest.approx(0.7)
+
+
+def test_the_weighted_headline_says_what_share_it_covers():
+    # The renormalisation is the only arithmetic available — an unmeasured
+    # cluster has no rate to contribute — but doing it silently printed a flat
+    # "100% weighted" over traffic that was 30% unlooked-at.
+    text = covered_plus_gap().render()
+    assert "weighted of 70%" in text, text
+    assert "never measured and is not in this number" in text, text
+
+
+def test_full_coverage_prints_no_coverage_caveat():
+    # A caveat on every report is a caveat nobody reads.
+    m = run(
+        [EvalItem(f"i{i}", "covered", f"p-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)],
+        shares={"covered": 1.0},
+    )
+    text = m.render()
+    assert "never measured" not in text
+    assert "weighted of" not in text
