@@ -27,6 +27,7 @@ from clickllm.prove.stats import (
     family_wise_z,
     mcnemar,
     samples_needed,
+    weighted_point,
     weighted_posterior,
     wilson,
 )
@@ -303,3 +304,37 @@ def test_widening_for_coherence_never_narrows_an_interval():
     iv = weighted_posterior([(wilson(30, 40), 1.0)])
     assert iv.low < iv.point < iv.high, "a mid-range interval should not be clamped at all"
     assert iv.low > 0.0 and iv.high < 1.0, "clamping must not have pushed the bounds to 0/1"
+
+
+# --- impossible inputs are refused, not filtered --------------------------------
+
+
+def test_a_negative_traffic_share_is_refused_not_silently_dropped():
+    # `w > 0` treated an impossible weight exactly like a deliberately-excluded
+    # zero-weight cluster: gone from the denominator, headline shifted toward
+    # whatever remained, nothing said. `wilson` raises on an impossible count;
+    # the same posture belongs on an impossible weight.
+    pairs = [(wilson(9, 10), -1.0), (wilson(5, 10), 1.0)]
+    with pytest.raises(ValueError, match="-1.0"):
+        weighted_point(pairs)
+    with pytest.raises(ValueError, match="-1.0"):
+        weighted_posterior(pairs)
+
+
+def test_a_zero_share_is_still_excluded_without_complaint():
+    # The distinction the guard has to preserve: zero is a legitimate way to
+    # say "this cluster cannot move traffic", and only negative is impossible.
+    assert weighted_point([(wilson(9, 10), 0.0), (wilson(5, 10), 1.0)]) == pytest.approx(0.5)
+
+
+def test_a_family_too_large_to_correct_refuses_with_its_own_numbers():
+    # `alpha / (2 * comparisons)` underflows, `1 - tail` rounds to exactly 1.0,
+    # and `inv_cdf` raised StatisticsError — which reaches the CLI as a
+    # traceback rather than a refusal naming what was wrong.
+    with pytest.raises(ValueError, match="10000000000000000000"):
+        family_wise_z(10**19)
+
+
+def test_the_families_anyone_would_actually_pass_still_compute():
+    for m in (1, 12, 1000, 10**6):
+        assert family_wise_z(m) > 0

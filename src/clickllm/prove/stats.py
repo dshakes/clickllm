@@ -167,13 +167,31 @@ def pooled(intervals: list[Interval]) -> Interval:
     return wilson(sum(i.passed for i in intervals), sum(i.total for i in intervals))
 
 
+def _check_weights(pairs: list[tuple[Interval, float]]) -> None:
+    """Refuse an impossible traffic share instead of filtering it away.
+
+    A share below zero is a bug upstream, and `w > 0` would drop it exactly as
+    it drops a deliberately-excluded zero-weight cluster: silently, out of the
+    denominator, with the headline shifting toward whatever remained. `wilson`
+    raises on an impossible count rather than coercing it; the same posture
+    belongs on an impossible weight.
+    """
+    bad = [w for _, w in pairs if w < 0]
+    if bad:
+        raise ValueError(f"traffic share cannot be negative, got {bad}")
+
+
 def weighted_point(pairs: list[tuple[Interval, float]]) -> float | None:
     """Traffic-weighted point estimate across clusters.
 
     A cluster that is 38% of traffic must count five times one at 8%. Returns
     ``None`` when nothing was graded, rather than 0.0 — no evidence is not a
     score of zero.
+
+    Raises:
+        ValueError: if any weight is negative.
     """
+    _check_weights(pairs)
     usable = [(i, w) for i, w in pairs if i.total > 0 and w > 0]
     if not usable:
         return None
@@ -422,6 +440,7 @@ def weighted_posterior(
         counts carried in ``passed``/``total`` for context. ``total == 0`` when
         nothing was graded, which renders as "?".
     """
+    _check_weights(pairs)
     usable = [(i, w) for i, w in pairs if i.total > 0 and w > 0]
     named = f"Jeffreys posterior simulation, {draws} draws, seed {seed}"
     if not usable or draws < 1:
@@ -486,7 +505,17 @@ def family_wise_z(comparisons: int, alpha: float = 0.05) -> float:
         raise ValueError(f"a family needs at least one comparison, got {comparisons}")
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must be a probability, got {alpha}")
-    return NormalDist().inv_cdf(1.0 - alpha / (2.0 * comparisons))
+    # Split far enough and the per-test tail underflows: `1 - tail` rounds to
+    # exactly 1.0 and `inv_cdf` raises StatisticsError, which reaches the CLI
+    # as a traceback rather than a refusal naming what was wrong.
+    tail = alpha / (2.0 * comparisons)
+    if 1.0 - tail >= 1.0:
+        raise ValueError(
+            f"alpha {alpha} split across {comparisons} comparisons is too small to "
+            f"represent — no finite z separates it from certainty, so a family this "
+            f"large cannot be Bonferroni-corrected at this alpha"
+        )
+    return NormalDist().inv_cdf(1.0 - tail)
 
 
 def demo() -> None:

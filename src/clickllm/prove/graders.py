@@ -92,11 +92,20 @@ class Grader(Protocol):
     def grade(self, item: EvalItem) -> Score: ...
 
 
-def _json_or_none(text: str) -> Any | None:
+#: Returned by `_parse_json` for text that is not JSON at all. A sentinel rather
+#: than `None`, because `null` is perfectly valid JSON that parses *to* `None` —
+#: conflating the two graded a candidate that correctly answered `null` as
+#: unparseable, and excused the baseline check as "not JSON" on a baseline that
+#: was.
+_NOT_JSON = object()
+
+
+def _parse_json(text: str) -> Any:
+    """Parsed JSON, or `_NOT_JSON`. Never `None` to mean failure."""
     try:
         return json.loads(text.strip())
     except (json.JSONDecodeError, ValueError):
-        return None
+        return _NOT_JSON
 
 
 # --------------------------------------------------------------------------- #
@@ -127,9 +136,9 @@ class JsonValid:
     tier: Tier = Tier.ASSERT
 
     def grade(self, item: EvalItem) -> Score:
-        if _json_or_none(item.baseline) is None:
+        if _parse_json(item.baseline) is _NOT_JSON:
             return Score(self.name, self.tier, Outcome.NOT_APPLICABLE, "baseline is not JSON")
-        if _json_or_none(item.candidate) is None:
+        if _parse_json(item.candidate) is _NOT_JSON:
             return Score(self.name, self.tier, Outcome.FAIL, "candidate is not parseable JSON")
         return Score(self.name, self.tier, Outcome.PASS)
 
@@ -146,7 +155,7 @@ class JsonShape:
     tier: Tier = Tier.ASSERT
 
     def grade(self, item: EvalItem) -> Score:
-        b, c = _json_or_none(item.baseline), _json_or_none(item.candidate)
+        b, c = _parse_json(item.baseline), _parse_json(item.candidate)
         if not isinstance(b, dict):
             return Score(
                 self.name, self.tier, Outcome.NOT_APPLICABLE, "baseline is not a JSON object"
@@ -223,7 +232,8 @@ class ToolArgs:
 def _args(call: dict[str, Any]) -> dict[str, Any]:
     raw = call.get("arguments") or (call.get("function") or {}).get("arguments") or {}
     if isinstance(raw, str):
-        return _json_or_none(raw) or {}
+        parsed = _parse_json(raw)
+        return parsed if isinstance(parsed, dict) else {}
     return raw if isinstance(raw, dict) else {}
 
 
