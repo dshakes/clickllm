@@ -120,11 +120,67 @@ def test_an_apple_or_nvidia_box_still_wins_over_the_amd_probe(monkeypatch):
     assert hardware.detect() is sentinel
 
 
-@pytest.mark.parametrize("chip", sorted(hardware.APPLE_BINNED))
-def test_a_binned_apple_chip_carries_the_lower_bandwidth(chip):
+@pytest.mark.parametrize("chip", sorted(hardware.APPLE_MAX_BINS))
+def test_a_binned_apple_chip_defaults_to_the_lower_bandwidth(chip):
     # The brand string returns "M3 Max" for both the 30-core part at 300 GB/s
     # and the 40-core at 400. The table carried only the top bin, overstating
-    # the roofline by up to 33% in the flattering direction.
-    low, high = hardware.APPLE_BINNED[chip]
-    assert low < high
-    assert hardware.APPLE_BANDWIDTH[chip] == low
+    # the roofline by up to 33% in the flattering direction. The fallback in
+    # APPLE_BANDWIDTH — used when the capacity resolves nothing — is the low one.
+    values = hardware.APPLE_MAX_BINS[chip]
+    assert min(values.values()) < max(values.values()), "a binned chip has two bins"
+    assert hardware.APPLE_BANDWIDTH[chip] == min(values.values())
+
+
+# Apple sells each capacity on exactly one bin, so memory size resolves what the
+# brand string cannot. 96 GB is the case that makes this a table and not a
+# threshold: on M3 Max it is the LOW bin while 48/64/128 GB are the high one.
+@pytest.mark.parametrize(
+    ("chip", "gb", "expected"),
+    [
+        ("M3 Max", 36, 300.0),
+        ("M3 Max", 48, 400.0),
+        ("M3 Max", 64, 400.0),
+        ("M3 Max", 96, 300.0),  # more memory, slower bin
+        ("M3 Max", 128, 400.0),
+        ("M4 Max", 36, 410.0),
+        ("M4 Max", 48, 546.0),
+        ("M4 Max", 64, 546.0),
+        ("M4 Max", 128, 546.0),
+    ],
+)
+def test_memory_size_resolves_which_bin_a_max_chip_is(chip, gb, expected):
+    bandwidth, note = hardware._apple_bandwidth(chip, gb * hardware.GB)
+    assert bandwidth == expected
+    # A capacity that pins the bin is not a guess, so it must not carry a
+    # hedge — a caveat on a number that cannot be wrong teaches people to
+    # skip the ones that can.
+    assert note == "", note
+
+
+def test_a_capacity_apple_does_not_sell_falls_back_to_the_low_bin_and_says_so():
+    bandwidth, note = hardware._apple_bandwidth("M4 Max", 256 * hardware.GB)
+    assert bandwidth == 410.0
+    assert "256 GB" in note
+    assert "understates rather than flatters" in note
+
+
+def test_an_unbinned_chip_is_looked_up_plainly_with_no_caveat():
+    bandwidth, note = hardware._apple_bandwidth("M4 Pro", 48 * hardware.GB)
+    assert bandwidth == hardware.APPLE_BANDWIDTH["M4 Pro"]
+    assert note == ""
+
+
+def test_the_catalog_profile_agrees_with_what_detection_would_report():
+    # The defect this pins: detection was lowered to the 410 GB/s bin for every
+    # M4 Max while the catalog kept `m4-max-128` at 546, so `clickllm build --on
+    # m4-max-128` and a detected 128 GB M4 Max disagreed about the same machine.
+    # One fact, two files — it has to be checked, not remembered.
+    from clickllm.hardware_catalog import get
+
+    for profile_id, chip in (("m4-max-128", "M4 Max"), ("m4-pro-48", "M4 Pro")):
+        p = get(profile_id)
+        detected, _ = hardware._apple_bandwidth(chip, int(p.memory_gb * hardware.GB))
+        assert detected == float(p.bandwidth_gbps), (
+            f"{profile_id} says {p.bandwidth_gbps} GB/s but detecting the same "
+            f"{p.memory_gb} GB machine reports {detected}"
+        )

@@ -22,17 +22,25 @@ GB = 1024**3
 # Memory bandwidth (GB/s) per Apple chip. Decode is bandwidth-bound, so this
 # drives the tok/s roofline. Apple exposes no sysctl for it — hence the table.
 # ponytail: lookup table, replace with a measured microbenchmark if estimates drift.
-#: Chips Apple ships in more than one memory-bandwidth bin, keyed to the LOW
-#: one. `machdep.cpu.brand_string` returns "M3 Max" for both the 30-core-GPU
-#: part at 300 GB/s and the 40-core part at 400, so detection cannot tell them
-#: apart — and the table used to carry only the top bin, overstating the
-#: roofline by up to 33% on the base SKU, in the flattering direction.
+#: Chips Apple ships in more than one memory-bandwidth bin, resolved by memory
+#: size. `machdep.cpu.brand_string` returns "M3 Max" for both the 30-core-GPU
+#: part at 300 GB/s and the 40-core part at 400, so the brand string alone
+#: cannot tell them apart — and the table used to carry only the top bin,
+#: overstating the roofline by up to 33% on the base SKU.
 #:
-#: The low bin is the honest default for a projection someone plans against,
-#: and `note` says which chips are ambiguous rather than leaving the number
-#: looking exact. Same rule as everywhere else here: a figure that could be
-#: wrong says so.
-APPLE_BINNED = {"M3 Max": (300, 400), "M4 Max": (410, 546)}
+#: But the machine is not actually ambiguous: Apple sells each memory capacity
+#: on exactly one bin, and `hw.memsize` reports it. So this is a lookup keyed
+#: on GB, never a threshold — 96 GB is the trap, being the *low* bin on M3 Max
+#: while 48/64/128 GB are the high one. A capacity Apple does not sell with the
+#: chip falls through to the low bin and says so, since assuming low understates
+#: rather than flatters.
+#:
+#: Verified against Apple's published tech specs — MacBook Pro (14/16-inch,
+#: Nov 2023) for M3 Max and (Oct 2024) for M4 Max — never recalled.
+APPLE_MAX_BINS: dict[str, dict[int, int]] = {
+    "M3 Max": {36: 300, 48: 400, 64: 400, 96: 300, 128: 400},
+    "M4 Max": {36: 410, 48: 546, 64: 546, 128: 546},
+}
 
 APPLE_BANDWIDTH = {
     "M1": 68,
@@ -45,11 +53,11 @@ APPLE_BANDWIDTH = {
     "M2 Ultra": 800,
     "M3": 100,
     "M3 Pro": 150,
-    "M3 Max": 300,  # 30-core GPU; the 40-core part is 400 — see APPLE_BINNED
+    "M3 Max": 300,  # low bin; memory size picks the real one — see APPLE_MAX_BINS
     "M3 Ultra": 800,
     "M4": 120,
     "M4 Pro": 273,
-    "M4 Max": 410,  # 32-core GPU; the 40-core part is 546 — see APPLE_BINNED
+    "M4 Max": 410,  # low bin; memory size picks the real one — see APPLE_MAX_BINS
     "M5": 153,
     "M5 Pro": 344,
     "M5 Max": 688,
@@ -105,6 +113,27 @@ def _apple_chip(brand: str) -> str:
     return m.group(1) if m else brand
 
 
+def _apple_bandwidth(chip: str, total_bytes: int) -> tuple[float | None, str]:
+    """Bandwidth for a chip, plus any caveat about how certain that figure is.
+
+    The caveat is empty when the figure is known rather than assumed, because a
+    note saying "this could be wrong" on a number that cannot be wrong trains
+    people to ignore the ones that can.
+    """
+    bins = APPLE_MAX_BINS.get(chip)
+    if bins is None:
+        return APPLE_BANDWIDTH.get(chip), ""
+    gb = round(total_bytes / GB)
+    if gb in bins:
+        return float(bins[gb]), ""
+    offered = "/".join(str(v) for v in sorted(set(bins.values())))
+    return float(min(bins.values())), (
+        f"; {chip} ships in {offered} GB/s bins tied to memory size, and {gb} GB "
+        f"is not a capacity Apple pairs with it — the lower is assumed, so a "
+        f"roofline here understates rather than flatters"
+    )
+
+
 def _detect_apple() -> Hardware | None:
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         return None
@@ -115,6 +144,7 @@ def _detect_apple() -> Hardware | None:
         return None
 
     chip = _apple_chip(brand)
+    bandwidth, bin_note = _apple_bandwidth(chip, total)
     # Respect an explicitly raised wired limit if the user set one.
     wired_mb = _sysctl("iogpu.wired_limit_mb")
     if wired_mb and wired_mb.isdigit() and int(wired_mb) > 0:
@@ -133,16 +163,9 @@ def _detect_apple() -> Hardware | None:
         name=chip,
         total_bytes=total,
         usable_bytes=usable,
-        bandwidth_gbps=APPLE_BANDWIDTH.get(chip),
+        bandwidth_gbps=bandwidth,
         cores=cores,
-        note=note
-        + (
-            f"; {chip} ships in two bandwidth bins ({'/'.join(map(str, APPLE_BINNED[chip]))} "
-            f"GB/s) and the brand string cannot tell them apart — the lower is "
-            f"assumed, so a roofline here understates rather than flatters"
-            if chip in APPLE_BINNED
-            else ""
-        ),
+        note=note + bin_note,
     )
 
 
