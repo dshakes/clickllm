@@ -124,7 +124,14 @@ class Claim:
     def render(self) -> str:
         """`94% [91–96] over 120 items`, or `?` when unknown."""
         if self.total == 0:
-            return "?"
+            # Still say what was merged. A cluster whose every item was both
+            # duplicate-merged and then ungraded lands here, and returning a
+            # bare "?" drops the one disclosure that explains why the
+            # denominator is nothing — exactly the collapse-versus-bug
+            # ambiguity the `duplicates` field exists to remove.
+            return "?" + (
+                f" ({self.duplicates} duplicate prompt(s) merged)" if self.duplicates else ""
+            )
         out = f"{self.point:.0%} [{self.low:.0%}–{self.high:.0%}] over {self.total} items"
         if self.duplicates:
             out += f" ({self.duplicates} duplicate prompt(s) merged)"
@@ -384,16 +391,39 @@ class Discrepancy:
         return f"{self.what}: stated {self.stated}, found {self.found}"
 
 
+#: Fields recording *when* a receipt was written and *by what*, rather than what
+#: was measured. They stay inside `digest()` — editing one is still tampering —
+#: but two honest runs over identical evidence differ in them as a matter of
+#: course, and a reproduction check that reads that as a failure is useless for
+#: the one case it exists to serve: rerunning next month.
+_NON_EVIDENTIARY = ("issued", "tool_version")
+
+
+def _evidence_digest(r: Receipt) -> str:
+    """Content address of the *claims*, ignoring when they were written."""
+    body = asdict(r)
+    for name in _NON_EVIDENTIARY:
+        body.pop(name, None)
+    return hashlib.sha256(_canonical(body)).hexdigest()
+
+
 def verify(receipt: Receipt, rerun: Receipt) -> tuple[bool, tuple[Discrepancy, ...]]:
     """Check a receipt against a fresh run of the same eval set.
 
     This is the property the whole artifact rests on, and it is checkable by
     someone who does not trust us — which is the point.
 
-    Returns `(True, ())` when the digests match. Otherwise the specific
+    Returns `(True, ())` when the evidence matches. Otherwise the specific
     disagreements, so "it does not verify" is never the whole answer.
+
+    Compares evidence, not identity: `issued` and `tool_version` are excluded,
+    because a rerun happens on a later day and often on a newer build, and
+    failing it for that reported "DOES NOT VERIFY" on an honest reproduction —
+    indistinguishable, to the reader, from a real regression. Everything that
+    describes the measurement is still compared, and `Receipt.digest()` still
+    covers every field, so the tamper check is unweakened.
     """
-    if receipt.digest() == rerun.digest():
+    if _evidence_digest(receipt) == _evidence_digest(rerun):
         return True, ()
 
     d: list[Discrepancy] = []
