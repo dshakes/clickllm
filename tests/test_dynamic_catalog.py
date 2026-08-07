@@ -368,8 +368,8 @@ def test_the_error_names_the_file_and_the_model(tmp_path, monkeypatch):
     assert "m.json" in str(e.value) and "acme-70b" in str(e.value)
 
 
-@pytest.mark.parametrize("literal", ["Infinity", "-Infinity", "NaN"])
-def test_a_json_non_number_is_refused_at_the_parse(tmp_path, monkeypatch, literal):
+@pytest.mark.parametrize("literal", ["Infinity", "-Infinity", "NaN", "1e400", "-1e400"])
+def test_a_number_no_model_can_be_sized_with_is_refused(tmp_path, monkeypatch, literal):
     # json.loads accepts these bare by default, and neither survives sizing:
     # Infinity raises OverflowError inside weight_bytes() and NaN raises
     # ValueError, both as tracebacks out of a CLI that promises a message.

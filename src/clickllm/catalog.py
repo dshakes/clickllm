@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,22 +102,7 @@ def _read(path: Path) -> list[dict]:
     would be a sizing answer that omits it with no explanation.
     """
     try:
-        # `json.loads` accepts bare NaN/Infinity/-Infinity by default, and
-        # neither survives contact with sizing: Infinity raises OverflowError
-        # inside weight_bytes() and NaN raises ValueError, both as tracebacks
-        # out of a CLI whose contract is a message and a nonzero exit.
-        #
-        # Refused at the parse rather than in _check_types, because a NaN slips
-        # a `value <= 0` check — every comparison with NaN is False — so the
-        # range check cannot see it and a second guard beside it would be one
-        # more thing to keep in step. Nothing else can introduce these: JSON
-        # has no other spelling for them.
-        raw = json.loads(
-            path.read_text(),
-            parse_constant=lambda c: (_ for _ in ()).throw(
-                ValueError(f"{path}: {c} is not a number a model can be sized with")
-            ),
-        )
+        raw = json.loads(path.read_text())
     except FileNotFoundError as e:
         raise FileNotFoundError(f"catalogue file not found: {path}") from e
     except json.JSONDecodeError as e:
@@ -202,6 +188,18 @@ def _check_types(spec: ModelSpec, path: Path) -> None:
             raise ValueError(
                 f"{path}: model {spec.id!r} has {field}={value!r} "
                 f"({type(value).__name__}), which is not {want}"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            # On the VALUE, not on the spelling. `parse_constant` catches the
+            # bare NaN/Infinity literals and nothing else — "1e400" is ordinary
+            # JSON that parses to inf through the normal float path — and a NaN
+            # slips the `<= 0` test below, since every comparison with NaN is
+            # False. Neither survives sizing: Infinity raises OverflowError
+            # inside weight_bytes() and NaN raises ValueError, both as
+            # tracebacks out of a CLI that promises a message.
+            raise ValueError(
+                f"{path}: model {spec.id!r} has {field}={value!r}, which is not "
+                f"a number a model can be sized with"
             )
         if positive and value <= 0:
             raise ValueError(
