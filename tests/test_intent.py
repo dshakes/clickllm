@@ -174,6 +174,13 @@ WORKLOADS = [
     # audience, while "process 20000 accounts overnight" is a backlog.
     (Workload.INTERACTIVE, "classification API for 5000 accounts under 200ms"),
     (Workload.BATCH, "process 20000 accounts overnight"),
+    # A backlog that also names an audience, with an infinitive in between:
+    # the preposition introduces the count it governs, it does not reach over
+    # a verb to find one.
+    (Workload.BATCH, "4 million tickets to score for 5000 users"),
+    # And a realtime word that describes a different noun. "real-time" is
+    # about the dashboard; the LLM work is still a batch job.
+    (Workload.BATCH, "real-time dashboard for scoring 4 million tickets"),
     # Ordinary backlog wording the verb and noun lists had missed.
     (Workload.BATCH, "review 2 million invoices"),
     (Workload.BATCH, "analyze 2 million invoices"),

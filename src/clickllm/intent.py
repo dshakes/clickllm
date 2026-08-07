@@ -289,9 +289,11 @@ _NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
 #: A preposition is the boundary between the two, so the gap admits words that
 #: are not prepositions. Same rule rescues "score 4 million tickets from our
 #: users", which the previous spelling conceded as a known miss.
-_ADJECTIVES = (
-    r"(?:\s+(?!for\b|of\b|in\b|on\b|per\b|from\b|to\b|with\b|by\b|across\b|via\b)\w+){0,3}"
-)
+#: A preposition ends a noun phrase. Shared, so the two windows that must stop
+#: at one cannot drift apart.
+_PREPOSITION = r"(?:for|of|in|on|per|from|to|with|by|across|via)\b"
+
+_ADJECTIVES = rf"(?:\s+(?!{_PREPOSITION})\w+){{0,3}}"
 
 #: `\d{4,}` alone missed every number a person actually types: "4,000" has no
 #: run of four digits in it. Grouped thousands count from 1,000 up, so matching
@@ -373,7 +375,10 @@ _REALTIME_PHRASE = re.compile(
     + "|".join(
         rf"\b{re.escape(w)}\b" if w in _EXACT else rf"\b{re.escape(w)}" for w in _GOVERNING_MODES
     )
-    + rf")(?:\s+\w+){{0,{_GOVERNS_WORDS}}}"
+    # The reach stops at a preposition, for the reason _ADJECTIVES does: in
+    # "real-time dashboard FOR scoring 4 million tickets" the realtime word
+    # describes the dashboard, and the LLM work is still a batch job.
+    + rf")(?:\s+(?!{_PREPOSITION})\w+){{0,{_GOVERNS_WORDS}}}"
 )
 
 #: A mode word in the FINAL position governs the whole sentence: "score 5000
@@ -395,7 +400,11 @@ _SERVED_ONLY = r"(?:accounts|tenants|orgs|organisations|organizations|teams|work
 _SERVED_AUDIENCE = re.compile(
     # Any count, not just a magnitude: it is the SERVED POSITION that decides,
     # and "for 5000 accounts" is as much an audience as "for 2 million".
-    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,3}}\s+(?:{_MAGNITUDE}|\d[\d,]*)"
+    # One word between the preposition and the count, not three: "to score for
+    # 5000 users" reached across an infinitive and swallowed the backlog in
+    # "4 million tickets to score for 5000 users". A preposition introduces
+    # the number it governs; it does not reach over a verb to find one.
+    rf"\b(?:for|serving|across|to)\b(?:\s+\w+){{0,1}}\s+(?:{_MAGNITUDE}|\d[\d,]*)"
     rf"(?:\s+\w+){{0,3}}\s+(?:{_AUDIENCE}|{_SERVED_ONLY})\b"
 )
 

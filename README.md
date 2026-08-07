@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1305-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1307-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -558,10 +558,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1078 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1080 Python
 ```
 
-**1,305 tests.** 1078 Python, 227 Rust. Ten of the Python tests skip on a bare
+**1,307 tests.** 1080 Python, 227 Rust. Ten of the Python tests skip on a bare
 machine: eight exercise the PyO3 bridge (`maturin develop` in `clickllm-py/`
 turns them on), and two ask vLLM and SGLang for their own flags, which needs
 those engines installed. CI runs both inside the engines' published images, so
