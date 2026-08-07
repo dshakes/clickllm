@@ -160,9 +160,28 @@ def sample(
         for i in by_remainder[:left]:
             extra[i] += 1
 
+    # A cluster cannot give more captures than it holds, and the units its cap
+    # frees have to land somewhere. Capping at sampling time and walking away
+    # loses them: sizes [1, 1000] with budget 100 spent 98, and no field said
+    # so — the same silent under-spend this function was fixed to stop, one
+    # layer further down. Each pass either spends the surplus or saturates at
+    # least one more cluster, so it runs at most `n` times.
+    want = [min(floor + e, c.size) for c, e in zip(clusters, extra, strict=True)]
+    for _ in range(n):
+        spare = budget - sum(want)
+        room = [i for i in range(n) if want[i] < clusters[i].size]
+        if spare <= 0 or not room:
+            break
+        # Largest cluster first, ties on the key, for the same reproducibility
+        # reason as the apportionment above.
+        room.sort(key=lambda i: (-clusters[i].size, clusters[i].key))
+        share, odd = divmod(spare, len(room))
+        for rank, i in enumerate(room):
+            want[i] = min(want[i] + share + (1 if rank < odd else 0), clusters[i].size)
+
     sampled: dict[str, list[Capture]] = {}
-    for c, e in zip(clusters, extra, strict=True):
-        sampled[c.key] = sample_cluster(c.captures, min(floor + e, c.size))
+    for c, w in zip(clusters, want, strict=True):
+        sampled[c.key] = sample_cluster(c.captures, w)
 
     return SampleReport(
         sampled=sampled,

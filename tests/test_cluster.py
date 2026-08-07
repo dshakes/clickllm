@@ -157,6 +157,31 @@ def test_a_cluster_is_never_sampled_beyond_its_own_size():
     assert all(len(v) == 2 for v in rep.sampled.values())
 
 
+def test_units_freed_by_a_cluster_smaller_than_its_allocation_are_re_placed():
+    # Raised by the Codex audit against the first version of this fix, and it
+    # is the same defect one layer down: capping a cluster at its own size and
+    # walking away loses the surplus silently. Sizes [1, 1000] with budget 100
+    # spent 98, `uncovered` empty and nothing saying where the 2 went.
+    caps = [cap(0, "tiny", "a")]
+    caps += [cap(100 + i, "bulk", "b" * (i % 9 + 1)) for i in range(1000)]
+    cs = cluster(caps)
+    assert sorted(c.size for c in cs) == [1, 1000]
+
+    rep = sample(cs, budget=100, min_per_cluster=3)
+    assert rep.total_sampled == 100, "the surplus from the 1-capture cluster was lost"
+    tiny = next(c for c in cs if c.size == 1)
+    assert len(rep.sampled[tiny.key]) == 1, "and it must not be over-drawn to get there"
+
+
+def test_under_spend_is_only_ever_the_corpus_being_smaller_than_the_budget():
+    # After re-placing, the single honest reason to spend less than the budget
+    # is that there are not that many captures — which the report already
+    # states as total_captures, so it needs no extra field.
+    for shapes, per, budget in ((4, 2, 500), (10, 3, 100), (2, 1, 50)):
+        rep = sample(make(shapes, per), budget=budget)
+        assert rep.total_sampled == min(budget, rep.total_captures)
+
+
 @pytest.mark.parametrize("budget", [0, 1, 2])
 def test_a_budget_at_or_near_zero_is_reported_not_hidden(budget):
     rep = sample(make(5, 20), budget=budget)
