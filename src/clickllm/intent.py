@@ -623,7 +623,11 @@ def _context(text: str) -> tuple[int, str] | None:
     """A stated context length."""
     m = re.search(r"(\d+)\s*k\s*(?:token|context|ctx|window)", text)
     if m:
-        return int(m.group(1)) * 1024, m.group(0)
+        # Through _digits like the other two captures: this one was missed when
+        # I fixed those, which is the duplicated-fact shape inside the fix for
+        # it. A 5000-digit "k tokens" raised ValueError out of read().
+        k = _digits(m.group(1))
+        return (k * 1024, m.group(0)) if k else None
     if (
         m := re.search(r"(?:long|large|big)\s*(?:context|documents?|files?|pdfs?)", text)
     ) is not None:

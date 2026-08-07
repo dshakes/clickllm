@@ -387,6 +387,8 @@ def test_a_number_no_float_can_hold_returns_an_intent_rather_than_raising(text):
         "9" * 5000 + " concurrent",
         "9" * 5000 + " requests per second",
         "chat for " + "9" * 5000 + " people",
+        "9" * 5000 + "k tokens",  # _context, missed when the other two were fixed
+        "9" * 5000 + "k context window",
     ],
 )
 def test_no_number_can_make_read_raise(text):
@@ -425,6 +427,37 @@ def test_every_rounding_in_this_module_goes_through_the_one_guarded_helper():
     }
     stray = sorted(rounds(tree) - inside)
     assert not stray, f"round()/ceil() outside _whole at intent.py:{stray}"
+
+
+def test_no_captured_digit_string_is_converted_outside_the_one_helper():
+    # The structural half of the 4300-digit fix. int() on a regex capture is
+    # not safe — Python caps it — and I fixed two of the three sites, then a
+    # reviewer found the third. A grep cannot tell int(m.group(1)) from
+    # int(0.92 * n), so this parses.
+    import ast
+
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/intent.py"
+    tree = ast.parse(src.read_text())
+
+    def group_ints(node):
+        out = set()
+        for n in ast.walk(node):
+            if not (isinstance(n, ast.Call) and getattr(n.func, "id", "") == "int"):
+                continue
+            # int(...) whose argument mentions a regex group is a captured
+            # string; int(some_float) is not what this is about.
+            if any(isinstance(c, ast.Attribute) and c.attr == "group" for c in ast.walk(n)):
+                out.add(n.lineno)
+        return out
+
+    inside = {
+        line
+        for f in ast.walk(tree)
+        if isinstance(f, ast.FunctionDef) and f.name in {"_digits", "_latency", "_service_time"}
+        for line in group_ints(f)
+    }
+    stray = sorted(group_ints(tree) - inside)
+    assert not stray, f"int() on a capture outside _digits at intent.py:{stray}"
 
 
 @pytest.mark.parametrize(
