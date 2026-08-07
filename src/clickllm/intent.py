@@ -451,7 +451,39 @@ def _people(text: str) -> tuple[int, str] | None:
     if not m:
         return None
     n = int(m.group(1).replace(",", ""))
-    return max(1, round(n / 5)), m.group(0)
+    if n > _SANE_MAX:  # before the divide: 10**300 / 5 raises OverflowError
+        return None
+    whole = _whole(n / 5)
+    return (whole, m.group(0)) if whole else None
+
+
+#: Beyond this, a number is not an answer. A billion requests in flight, or a
+#: latency budget of eleven days, is a typo or an adversarial input — and both
+#: are better as the question than as a claim. It also keeps arbitrary-precision
+#: integers away from float arithmetic: `10**300 / 5` raises OverflowError.
+_SANE_MAX = 10**9
+
+
+def _whole(n: float | int) -> int | None:
+    """A usable whole number, or None — the ONE place this module converts.
+
+    Guarding the inputs was not enough three times running: the overflow is
+    created by the arithmetic between the check and the conversion, so
+    `math.isfinite` on the operands says nothing about the product. Every
+    `round`/`ceil` in this file now happens here, and a test asserts that.
+
+    Ceiling, not round(): banker's rounding sent 16.5 to 16, and rounding a
+    concurrency up reserves more KV, which is the conservative direction for a
+    sizing tool.
+    """
+    # NaN first, because the bound cannot see it: every comparison with NaN is
+    # False, so `n > _SANE_MAX` waves it through to ceil(), which raises.
+    # Infinity is caught by either, and is caught here.
+    if isinstance(n, float) and not math.isfinite(n):
+        return None
+    if n > _SANE_MAX:
+        return None
+    return max(1, math.ceil(n))
 
 
 def _explicit_concurrency(text: str) -> tuple[int, str] | None:
@@ -462,7 +494,8 @@ def _explicit_concurrency(text: str) -> tuple[int, str] | None:
     )
     if not m:
         return None
-    return max(1, int(m.group(1).replace(",", ""))), m.group(0)
+    whole = _whole(int(m.group(1).replace(",", "")))
+    return (whole, m.group(0)) if whole else None
 
 
 def _rate_per_second(text: str) -> tuple[float, str] | None:
@@ -523,12 +556,11 @@ def _service_time(text: str) -> tuple[int, str] | None:
     if not m:
         return None
     n = float(m.group(1) or m.group(3))
-    if not math.isfinite(n):
-        return None
     unit = (m.group(2) or m.group(4)).rstrip("s")
     per_ms = {"m": 60_000, "min": 60_000, "minute": 60_000, "s": 1000, "sec": 1000, "second": 1000}
     ms = n if unit.startswith("m") and unit not in ("min", "minute") else n * per_ms.get(unit, 1000)
-    return max(1, round(ms)), m.group(0)
+    whole = _whole(ms)
+    return (whole, m.group(0)) if whole else None
 
 
 def _little(rate_per_second: float, service_ms: int) -> int | None:
@@ -543,8 +575,7 @@ def _little(rate_per_second: float, service_ms: int) -> int | None:
     concurrency reserves more KV, which is the conservative direction for a
     sizing tool.
     """
-    n = rate_per_second * service_ms / 1000
-    return max(1, math.ceil(n)) if math.isfinite(n) else None
+    return _whole(rate_per_second * service_ms / 1000)
 
 
 def _latency(text: str) -> tuple[int, str] | None:
@@ -556,8 +587,8 @@ def _latency(text: str) -> tuple[int, str] | None:
     if not m:
         return None
     value = float(m.group(1))
-    ms = int(value if m.group(2).startswith("m") else value * 1000)
-    return ms, m.group(0)
+    ms = _whole(value if m.group(2).startswith("m") else value * 1000)
+    return (ms, m.group(0)) if ms else None
 
 
 def _context(text: str) -> tuple[int, str] | None:
@@ -599,7 +630,20 @@ def read(text: str) -> Intent:
     # captured traffic for 2 million customers" states a backlog AND who it is
     # for, and only the second volume is the audience. Suppressing on any
     # served phrase anywhere lost the first one.
-    served = [m.span() for m in _SERVED_AUDIENCE.finditer(low)]
+    # A stated REALTIME mode outranks the inference. Only realtime: those words
+    # ("voice", "real-time", "speech", "phone") describe the service and
+    # nothing else, so "voice scoring 5000 calls under 200ms" is a voice
+    # product. The INTERACTIVE words do not get this, because they double as
+    # descriptions of the ITEMS — "chat transcripts", "customer tickets",
+    # "agent logs" — and giving it to them made those backlogs interactive.
+    #
+    # This only disables _BULK_VOLUME. The signal table still checks BATCH
+    # first, so "score 4 million tickets overnight, real-time dashboards after"
+    # is still batch on "overnight".
+    if _find(low, _WORKLOAD_SIGNALS[1][1]) is not None:
+        served = [(0, len(low))]
+    else:
+        served = [m.span() for m in _SERVED_AUDIENCE.finditer(low)]
     bulk = next(
         (
             m
@@ -770,6 +814,15 @@ def demo() -> None:
     assert i.requirements.workload is Workload.INTERACTIVE
     assert i.requirements.concurrency == 4, i.requirements.concurrency
     assert any("20 engineers" in x.evidence for x in i.inferred)
+
+    # Past _SANE_MAX a number is a question, not a claim. The literal is
+    # deliberate: written as `_SANE_MAX + 1` this check would move with the
+    # constant and notice nothing, which is the shape the demo ratchet exists
+    # to catch.
+    over = read("2000000000 concurrent")
+    assert over.requirements.concurrency == 4, over.requirements.concurrency
+    assert "concurrency" in {q.field for q in over.questions}
+    assert read("900000000 concurrent").requirements.concurrency == 900_000_000
 
     # Batch beats a careless adjective: "real-time" here modifies the data, and
     # the work is plainly a backlog.

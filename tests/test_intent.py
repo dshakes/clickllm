@@ -9,9 +9,11 @@ a near miss; it is the field lying about its own contents.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
-from clickllm.intent import read
+from clickllm.intent import _SANE_MAX, _whole, read
 from clickllm.plan import Workload
 
 
@@ -143,6 +145,14 @@ WORKLOADS = [
     # ...unless the noun carries a denominator. A rate whose unit happens to
     # be a work item is still a rate.
     (Workload.REALTIME, "realtime classify 2 million events/sec under 200ms"),
+    # A stated REALTIME mode outranks the inference. Those words describe the
+    # service and nothing else; the INTERACTIVE ones double as descriptions of
+    # the items ("chat transcripts"), which is why they do not get this.
+    (Workload.REALTIME, "voice scoring 5000 calls under 200ms"),
+    (Workload.REALTIME, "real-time scoring for 5000 accounts under 200ms"),
+    (Workload.REALTIME, "realtime classification API for 5000 accounts under 200ms"),
+    # ...and the table still checks BATCH first, so this stays batch.
+    (Workload.BATCH, "score 4 million support tickets overnight, real-time dashboards after"),
     (Workload.INTERACTIVE, "handle 2 million messages per second"),
     # Items named by an interactive-sounding word are still items.
     (Workload.BATCH, "score 4 million chat transcripts"),
@@ -350,3 +360,71 @@ def test_a_number_no_float_can_hold_returns_an_intent_rather_than_raising(text):
     i = read(text)
     assert i.requirements.concurrency >= 1
     assert "concurrency" in {q.field for q in i.questions}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "10 qps, each request takes " + "9" * 307 + " seconds",  # ms overflows
+        "chat, respond within " + "9" * 307 + " seconds",
+        "9" * 300 + " users",  # int/5 raises before it can be rounded
+        "9" * 300 + " concurrent",
+        "9" * 400 + " qps, each request takes 1 second",
+        "9" * 300 + " billion qps, each request takes 1 second",
+    ],
+)
+def test_no_number_can_make_read_raise(text):
+    # Guarding the inputs was not enough three times running: the overflow is
+    # created by the arithmetic BETWEEN the check and the conversion. read()
+    # must always return an Intent — a traceback is the one thing it may not
+    # do — so an unusable number becomes the question instead.
+    i = read(text)
+    assert 1 <= i.requirements.concurrency <= 10**9
+    assert i.requirements.ttft_ms is None or i.requirements.ttft_ms <= 10**9
+
+
+def test_every_rounding_in_this_module_goes_through_the_one_guarded_helper():
+    # The structural version of the three fixes above, and the same check
+    # k8s/nodes.py carries for float(): a conversion added outside _whole is
+    # the fourth overflow waiting to be found by an input rather than a review.
+    import ast
+
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/intent.py"
+    tree = ast.parse(src.read_text())
+
+    def rounds(node):
+        out = set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Call):
+                name = getattr(n.func, "id", "") or getattr(n.func, "attr", "")
+                if name in {"round", "ceil"}:
+                    out.add(n.lineno)
+        return out
+
+    inside = {
+        line
+        for f in ast.walk(tree)
+        if isinstance(f, ast.FunctionDef) and f.name == "_whole"
+        for line in rounds(f)
+    }
+    stray = sorted(rounds(tree) - inside)
+    assert not stray, f"round()/ceil() outside _whole at intent.py:{stray}"
+
+
+@pytest.mark.parametrize(
+    ("value", "want"),
+    [
+        (float("nan"), None),  # the bound cannot see this: NaN > x is False
+        (float("inf"), None),
+        (float("-inf"), None),
+        (10**300, None),  # past the bound, so a question rather than a claim
+        (_SANE_MAX + 1, None),
+        (_SANE_MAX, _SANE_MAX),
+        (16.5, 17),  # ceiling: banker's rounding sent this to 16
+        (0.5, 1),
+        (-3, 1),
+        (0, 1),
+    ],
+)
+def test_the_one_conversion_helper(value, want):
+    assert _whole(value) == want
