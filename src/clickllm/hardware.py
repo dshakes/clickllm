@@ -7,6 +7,7 @@ hw.memsize — is the real ceiling.
 
 from __future__ import annotations
 
+import json
 import platform
 import re
 import shutil
@@ -21,6 +22,18 @@ GB = 1024**3
 # Memory bandwidth (GB/s) per Apple chip. Decode is bandwidth-bound, so this
 # drives the tok/s roofline. Apple exposes no sysctl for it — hence the table.
 # ponytail: lookup table, replace with a measured microbenchmark if estimates drift.
+#: Chips Apple ships in more than one memory-bandwidth bin, keyed to the LOW
+#: one. `machdep.cpu.brand_string` returns "M3 Max" for both the 30-core-GPU
+#: part at 300 GB/s and the 40-core part at 400, so detection cannot tell them
+#: apart — and the table used to carry only the top bin, overstating the
+#: roofline by up to 33% on the base SKU, in the flattering direction.
+#:
+#: The low bin is the honest default for a projection someone plans against,
+#: and `note` says which chips are ambiguous rather than leaving the number
+#: looking exact. Same rule as everywhere else here: a figure that could be
+#: wrong says so.
+APPLE_BINNED = {"M3 Max": (300, 400), "M4 Max": (410, 546)}
+
 APPLE_BANDWIDTH = {
     "M1": 68,
     "M1 Pro": 200,
@@ -32,11 +45,11 @@ APPLE_BANDWIDTH = {
     "M2 Ultra": 800,
     "M3": 100,
     "M3 Pro": 150,
-    "M3 Max": 400,
+    "M3 Max": 300,  # 30-core GPU; the 40-core part is 400 — see APPLE_BINNED
     "M3 Ultra": 800,
     "M4": 120,
     "M4 Pro": 273,
-    "M4 Max": 546,
+    "M4 Max": 410,  # 32-core GPU; the 40-core part is 546 — see APPLE_BINNED
     "M5": 153,
     "M5 Pro": 344,
     "M5 Max": 688,
@@ -122,7 +135,14 @@ def _detect_apple() -> Hardware | None:
         usable_bytes=usable,
         bandwidth_gbps=APPLE_BANDWIDTH.get(chip),
         cores=cores,
-        note=note,
+        note=note
+        + (
+            f"; {chip} ships in two bandwidth bins ({'/'.join(map(str, APPLE_BINNED[chip]))} "
+            f"GB/s) and the brand string cannot tell them apart — the lower is "
+            f"assumed, so a roofline here understates rather than flatters"
+            if chip in APPLE_BINNED
+            else ""
+        ),
     )
 
 
@@ -183,6 +203,93 @@ def _detect_nvidia() -> Hardware | None:
     )
 
 
+def _detect_amd() -> Hardware | None:
+    """AMD GPUs via `rocm-smi`, or None.
+
+    "amd" is a declared `Kind`, `hardware_catalog` carries an MI300X profile,
+    and `box.py` emits `amd.com/gpu` and a `rocm/vllm` image — every downstream
+    piece expects these to be detectable, and nothing detected them. A ROCm box
+    reported as CPU-only, which sizes a 192 GB accelerator against host RAM.
+
+    `--showmeminfo vram --json` is the stable machine-readable surface; the
+    human table has been reformatted repeatedly across ROCm releases. Anything
+    unexpected returns None rather than a guess: this file's contract is that a
+    number it reports is one it read.
+    """
+    smi = shutil.which("rocm-smi") or shutil.which("amd-smi")
+    if not smi:
+        return None
+    try:
+        out = subprocess.run(
+            [smi, "--showmeminfo", "vram", "--showproductname", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+        cards = json.loads(out)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return None
+    if not isinstance(cards, dict):
+        return None
+
+    sizes: list[int] = []
+    names: list[str] = []
+    for card in cards.values():
+        if not isinstance(card, dict):
+            continue
+        # Key spelling has moved between ROCm versions; match on shape.
+        total = next(
+            (v for k, v in card.items() if "vram" in k.lower() and "total" in k.lower()), None
+        )
+        if total is None:
+            continue
+        try:
+            sizes.append(int(str(total).strip()))
+        except ValueError:
+            return None  # a VRAM figure we cannot read is not a VRAM figure
+        # rocm-smi says "Card Series", amd-smi says "market_name", older
+        # builds said "Card model". Matched on shape rather than on the one
+        # spelling I happened to look at — the first version of this checked
+        # only "product name" and named every card "AMD GPU".
+        names.append(
+            str(
+                next(
+                    (
+                        v
+                        for k, v in card.items()
+                        if any(t in k.lower() for t in ("series", "market", "product", "model"))
+                    ),
+                    "AMD GPU",
+                )
+            ).strip()
+        )
+    if not sizes:
+        return None
+
+    total_bytes = sum(sizes)
+    mixed = len(set(names)) > 1
+    name = names[0] if not mixed else f"{names[0]} + {len(names) - 1} other(s)"
+    return Hardware(
+        kind="amd",
+        name=name,
+        total_bytes=total_bytes,
+        # Same reservation as the NVIDIA path: vLLM's default on ROCm too.
+        usable_bytes=int(total_bytes * 0.90),
+        bandwidth_gbps=None,
+        cores=0,
+        devices=len(sizes),
+        note="assumes gpu-memory-utilization=0.90"
+        + (f"; {len(sizes)}× {name} — tensor parallelism required" if len(sizes) > 1 else "")
+        + (
+            f"; MIXED cards ({', '.join(sorted(set(names)))}) — a sharded model is "
+            f"bounded by the smallest at {min(sizes) / 1024**3:.0f} GiB"
+            if mixed
+            else ""
+        ),
+    )
+
+
 def _detect_cpu() -> Hardware:
     total = 0
     if platform.system() == "Darwin":
@@ -210,8 +317,8 @@ def _detect_cpu() -> Hardware:
 
 
 def detect() -> Hardware:
-    """First accelerator found wins: Apple > NVIDIA > CPU."""
-    return _detect_apple() or _detect_nvidia() or _detect_cpu()
+    """First accelerator found wins: Apple > NVIDIA > AMD > CPU."""
+    return _detect_apple() or _detect_nvidia() or _detect_amd() or _detect_cpu()
 
 
 def demo() -> None:
