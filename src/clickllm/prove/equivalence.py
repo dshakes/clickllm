@@ -42,6 +42,26 @@ from .stats import (
 DEFAULT_EQUIVALENCE_BAR = 0.90
 
 
+def check_share(share: float, *, cluster: str = "") -> None:
+    """Refuse a value that is not a fraction of traffic.
+
+    One home for the rule, because it has to be applied in two places that
+    cannot substitute for each other: on `ClusterScore`, which every report is
+    built from, and over the raw `shares` map in `run()`, because a share whose
+    cluster has no eval items never becomes a `ClusterScore` at all.
+
+    Raises:
+        ValueError: naming the offending value, and the cluster when known.
+    """
+    where = f" for {cluster}" if cluster else ""
+    # Finiteness first: NaN fails every ordering comparison, so checking the
+    # range first would let it through as "not out of range".
+    if not math.isfinite(share):
+        raise ValueError(f"traffic share must be a finite number{where}, got {share!r}")
+    if not 0.0 <= share <= 1.0:
+        raise ValueError(f"traffic share must be a fraction of traffic{where}, got {share}")
+
+
 @dataclass(frozen=True, slots=True)
 class ClusterScore:
     """One candidate's standing on one task cluster."""
@@ -71,14 +91,13 @@ class ClusterScore:
         `movable_share()` sums them raw without ever calling a weighted
         function. `{"good": 10.0}` produced a policy reading **"Move 900% of
         traffic to candidate"**, and a NaN share was carried into the receipt
-        as `nan`. The check belongs on the value that reaches the arithmetic,
-        which is this field, so every construction path is covered rather than
-        the one the report happened to take.
+        as `nan`. So the check belongs here, where every construction path goes.
+
+        It is not sufficient on its own — a share whose cluster has no eval
+        items never becomes a `ClusterScore` at all. `run()` therefore calls
+        `check_share` over the raw map as well; see the note there.
         """
-        if not math.isfinite(self.share):
-            raise ValueError(f"traffic share must be a finite number, got {self.share!r}")
-        if not 0.0 <= self.share <= 1.0:
-            raise ValueError(f"traffic share must be a fraction of traffic, got {self.share}")
+        check_share(self.share, cluster=self.cluster)
 
     @property
     def known(self) -> bool:

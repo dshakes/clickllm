@@ -200,3 +200,38 @@ def test_the_product_entrypoint_refuses_over_allocated_shares():
     items += [EvalItem(f"b{i}", "b", f"q{i}", '{"x":1}', '{"x":1}') for i in range(120)]
     with pytest.raises(ValueError, match="exceed all of the traffic"):
         suite(items, shares={"a": 0.9, "b": 0.9}, issued="2026-08-07")
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -0.5, 2.0])
+def test_an_impossible_share_is_refused_even_when_its_cluster_has_no_items(bad):
+    # The gap the type-level guard could not close. `ClusterScore` validates
+    # its own field, but a share whose cluster has no eval items never becomes
+    # a ClusterScore: `_uncovered` keeps only `share > 0`, and NaN and
+    # negatives both fail that test, so the value was dropped rather than
+    # refused. `run()` therefore checks the raw map before anything filters.
+    from clickllm.prove import suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
+    with pytest.raises(ValueError, match="traffic share"):
+        suite(items, shares={"covered": 1.0, "uncovered": bad}, issued="2026-08-07")
+
+
+def test_the_offending_cluster_is_named():
+    from clickllm.prove import run
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem("i0", "covered", "p", '{"a":1}', '{"a":1}')]
+    with pytest.raises(ValueError, match="deprecated"):
+        run(items, shares={"covered": 1.0, "deprecated": float("nan")})
+
+
+def test_a_valid_share_map_with_an_uncovered_cluster_still_works():
+    # The guard must not fire on the case the previous commit added support
+    # for: a legitimate positive share the eval set never covered.
+    from clickllm.prove import run
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
+    m = run(items, shares={"covered": 0.7, "gap": 0.3})
+    assert [c.cluster for c in m.candidates[0].clusters] == ["covered", "gap"]
