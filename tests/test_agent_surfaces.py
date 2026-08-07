@@ -121,3 +121,39 @@ def test_a_lower_but_legitimate_bar_is_still_allowed():
     # The guard must refuse the degenerate values without deciding policy: 0.5
     # is a choice somebody can defend, and this has no business blocking it.
     assert _regressed_matrix(0.5).bar == 0.5
+
+
+def test_the_receipt_cannot_be_issued_with_a_degenerate_bar():
+    # `issue()` takes `bar` directly and never builds a Matrix, so guarding
+    # only the Matrix left the *receipt* — the portable proof artifact, the one
+    # thing designed to be handed to someone who does not trust us — issuable
+    # at bar=0.0, rendering "Proven at or above the 0% bar" over a 41/80
+    # regression with movable_share 1.0.
+    from clickllm.prove import issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    for bar in (0.0, -1.0, 1.0, 2.0):
+        with pytest.raises(ValueError, match="equivalence bar"):
+            issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=bar)
+
+
+def test_a_real_bar_still_issues_a_receipt_that_names_the_regression():
+    from clickllm.prove import issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    r = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    assert [c.cluster for c in r.regret] == ["x"]
+    assert r.movable_share == 0
+
+
+def test_the_mcp_schema_advertises_the_bounds_the_code_enforces():
+    # A schema-valid call that the runtime refuses is worse than one the client
+    # could have rejected itself. The schema said minimum/maximum 0 and 1 while
+    # the guard rejects both endpoints.
+    from clickllm.mcp import TOOLS
+
+    _, schema = TOOLS["clickllm_prove"]
+    bar = schema["inputSchema"]["properties"]["bar"]
+    assert bar.get("exclusiveMinimum") == 0
+    assert bar.get("exclusiveMaximum") == 1
+    assert "minimum" not in bar and "maximum" not in bar

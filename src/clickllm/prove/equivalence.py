@@ -42,6 +42,33 @@ from .stats import (
 DEFAULT_EQUIVALENCE_BAR = 0.90
 
 
+def check_bar(bar: float) -> None:
+    """Refuse a threshold that is not an equivalence bar.
+
+    `clearly_above(bar)` is `interval.low > bar`, so a bar at or below zero
+    holds for essentially any interval: a cluster scoring 41/80 reads
+    `equivalent`, `movable_share` says move everything, and the artifact a human
+    uses to authorise a cutover says a clearly-regressed candidate holds
+    (invariant 8). The MCP schema advertises bounds, but a JSON Schema is
+    advisory and nothing enforced it.
+
+    One home, because `bar` reaches two places that do not go through each
+    other: `Matrix`, which every report is assembled in, and `issue()`, which
+    takes it directly and never builds a Matrix — so guarding only the first
+    left the *receipt* — the portable proof artifact — issuable at `bar=0.0`,
+    rendering "Proven at or above the 0% bar" over a regression.
+
+    Open interval, matching how `family_wise_z` treats `alpha`: 0 admits
+    everything and 1 admits nothing, and neither is a threshold anyone meant to
+    set.
+
+    Raises:
+        ValueError: naming the offending value.
+    """
+    if not 0.0 < bar < 1.0:
+        raise ValueError(f"equivalence bar must be between 0 and 1, exclusive, got {bar}")
+
+
 def check_share(share: float, *, cluster: str = "") -> None:
     """Refuse a value that is not a fraction of traffic.
 
@@ -329,26 +356,7 @@ class Matrix:
     calibration: Calibration | None = None
 
     def __post_init__(self) -> None:
-        """Refuse a bar that is not an equivalence threshold.
-
-        `clearly_above(bar)` is `interval.low > bar`, so a bar at or below zero
-        is true for essentially any interval: a cluster scoring 51% reads
-        `equivalent`, `movable_share` says move everything, and the report a
-        human uses to authorise a cutover says a clearly-regressed candidate
-        holds. The MCP schema advertises `minimum: 0, maximum: 1`, but a JSON
-        Schema is advisory — nothing enforced it, and this is the one tool whose
-        output exists to justify moving production traffic (invariant 8).
-
-        Checked here rather than at the MCP boundary for the reason ADR-0011
-        gives: the constraint belongs to the thing it protects, and `bar`
-        reaches this object from the CLI, the SDK and the MCP server alike.
-
-        Open interval, matching `family_wise_z`'s treatment of `alpha`: a bar of
-        0 admits everything and a bar of 1 admits nothing, and neither is a
-        threshold somebody meant to set.
-        """
-        if not 0.0 < self.bar < 1.0:
-            raise ValueError(f"equivalence bar must be between 0 and 1, exclusive, got {self.bar}")
+        check_bar(self.bar)
 
     @property
     def judge_trustworthy(self) -> bool:

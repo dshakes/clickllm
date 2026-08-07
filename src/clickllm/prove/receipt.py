@@ -45,6 +45,7 @@ from clickllm.prove.equivalence import (
     DEFAULT_EQUIVALENCE_BAR,
     CandidateReport,
     ClusterScore,
+    check_bar,
 )
 from clickllm.prove.graders import EvalItem
 from clickllm.prove.judge import Agreement, Calibration
@@ -341,7 +342,15 @@ def issue(
     Every cluster lands in exactly one of proven / regret / unproven — the
     partition is total, so a cluster cannot be quietly dropped on its way into
     the document.
+
+    Raises:
+        ValueError: if `bar` is not a threshold. Guarded here as well as on
+            `Matrix`, because this function takes `bar` directly and never
+            builds one — so a receipt, the portable proof artifact, was
+            issuable at `bar=0.0` and rendered "Proven at or above the 0% bar"
+            over a 41/80 regression while `Matrix` refused the same value.
     """
+    check_bar(bar)
     proven, regret, unproven = [], [], []
     for s in report.clusters:
         claim = Claim.of(s, bar)
