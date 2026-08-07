@@ -10,7 +10,9 @@ Two properties matter more than cleverness here:
    and long tails are where a candidate model actually diverges.
 
 Small clusters are surfaced, never silently dropped — a 12-request cluster may be
-the one that blocks the migration.
+the one that blocks the migration. "Never silently" is the operative word: a
+budget too small to cover every cluster is a real situation and sampling says so
+in the report rather than quietly returning an eval set with holes in it.
 """
 
 from __future__ import annotations
@@ -68,6 +70,15 @@ class SampleReport:
     sampled: dict[str, list[Capture]]
     total_captures: int
     small_clusters: tuple[str, ...]
+    #: The per-cluster minimum sampling actually achieved. Lower than the
+    #: requested ``min_per_cluster`` when the budget could not cover every
+    #: cluster at that rate, which is a fact about the eval set a caller has to
+    #: be able to see.
+    floor_applied: int = 0
+    #: Clusters that received no samples at all. A cluster sampled to nothing
+    #: still has a key in ``sampled``, so ``key in report.sampled`` reads as
+    #: covered — this is the field that says otherwise.
+    uncovered: tuple[str, ...] = ()
 
     @property
     def total_sampled(self) -> int:
@@ -116,27 +127,49 @@ def sample(
 ) -> SampleReport:
     """Allocate a sampling budget across clusters, weighted by traffic share.
 
-    Every cluster gets at least ``min_per_cluster`` so a small-but-critical
-    cluster is never sampled to nothing; the rest is distributed by share.
+    Every cluster gets at least ``min_per_cluster`` where the budget allows it.
+    It does not always allow it — ``min_per_cluster`` across every cluster can
+    simply exceed ``budget`` — and the guarantee is then arithmetically
+    impossible rather than merely unmet. What is not acceptable is breaking it
+    silently: ``floor_applied`` reports the minimum actually achieved and
+    ``uncovered`` names every cluster that got nothing, because a cluster
+    sampled to zero still has a key in ``sampled`` and reads as covered.
     """
     if budget < 0:
         raise ValueError(f"budget must be >= 0, got {budget}")
     total = sum(c.size for c in clusters)
     if not clusters or total == 0:
-        return SampleReport({}, 0, ())
+        return SampleReport({}, 0, (), 0, ())
 
-    floor = min(min_per_cluster, budget // max(len(clusters), 1))
-    remaining = max(budget - floor * len(clusters), 0)
+    n = len(clusters)
+    floor = min(min_per_cluster, budget // n)
+    remaining = budget - floor * n
+
+    # Largest-remainder apportionment. Truncating each cluster's share
+    # independently throws every fraction away, and with many clusters that is
+    # not rounding noise but the entire budget: 250 clusters each holding
+    # 1/250th of traffic truncate to zero apiece and spend none of it. Handing
+    # the leftover units to the largest remainders spends the budget exactly.
+    exact = [remaining * c.share_of(total) for c in clusters]
+    extra = [int(e) for e in exact]
+    left = remaining - sum(extra)
+    if left > 0:
+        # Ties break on the cluster key, so the allocation is reproducible for
+        # the same reason the clustering itself is.
+        by_remainder = sorted(range(n), key=lambda i: (-(exact[i] - extra[i]), clusters[i].key))
+        for i in by_remainder[:left]:
+            extra[i] += 1
 
     sampled: dict[str, list[Capture]] = {}
-    for c in clusters:
-        want = floor + int(remaining * c.share_of(total))
-        sampled[c.key] = sample_cluster(c.captures, min(want, c.size))
+    for c, e in zip(clusters, extra, strict=True):
+        sampled[c.key] = sample_cluster(c.captures, min(floor + e, c.size))
 
     return SampleReport(
         sampled=sampled,
         total_captures=total,
         small_clusters=tuple(c.key for c in clusters if c.size < MIN_CLUSTER_SIZE),
+        floor_applied=floor,
+        uncovered=tuple(c.key for c in clusters if not sampled[c.key]),
     )
 
 
@@ -175,6 +208,21 @@ def demo() -> None:
     assert rep.total_sampled <= 30
     assert all(len(v) >= 1 for v in rep.sampled.values()), "no cluster sampled to nothing"
     assert cs[-1].key in rep.small_clusters, "a 3-capture cluster must be flagged"
+    assert rep.floor_applied == 3 and rep.uncovered == (), "this budget covers everything"
+
+    # The regime the parameters above cannot reach: more clusters than the
+    # budget can seat, where the floor collapses. `budget=30` over 3 clusters
+    # can never get there, so the "no cluster sampled to nothing" assertion
+    # above is real but structurally unable to fail.
+    many = cluster([cap(1000 + i, f"task-{i // 5}", "y" * (i % 7 + 1)) for i in range(60)])
+    assert len(many) == 12, len(many)
+    tight = sample(many, budget=8, min_per_cluster=3)
+    assert tight.total_sampled == 8, tight.total_sampled
+    assert tight.floor_applied == 0, "the floor was not affordable and must say so"
+    assert set(tight.uncovered) == {k for k, v in tight.sampled.items() if not v}, (
+        "every cluster sampled to nothing must be named in `uncovered`"
+    )
+    assert tight.uncovered, "a budget of 8 across 12 clusters cannot cover them all"
 
     # Sampling spans the length range rather than clumping.
     picked = rep.sampled[cs[0].key]
