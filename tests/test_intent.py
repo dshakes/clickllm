@@ -162,6 +162,13 @@ WORKLOADS = [
     # is right in front of one.
     (Workload.BATCH, "score 4 million support tickets, realtime dashboard after"),
     (Workload.REALTIME, "voice bot scoring 5000 calls under 200ms"),
+    # Three words of reach, counted in words. Twelve characters stopped inside
+    # this one and made a voice product a batch job.
+    (Workload.REALTIME, "real-time support bot scoring 5000 calls under 200ms"),
+    # Ordinary backlog wording the verb and noun lists had missed.
+    (Workload.BATCH, "review 2 million invoices"),
+    (Workload.BATCH, "analyze 2 million invoices"),
+    (Workload.BATCH, "millions of invoices to review"),
     (Workload.INTERACTIVE, "handle 2 million messages per second"),
     # Items named by an interactive-sounding word are still items.
     (Workload.BATCH, "score 4 million chat transcripts"),

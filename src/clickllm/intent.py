@@ -221,9 +221,9 @@ _STRUCTURED_SIGNALS = (
 #: "gradual" and "gradient".
 _BULK_VERB = (
     r"(?:scor|grad|translat|transcrib|annotat|rewrit|summaris|summariz|categoris"
-    r"|categoriz)(?:e|es|ed|ing)"
+    r"|categoriz|analys|analyz)(?:e|es|ed|ing)"
     r"|classif\w*"
-    r"|(?:label|tag|rank|process|extract|embed|index|eval)\w*"
+    r"|(?:label|tag|rank|process|extract|embed|index|eval|review|audit|inspect|verify|triage)\w*"
 )
 
 #: Nouns that make a number something other than a backlog: an audience, or a
@@ -352,14 +352,20 @@ _VOLUME = (
 _EXACT = frozenset({"rag", "phone"})
 
 #: How far a realtime word reaches forward to govern a verb: "voice scoring",
-#: "real-time scoring", "voice bot scoring". Two words, not the sentence.
-_GOVERNS = 12
+#: "real-time support bot scoring". Counted in WORDS, which is what this
+#: comment always said — implemented as 12 characters it stopped inside
+#: "real-time support bot scoring 5000 calls", a voice product, and made it a
+#: batch job. The window is part of the pattern now, so the number and the
+#: unit cannot disagree again.
+_GOVERNS_WORDS = 3
 
 _REALTIME_PHRASE = re.compile(
-    "|".join(
+    "(?:"
+    + "|".join(
         rf"\b{re.escape(w)}\b" if w in _EXACT else rf"\b{re.escape(w)}"
         for w in _WORKLOAD_SIGNALS[1][1]
     )
+    + rf")(?:\s+\w+){{0,{_GOVERNS_WORDS}}}"
 )
 
 _SERVED_AUDIENCE = re.compile(
@@ -388,6 +394,7 @@ _PHRASE_END = (
 #: Plural, for the reason _AUDIENCE is: a singular noun here is a modifier.
 _BACKLOG_NOUN = (
     r"(?:tickets|documents|docs|records|rows|messages|emails|transcripts|prompts"
+    r"|invoices|orders|claims|receipts|transactions|cases|reports|forms"
     r"|conversations|items|files|images|photos|articles|reviews|logs|events"
     r"|pages|posts|comments|chunks|entries|samples|examples|labels|pairs"
     r"|utterances|snippets|abstracts|papers|listings|products|sessions)"
@@ -679,7 +686,7 @@ def read(text: str) -> Intent:
     # dashboard after", where the realtime phrase is a different clause about a
     # different thing. Same scoping mistake as the sentence-wide served-audience
     # guard two commits ago, so the same fix: a span, not a flag.
-    served += [(rt.start(), rt.end() + _GOVERNS) for rt in _REALTIME_PHRASE.finditer(low)]
+    served += [rt.span() for rt in _REALTIME_PHRASE.finditer(low)]
     bulk = next(
         (
             m
