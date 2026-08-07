@@ -185,3 +185,35 @@ def test_full_coverage_prints_no_coverage_caveat():
     text = m.render()
     assert "never measured" not in text
     assert "weighted of" not in text
+
+
+def test_a_capture_count_is_not_invented_for_traffic_the_eval_set_never_saw():
+    # `len(items)` stands in for the capture count, and it stops standing for
+    # anything once `shares` names a cluster with no items: every item comes
+    # from the covered clusters, so "drawn from 45 captured requests" would
+    # attribute the whole traffic distribution to a sample that never saw part
+    # of it. The receipt is the proof artifact; fabricated provenance in it is
+    # worse than none.
+    items = [EvalItem(f"i{i}", "covered", f"p-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)]
+    r = suite(items, shares={"covered": 0.7, "gap": 0.3}, issued="2026-08-07")
+    assert r.receipt.traffic_captures == 0
+    assert "captured requests" not in r.receipt.render()
+    # ...and the gap itself is still disclosed, which is the point.
+    assert "gap" in [c.cluster for c in r.receipt.unproven]
+
+
+def test_a_capture_count_is_still_defaulted_when_the_shares_are_covered():
+    items = [EvalItem(f"i{i}", "covered", f"p-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)]
+    r = suite(items, shares={"covered": 1.0}, issued="2026-08-07")
+    assert r.receipt.traffic_captures == 45
+    assert "Drawn from 45 captured requests" in r.receipt.render()
+
+
+def test_an_explicit_capture_count_is_honoured_over_the_gap_rule():
+    # The caller knows the real number; this must not second-guess it.
+    items = [EvalItem(f"i{i}", "covered", f"p-{i}", '{"a": 1}', '{"a": 1}') for i in range(45)]
+    r = suite(
+        items, shares={"covered": 0.7, "gap": 0.3}, issued="2026-08-07", traffic_captures=12_400
+    )
+    assert r.receipt.traffic_captures == 12_400
+    assert "Drawn from 12400 captured requests" in r.receipt.render()

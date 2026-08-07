@@ -375,6 +375,17 @@ def suite(
             f"{', '.join(sorted(shares)) or 'nothing'}. The eval set and the "
             f"share map describe different clusters."
         )
+    # `len(items)` stands in for the capture count, and it stops standing for
+    # anything once `shares` names traffic the eval set never covered: every
+    # item comes from the clusters that *were* covered, so "drawn from 45
+    # captured requests" would attribute the whole traffic distribution to a
+    # sample that never saw part of it. The receipt is the proof artifact, and
+    # fabricated provenance in it is worse than none — so the default is
+    # withheld and the line simply does not print. An explicit
+    # `traffic_captures` is still honoured: the caller knows the real number
+    # and this cannot second-guess it.
+    uncovered = set(shares) - {i.cluster for i in items}
+    captures = traffic_captures or (0 if uncovered else len(items))
     return SuiteResult(
         matrix=matrix,
         receipt=issue(
@@ -385,7 +396,7 @@ def suite(
             bar=bar,
             agreement=agreement,
             calibration=matrix.calibration,
-            traffic_captures=traffic_captures or len(items),
+            traffic_captures=captures,
             traffic_window=traffic_window,
             redacted=redacted,
             fingerprints=fingerprints,
