@@ -484,6 +484,16 @@ class HostOption:
                 f"    ~{f.tokens_per_sec:.0f} tok/s   (roofline estimate, not measured)"
                 + (f"   ~{_usd(self.usd_per_mtok, '/Mtok')}" if self.usd_per_mtok else "")
             )
+        # This row is printed beside hosted providers' per-token prices, so a
+        # self-hosting figure that is the optimistic end of a band has to say so
+        # here rather than only in `fit --explain`. That is the comparison the
+        # whole product turns on.
+        spread = self.placement.moe_batch_optimism
+        if spread and spread > 1.0:
+            lines.append(
+                f"    MoE: weight read held at the active count — optimistic end of a"
+                f" band up to {spread:.1f}x wide at this batch"
+            )
         lines.append(f"    cold start: {self.provider.cold_start}")
         if self.provider.free:
             lines += [f"    free tier: {self.provider.free.what}"]
@@ -1393,6 +1403,11 @@ def to_dict(s: Survey) -> dict:
                 "tokens_per_sec": round(o.fit.tokens_per_sec) if o.fit.tokens_per_sec else None,
                 "usd_per_hour": o.usd_per_hour,
                 "usd_per_mtok": round(o.usd_per_mtok, 2) if o.usd_per_mtok is not None else None,
+                "moe_batch_optimism": (
+                    round(o.placement.moe_batch_optimism, 1)
+                    if o.placement.moe_batch_optimism
+                    else None
+                ),
                 "free": o.free,
                 "price_source": o.provider.source,
                 "price_checked": o.provider.checked,

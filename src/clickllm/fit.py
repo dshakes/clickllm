@@ -337,6 +337,19 @@ class Placement:
         return self.fit.tokens_per_sec if self.fit else None
 
     @property
+    def moe_batch_optimism(self) -> float | None:
+        """Carried through from the fit, because this is where the number is read.
+
+        The caveat first landed only in `Fit.explain()`, which is a command
+        someone runs deliberately. `cost_per_mtok_usd` below — and the aggregate
+        throughput it divides — are what `clickllm where`, `clickllm host` and
+        the workbench put in front of people who never ask for the arithmetic. A
+        disclosure attached to the explanation and not to the figure is a
+        disclosure the reader of the figure does not get.
+        """
+        return self.fit.moe_batch_optimism if self.fit else None
+
+    @property
     def cost_per_mtok_usd(self) -> float | None:
         """Rough USD per million output tokens at the requested concurrency.
 

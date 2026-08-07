@@ -1140,3 +1140,28 @@ def test_the_spread_is_a_band_not_a_correction():
     one = fit.solve(m, "q8", _hw(96), 8192, 1)
     eight = fit.solve(m, "q8", _hw(96), 8192, 8)
     assert eight.aggregate_tokens_per_sec > one.aggregate_tokens_per_sec
+
+
+def test_the_moe_caveat_reaches_the_placement_not_just_the_explanation():
+    # Raised by the Codex audit of the first version of this fix: the caveat
+    # landed only in `Fit.explain()`, a command someone runs deliberately,
+    # while `$/Mtok` and aggregate throughput are what `where`, `host` and the
+    # workbench put in front of people who never ask for the arithmetic.
+    places = [p for p in fit.where(catalog.get("qwen3-30b-a3b"), 8192, 8) if p.feasible]
+    assert places
+    assert all(p.moe_batch_optimism == pytest.approx(8.0) for p in places)
+
+
+def test_a_dense_placement_carries_no_spread():
+    places = [p for p in fit.where(catalog.get("llama-3.1-8b"), 8192, 8) if p.feasible]
+    assert places
+    assert all(p.moe_batch_optimism is None for p in places)
+
+
+def test_the_spread_travels_with_the_cost_figure_it_qualifies():
+    # The property being asserted is the pairing: wherever `cost_per_mtok_usd`
+    # is available on an MoE at batch, the spread must be too. A surface can
+    # render one without the other only by dropping it deliberately.
+    for p in fit.where(catalog.get("qwen3-30b-a3b"), 8192, 8):
+        if p.cost_per_mtok_usd is not None:
+            assert p.moe_batch_optimism is not None

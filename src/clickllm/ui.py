@@ -73,6 +73,12 @@ def _where(model_id: str, ctx: str, conc: int) -> dict:
                 ),
                 "hourly_usd": p.hourly_usd,
                 "usd_per_mtok": round(p.cost_per_mtok_usd, 2) if p.cost_per_mtok_usd else None,
+                # And how optimistic both are for an MoE at this batch: the
+                # weight read is held at the active-parameter count, which is
+                # exact only at batch 1. Null for dense models and at batch 1.
+                "moe_batch_optimism": (
+                    round(p.moe_batch_optimism, 1) if p.moe_batch_optimism else None
+                ),
                 "reason": p.reason or None,
             }
             for p in places
