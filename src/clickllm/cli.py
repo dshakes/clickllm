@@ -1068,7 +1068,7 @@ def cmd_prove(args: argparse.Namespace) -> int:
 
 def cmd_receipt(args: argparse.Namespace) -> int:
     """Render or verify a receipt someone handed you."""
-    from .prove.receipt import Receipt, verify
+    from .prove.receipt import _NON_EVIDENTIARY, Receipt, verify
 
     r = Receipt.from_json(pathlib.Path(args.receipt).read_text())
     if not args.against:
@@ -1089,10 +1089,21 @@ def cmd_receipt(args: argparse.Namespace) -> int:
             # over one digest invites the reader to check it against the other
             # file, find a different string, and distrust the verification.
             # Name what actually matched, and show both.
+            #
+            # Read the differing fields rather than assuming which one moved:
+            # `tool_version` alone can differ, and asserting "differ in when
+            # they were issued" would then be a confident, checkable falsehood
+            # in the line that exists to stop exactly that.
+            differing = [
+                name
+                for name in _NON_EVIDENTIARY
+                if getattr(r, name, None) != getattr(other, name, None)
+            ]
             print(
-                f"verified · the evidence agrees · {r.issued} {r.digest()[:12]} "
-                f"vs {other.issued} {other.digest()[:12]} "
-                f"(the receipts differ in when they were issued, not in what they claim)"
+                f"verified · the evidence agrees · {r.digest()[:12]} vs "
+                f"{other.digest()[:12]} (the receipts differ in "
+                f"{' and '.join(differing) or 'no evidentiary field'}, "
+                f"not in what they claim)"
             )
         print()
         return 0
