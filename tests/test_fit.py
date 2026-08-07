@@ -1064,3 +1064,79 @@ def test_a_heterogeneous_rig_is_summed_not_extrapolated_from_gpu_zero():
     assert uniform.total_bytes == 4 * 81559 * 1024 * 1024
     assert "MIXED" not in uniform.note
     assert _nvidia_smi(["NVIDIA L4, 23034"]).devices == 1
+
+
+# --- a shortfall never renders as nothing ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "n",
+    [1, 2, 511, 512, 1023, 1024, 100 * 1024, 524_287, 1024**2 - 1, 1024**2, 1024**3 - 1],
+)
+def test_a_shortfall_never_renders_as_zero(n):
+    # The whole reason `_shortfall` exists: "short by 0 GB" reads as a bug in
+    # the solver rather than as the answer. The MB floor had the identical
+    # rounding bug one order down — anything under half a mebibyte printed
+    # "0 MB" — and that is reachable, because a GQA model's KV is a few hundred
+    # KB per token and a shortfall at small context lands there.
+    rendered = fit._shortfall(n)
+    number = rendered.split()[0].replace(",", "")
+    assert float(number) > 0, f"{n} B rendered as {rendered!r}"
+
+
+def test_the_shortfall_unit_steps_down_rather_than_bottoming_out():
+    assert fit._shortfall(1) == "1 B"
+    assert fit._shortfall(1024) == "1.0 KB"
+    assert fit._shortfall(1024**2) == "1.0 MB"
+    assert fit._shortfall(1024**3) == "1.0 GB"
+    assert fit._shortfall(40 * 1024**3) == "40 GB"
+
+
+def test_a_shortfall_of_one_byte_is_still_one_byte():
+    # Bytes are the floor on purpose: a shortfall is a whole number of them
+    # and so cannot round to nothing, whatever unit sits above.
+    assert fit._shortfall(1) == "1 B"
+
+
+# --- the MoE aggregate figure discloses its own optimism ------------------------
+
+
+def test_a_dense_model_carries_no_moe_caveat():
+    # A caveat on every model is a caveat nobody reads.
+    f = fit.solve(catalog.get("llama-3.1-8b"), "q8", _hw(96), 8192, 16)
+    assert f.moe_batch_optimism is None
+    assert "MoE at batch" not in f.explain()
+
+
+def test_an_moe_at_batch_one_carries_no_caveat_because_there_is_none():
+    # At B=1 the `active_b` weight read is exact, not optimistic.
+    f = fit.solve(catalog.get("qwen3-30b-a3b"), "q8", _hw(96), 8192, 1)
+    assert f.moe_batch_optimism is None
+
+
+def test_an_moe_at_batch_discloses_how_optimistic_the_aggregate_is():
+    # `aggregate_tokens_per_sec` holds the weight read at `active_b` for every
+    # batch size. Each sequence routes to its own experts, so the distinct set
+    # touched grows with B — the figure is the good end of a range, and the
+    # direction of the error flatters self-hosting.
+    f = fit.solve(catalog.get("qwen3-30b-a3b"), "q8", _hw(96), 8192, 8)
+    assert f.moe_batch_optimism == pytest.approx(8.0)
+    text = f.explain()
+    assert "MoE at batch 8" in text
+    assert "flatter rather than warn" in text
+
+
+def test_the_moe_spread_saturates_at_the_whole_model():
+    # It cannot read more than every expert, however large the batch.
+    m = catalog.get("qwen3-30b-a3b")
+    f = fit.solve(m, "q8", _hw(96), 8192, 1000)
+    assert f.moe_batch_optimism == pytest.approx(m.params_b / m.active_b)
+
+
+def test_the_spread_is_a_band_not_a_correction():
+    # It must not be silently applied to the number — the aggregate figure is
+    # unchanged, and the spread is reported beside it.
+    m = catalog.get("qwen3-30b-a3b")
+    one = fit.solve(m, "q8", _hw(96), 8192, 1)
+    eight = fit.solve(m, "q8", _hw(96), 8192, 8)
+    assert eight.aggregate_tokens_per_sec > one.aggregate_tokens_per_sec
