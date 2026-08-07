@@ -181,6 +181,9 @@ WORKLOADS = [
     # And a realtime word that describes a different noun. "real-time" is
     # about the dashboard; the LLM work is still a batch job.
     (Workload.BATCH, "real-time dashboard for scoring 4 million tickets"),
+    # A count the sentence itself calls in-flight is not a pile — and the
+    # concurrency parser further down was already reading it correctly.
+    (Workload.INTERACTIVE, "process 1000 concurrent requests under 200ms"),
     # Ordinary backlog wording the verb and noun lists had missed.
     (Workload.BATCH, "review 2 million invoices"),
     (Workload.BATCH, "analyze 2 million invoices"),
@@ -314,6 +317,7 @@ CONCURRENCY = [
     ("20 devservers", 4, False),
     ("tool for 300 staffordshire branches", 4, False),
     ("200 analysts", 40, True),
+    ("process 1000 concurrent requests under 200ms", 1000, True),
     # A rate IS the concurrency, however it is spelled — and reading it as a
     # backlog cost both the workload and this number.
     ("rank 8000 req/s, each takes 250ms", 2000, True),

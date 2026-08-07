@@ -276,7 +276,13 @@ _PER = rf"(?:\s+per\s+{_TIME}\b|\s*/\s*{_TIME}\b)"
 
 _RATE = rf"(?:qps|rps|tps|{_RATE_UNIT}{_PER})"
 
-_NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE})"
+#: A count the sentence itself calls in-flight is not a pile: "process 1000
+#: concurrent requests" states its concurrency, and reading the same number as
+#: a backlog picked batch scheduling for a live service — while the
+#: concurrency parser, further down, read it correctly.
+_INFLIGHT = r"(?:concurrent|simultaneous|parallel|in[- ]flight|at once)"
+
+_NOT_A_BACKLOG = rf"(?:{_AUDIENCE}|{_RATE}|{_INFLIGHT})"
 
 #: What may sit between the number and that noun: up to three adjectives, and
 #: nothing that opens a new phrase. Three because _SERVED_AUDIENCE allows
