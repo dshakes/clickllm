@@ -307,3 +307,62 @@ def test_a_valid_drop_in_entry_still_loads(tmp_path, monkeypatch):
 
     mla = {m.id: m for m in _load_with(tmp_path, monkeypatch, kv_scheme="mla", kv_lora_rank=512)}
     assert mla["x"].kv_scheme == "mla" and mla["x"].kv_lora_rank == 512
+
+
+# --- what a row actually contains, not just which keys it has -----------------
+
+
+def drop_in(tmp_path, monkeypatch, **over):
+    """Write one spec to a catalogue file and load it."""
+    f = tmp_path / "m.json"
+    f.write_text(json.dumps([SPEC | over]))
+    monkeypatch.setenv("CLICKLLM_CATALOG", str(f))
+    catalog._CACHE.clear()
+    return catalog.load()
+
+
+def test_the_unmodified_spec_loads(tmp_path, monkeypatch):
+    # The control. Without it every assertion below could be passing because
+    # the fixture is wrong rather than because the check works — which is
+    # exactly how the first version of this file's probe went.
+    # By id, not by position: a drop-in ADDS to the built-in catalogue rather
+    # than replacing it, so index 0 is still llama-3.1-8b.
+    assert any(m.id == "acme-70b" for m in drop_in(tmp_path, monkeypatch))
+
+
+def test_a_quoted_boolean_does_not_read_as_true(tmp_path, monkeypatch):
+    # JSON and Python spell it differently enough to invite the mistake, and
+    # every non-empty string is truthy — so "false" made a restricted model
+    # report as commercially clean. Wrong in the flattering direction.
+    with pytest.raises(ValueError, match="license_ok"):
+        drop_in(tmp_path, monkeypatch, license_ok="false")
+
+
+def test_a_stringified_number_is_refused_where_it_can_be_attributed(tmp_path, monkeypatch):
+    # It loaded here and failed much later inside weight_bytes() as a bare
+    # TypeError, with none of the file-and-model attribution this module
+    # otherwise attaches to a bad row.
+    with pytest.raises(ValueError, match="params_b"):
+        drop_in(tmp_path, monkeypatch, params_b="70")
+
+
+@pytest.mark.parametrize(("field", "value"), [("layers", 0), ("params_b", -5), ("head_dim", 0)])
+def test_a_model_that_cannot_exist_is_refused(tmp_path, monkeypatch, field, value):
+    with pytest.raises(ValueError, match="cannot exist"):
+        drop_in(tmp_path, monkeypatch, **{field: value})
+
+
+@pytest.mark.parametrize("key", ["kv_lora_rank_", "repo_id", "kvheads"])
+def test_an_unknown_field_is_a_typo_not_a_comment(tmp_path, monkeypatch, key):
+    # Dropped silently, "kv_lora_rank_": 512 looks set and is not — which
+    # reaches the MLA defect through a door the MLA check cannot see, because
+    # the real field keeps its default.
+    with pytest.raises(ValueError, match="unknown field"):
+        drop_in(tmp_path, monkeypatch, **{key: 512})
+
+
+def test_the_error_names_the_file_and_the_model(tmp_path, monkeypatch):
+    # Six drop-ins in play, and "bad license_ok" is unactionable without both.
+    with pytest.raises(ValueError) as e:
+        drop_in(tmp_path, monkeypatch, license_ok="false")
+    assert "m.json" in str(e.value) and "acme-70b" in str(e.value)
