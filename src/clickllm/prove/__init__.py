@@ -50,6 +50,7 @@ from .equivalence import (
     ClusterScore,
     HybridPolicy,
     Matrix,
+    check_share,
     score_cluster,
 )
 from .gate import Action, Decision, Health, Reading, Stage, decide, read_cluster
@@ -243,6 +244,13 @@ def run(
         raise ValueError("cannot prove anything from an empty eval set")
     if judge is not None and not judge_model.strip():
         raise ValueError("judge_model is required when a judge is supplied, for disclosure")
+    # Every share, before anything filters. `ClusterScore` validates its own
+    # field, but a share whose cluster has no eval items never becomes one:
+    # `_uncovered` keeps only `share > 0`, and NaN and negatives both fail that
+    # test, so an impossible value for an uncovered cluster was dropped rather
+    # than refused. Sorted so the first offender named is the same on every run.
+    for key, share in sorted(shares.items()):
+        check_share(share, cluster=key)
 
     by_cluster: dict[str, list[ItemResult]] = defaultdict(list)
     seen: dict[tuple[str, str], int] = {}

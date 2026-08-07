@@ -371,3 +371,28 @@ def test_a_proven_live_cluster_still_advances_when_others_are_pinned():
     readings = [reading("bad", 2, 40, share=0.2), reading("good", 400, 400, share=0.8)]
     d = decide(readings, Stage("shadow", 0), pinned=frozenset(["bad"]))
     assert d.action is Action.ADVANCE, f"{d.action}: {d.reason}"
+
+
+def test_every_judge_only_cluster_blocking_an_advance_is_named():
+    # `judged` excludes clusters clearly below the bar — those are regressions,
+    # not merely unproven — and the function returned as soon as `judged` was
+    # non-empty, so the later `unproven` check that would have named them never
+    # ran. A straddling cluster therefore hid a worse one behind it, and the
+    # Decision named only the milder of the two. The action was right; the
+    # reason was incomplete, and the docstring promises every reason names the
+    # cluster and the number.
+    d = decide(
+        [
+            reading("flaky", 34, 40, judge=True),  # straddles the bar
+            reading("broken", 2, 40, judge=True),  # clearly below it
+        ],
+        Stage("shadow", 0),
+    )
+    assert d.action is Action.HOLD
+    assert set(d.clusters) == {"flaky", "broken"}, d.clusters
+
+
+def test_a_single_judge_only_cluster_still_reads_the_same():
+    d = decide([reading("flaky", 34, 40, judge=True)], Stage("shadow", 0))
+    assert d.clusters == ("flaky",)
+    assert "judge alone never moves traffic" in d.reason

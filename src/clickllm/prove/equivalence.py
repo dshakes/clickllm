@@ -21,6 +21,7 @@ as unknown rather than as a confident score. See :mod:`.stats`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .graders import ItemResult
@@ -39,6 +40,26 @@ from .stats import (
 
 #: A cluster whose whole interval sits below this is *regret*: keep the incumbent.
 DEFAULT_EQUIVALENCE_BAR = 0.90
+
+
+def check_share(share: float, *, cluster: str = "") -> None:
+    """Refuse a value that is not a fraction of traffic.
+
+    One home for the rule, because it has to be applied in two places that
+    cannot substitute for each other: on `ClusterScore`, which every report is
+    built from, and over the raw `shares` map in `run()`, because a share whose
+    cluster has no eval items never becomes a `ClusterScore` at all.
+
+    Raises:
+        ValueError: naming the offending value, and the cluster when known.
+    """
+    where = f" for {cluster}" if cluster else ""
+    # Finiteness first: NaN fails every ordering comparison, so checking the
+    # range first would let it through as "not out of range".
+    if not math.isfinite(share):
+        raise ValueError(f"traffic share must be a finite number{where}, got {share!r}")
+    if not 0.0 <= share <= 1.0:
+        raise ValueError(f"traffic share must be a fraction of traffic{where}, got {share}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +82,22 @@ class ClusterScore:
     #: the copies narrows the interval on evidence that was never collected.
     #: Zero for the normal case; the report only mentions it when it is not.
     duplicates: int = 0
+
+    def __post_init__(self) -> None:
+        """Refuse a share that is not a fraction of traffic.
+
+        Guarding the estimators in `stats` was guarding the wrong layer: shares
+        arrive through `run(shares=…)`, reach `ClusterScore.share`, and
+        `movable_share()` sums them raw without ever calling a weighted
+        function. `{"good": 10.0}` produced a policy reading **"Move 900% of
+        traffic to candidate"**, and a NaN share was carried into the receipt
+        as `nan`. So the check belongs here, where every construction path goes.
+
+        It is not sufficient on its own — a share whose cluster has no eval
+        items never becomes a `ClusterScore` at all. `run()` therefore calls
+        `check_share` over the raw map as well; see the note there.
+        """
+        check_share(self.share, cluster=self.cluster)
 
     @property
     def known(self) -> bool:
@@ -114,6 +151,26 @@ class CandidateReport:
     model: str
     clusters: tuple[ClusterScore, ...]
     monthly_cost: float | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a set of shares that add up to more traffic than exists.
+
+        Per-share validation on `ClusterScore` is not enough, and missing that
+        is the same mistake twice: `movable_share()` *sums* shares, so the
+        value reaching the arithmetic is the total, not any one element. Two
+        individually legal shares — `{"a": 0.9, "b": 0.9}` — rendered "Move
+        180% of traffic to candidate" and a receipt claiming "Movable: 180% of
+        captured traffic".
+
+        Tolerance because these are floats and a caller who split traffic
+        exactly can still land a few ulps above 1.0.
+        """
+        total = sum(c.share for c in self.clusters)
+        if total > 1.0 + 1e-6:
+            raise ValueError(
+                f"cluster shares must not exceed all of the traffic, got {total:.6g} "
+                f"across {len(self.clusters)} clusters"
+            )
 
     def weighted_score(self) -> float | None:
         """Traffic-weighted equivalence, or ``None`` if nothing was graded."""

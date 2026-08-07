@@ -535,10 +535,18 @@ def _advance_blocked(
 
     judged = [r for r in live if r.judge_only and not r.interval.clearly_below(bar)]
     if judged:
+        # A judge-only cluster that is *clearly below* the bar is excluded from
+        # `judged` — it is a regression, not merely unproven — and returning
+        # here meant the later `unproven` check that would have named it never
+        # ran. So a straddling cluster hid a worse one behind it, and the
+        # Decision named only the milder of the two though both blocked the
+        # advance. Every reason names every cluster responsible for it.
+        also_regressed = [r for r in live if r.judge_only and r.interval.clearly_below(bar)]
+        blocking = judged + also_regressed
+        named = ", ".join(r.name for r in blocking[:3])
         return (
-            f"{', '.join(r.name for r in judged[:3])} rests entirely on judge "
-            f"scores — a judge alone never moves traffic",
-            tuple(r.cluster for r in judged),
+            f"{named} rests entirely on judge scores — a judge alone never moves traffic",
+            tuple(r.cluster for r in blocking),
         )
 
     unproven = [r for r in live if not r.supports_advance(bar)]

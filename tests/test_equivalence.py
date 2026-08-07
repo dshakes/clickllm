@@ -8,8 +8,16 @@ excluded from their scores.
 
 from __future__ import annotations
 
-from clickllm.prove.equivalence import CandidateReport, Matrix, score_cluster
+import pytest
+
+from clickllm.prove.equivalence import (
+    CandidateReport,
+    ClusterScore,
+    Matrix,
+    score_cluster,
+)
 from clickllm.prove.graders import EvalItem, grade
+from clickllm.prove.stats import wilson
 
 
 def results(cluster: str, n_pass: int, n_fail: int, n_ungraded: int = 0):
@@ -85,3 +93,145 @@ def test_a_matrix_with_nothing_gradeable_still_renders():
     m = Matrix([empty], incumbent_cost=1000.0)
     assert m.best() is None
     assert m.render()
+
+
+# --- an impossible traffic share cannot be constructed ---------------------------
+
+
+def test_a_share_above_one_is_refused_at_the_type():
+    # The guard was first written in `stats`, on `weighted_point` and
+    # `weighted_posterior` — the wrong layer. Shares arrive through
+    # `run(shares=...)`, land here, and `movable_share()` sums them raw without
+    # calling a weighted function at all, so `{"good": 10.0}` produced a policy
+    # reading "Move 900% of traffic to candidate".
+    with pytest.raises(ValueError, match="fraction of traffic"):
+        ClusterScore("c", "c", 10.0, wilson(9, 10), 0)
+
+
+def test_a_negative_share_is_refused_at_the_type():
+    with pytest.raises(ValueError, match="fraction of traffic"):
+        ClusterScore("c", "c", -1.0, wilson(9, 10), 0)
+
+
+@pytest.mark.parametrize("share", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_share_is_refused_at_the_type(share):
+    # NaN is the one that used to reach the receipt, because it fails every
+    # ordinary comparison silently rather than raising.
+    with pytest.raises(ValueError, match="finite"):
+        ClusterScore("c", "c", share, wilson(9, 10), 0)
+
+
+@pytest.mark.parametrize("share", [0.0, 0.5, 1.0])
+def test_the_shares_a_caller_should_pass_are_accepted(share):
+    # Zero is a legitimate "cannot move traffic", and 1.0 is a single-cluster
+    # eval set. A guard that rejected either would break documented behaviour.
+    assert ClusterScore("c", "c", share, wilson(9, 10), 0).share == share
+
+
+def test_the_product_entrypoint_refuses_an_impossible_share():
+    # The finding was that `suite()` reached `best()` and issued a receipt
+    # before any weighted function validated anything. This is the end-to-end
+    # check that the guard is now on the path the product actually takes.
+    from clickllm.prove import suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "good", f"p{i}", '{"a": 1}', '{"a": 1}') for i in range(120)]
+    with pytest.raises(ValueError, match="fraction of traffic"):
+        suite(items, shares={"good": 10.0}, issued="2026-08-07")
+
+
+def test_shares_that_add_up_to_more_traffic_than_exists_are_refused():
+    # Per-share validation was not enough, and missing that was the same
+    # mistake twice: `movable_share()` *sums* shares, so the value reaching the
+    # arithmetic is the total, not any one element. Two individually legal
+    # shares rendered "Move 180% of traffic to candidate".
+    good = ClusterScore("a", "a", 0.9, wilson(118, 120), 0)
+    also = ClusterScore("b", "b", 0.9, wilson(118, 120), 0)
+    with pytest.raises(ValueError, match="exceed all of the traffic"):
+        CandidateReport("m", (good, also))
+
+
+def test_shares_that_add_to_exactly_one_are_fine():
+    parts = tuple(
+        ClusterScore(k, k, s, wilson(118, 120), 0)
+        for k, s in (("a", 0.6), ("b", 0.15), ("c", 0.25))
+    )
+    assert CandidateReport("m", parts).clusters == parts
+
+
+def test_shares_that_add_to_less_than_one_are_fine():
+    # Under-allocation is legitimate: a cluster scored at share 0 because it
+    # was absent from the share map contributes nothing to the total.
+    parts = (
+        ClusterScore("a", "a", 0.4, wilson(9, 10), 0),
+        ClusterScore("b", "b", 0.0, wilson(9, 10), 0),
+    )
+    assert CandidateReport("m", parts)
+
+
+def test_a_split_landing_a_hair_over_one_is_tolerated_not_refused():
+    # Shares are floats and arrive from division upstream, so a caller who
+    # split traffic exactly can still land above 1.0. Refusing that would make
+    # the guard fire on correct input, which is how a guard gets deleted.
+    parts = (
+        ClusterScore("a", "a", 0.5, wilson(9, 10), 0),
+        ClusterScore("b", "b", 0.5000001, wilson(9, 10), 0),
+    )
+    assert sum(c.share for c in parts) > 1.0, "precondition: this really does overshoot"
+    assert CandidateReport("m", parts)
+
+
+def test_an_overshoot_past_the_tolerance_is_still_refused():
+    # The other side of the same line: tolerance is for representation error,
+    # not for a share map that is genuinely wrong.
+    parts = (
+        ClusterScore("a", "a", 0.5, wilson(9, 10), 0),
+        ClusterScore("b", "b", 0.51, wilson(9, 10), 0),
+    )
+    with pytest.raises(ValueError, match="exceed all of the traffic"):
+        CandidateReport("m", parts)
+
+
+def test_the_product_entrypoint_refuses_over_allocated_shares():
+    from clickllm.prove import suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"a{i}", "a", f"p{i}", '{"x":1}', '{"x":1}') for i in range(120)]
+    items += [EvalItem(f"b{i}", "b", f"q{i}", '{"x":1}', '{"x":1}') for i in range(120)]
+    with pytest.raises(ValueError, match="exceed all of the traffic"):
+        suite(items, shares={"a": 0.9, "b": 0.9}, issued="2026-08-07")
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -0.5, 2.0])
+def test_an_impossible_share_is_refused_even_when_its_cluster_has_no_items(bad):
+    # The gap the type-level guard could not close. `ClusterScore` validates
+    # its own field, but a share whose cluster has no eval items never becomes
+    # a ClusterScore: `_uncovered` keeps only `share > 0`, and NaN and
+    # negatives both fail that test, so the value was dropped rather than
+    # refused. `run()` therefore checks the raw map before anything filters.
+    from clickllm.prove import suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
+    with pytest.raises(ValueError, match="traffic share"):
+        suite(items, shares={"covered": 1.0, "uncovered": bad}, issued="2026-08-07")
+
+
+def test_the_offending_cluster_is_named():
+    from clickllm.prove import run
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem("i0", "covered", "p", '{"a":1}', '{"a":1}')]
+    with pytest.raises(ValueError, match="deprecated"):
+        run(items, shares={"covered": 1.0, "deprecated": float("nan")})
+
+
+def test_a_valid_share_map_with_an_uncovered_cluster_still_works():
+    # The guard must not fire on the case the previous commit added support
+    # for: a legitimate positive share the eval set never covered.
+    from clickllm.prove import run
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
+    m = run(items, shares={"covered": 0.7, "gap": 0.3})
+    assert [c.cluster for c in m.candidates[0].clusters] == ["covered", "gap"]
