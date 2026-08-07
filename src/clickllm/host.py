@@ -579,11 +579,28 @@ class Survey:
             "own page; every source URL is in the detail below.",
             "  They move. Re-read the source before committing spend — nothing here "
             "checks it for you.",
-            "  ? = no published rate. $/Mtok assumes the machine is saturated "
-            "single-stream, so real cost is higher.",
+            # "saturated single-stream" described an older `cost_per_mtok_usd`
+            # that divided by one stream's output. It uses aggregate throughput
+            # now, and its own docstring records that "real cost is higher" was
+            # wrong by more in the other direction. The identical sentence was
+            # corrected in `cli.py`'s `where` footer and left standing here —
+            # one fact, two files, fixed in one.
+            "  ? = no published rate. $/Mtok assumes the machine is busy at the "
+            "requested concurrency; idle time is what makes it optimistic.",
             "  Throughput figures are roofline estimates, not measurements.",
-            "",
         ]
+        # This table RANKS providers by $/Mtok, so an MoE figure that is the
+        # optimistic end of a band has to be qualified beside the ranking — not
+        # only in the per-option detail rows printed below it. The ranking is
+        # what someone reads when comparing self-hosting to hosted prices.
+        spread = max((o.placement.moe_batch_optimism or 1.0 for o in self.options), default=1.0)
+        if spread > 1.0:
+            tail.append(
+                f"  MoE: the weight read is held at the active-parameter count, exact "
+                f"only at batch 1, so $/Mtok above is the optimistic end of a band up "
+                f"to {spread:.1f}x wide."
+            )
+        tail.append("")
         return "\n".join(head + tail)
 
 

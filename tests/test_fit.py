@@ -1165,3 +1165,53 @@ def test_the_spread_travels_with_the_cost_figure_it_qualifies():
     for p in fit.where(catalog.get("qwen3-30b-a3b"), 8192, 8):
         if p.cost_per_mtok_usd is not None:
             assert p.moe_batch_optimism is not None
+
+
+# --- every surface that shows the figure shows the caveat ------------------------
+
+
+def test_the_host_summary_table_carries_the_moe_caveat():
+    # The table RANKS providers by $/Mtok, so the caveat belongs beside the
+    # ranking and not only in the detail row printed after it — that is what
+    # someone reads when comparing self-hosting against hosted prices.
+    from clickllm import host
+
+    text = host.survey(catalog.get("qwen3-30b-a3b"), context=8192, concurrency=8).render()
+    assert "MoE: the weight read is held at the active-parameter count" in text
+
+
+def test_no_rendered_surface_still_claims_the_cost_model_is_single_stream():
+    # `cost_per_mtok_usd` divided by one stream's output once, and its own
+    # docstring records that "real cost is higher" was wrong by more in the
+    # other direction. The claim was corrected in `cli.py`'s footer and left
+    # standing in `host.py`'s — one fact in two files, fixed in one.
+    #
+    # Asserted against what is printed, not against the source: "single-stream"
+    # appears legitimately all over this codebase labelling the single-stream
+    # throughput figure, which is correct. Only the $/Mtok claim was wrong.
+    from clickllm import host
+
+    text = host.survey(catalog.get("qwen3-30b-a3b"), context=8192, concurrency=8).render()
+    assert "saturated single-stream" not in text
+    assert "busy at the requested concurrency" in text
+
+
+def test_the_workbench_renders_the_field_its_api_emits():
+    # `ui._where` carries `moe_batch_optimism`; a field the API emits and the
+    # page never reads is a disclosure that reaches nobody. Checked against the
+    # HTML because that is the only place this particular gap can live.
+    import pathlib
+
+    from clickllm import ui
+
+    page = (
+        pathlib.Path(__file__).resolve().parents[1] / "src" / "clickllm" / "workbench.html"
+    ).read_text()
+    # Read off a *placement*, not merely named. The first version of this test
+    # grepped for the bare field name and passed against a page that mentioned
+    # it only in a comment — a test that cannot fail, in the file about
+    # disclosures that reach nobody.
+    assert "p.moe_batch_optimism" in page, "the workbench must read the field, not name it"
+    assert "moe_batch_optimism" in ui._where("qwen3-30b-a3b", "8192", 8)["placements"][0], (
+        "and the API must still send it"
+    )
