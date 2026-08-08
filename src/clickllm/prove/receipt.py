@@ -47,6 +47,7 @@ from clickllm.prove.equivalence import (
     CandidateReport,
     ClusterScore,
     check_bar,
+    check_share,
 )
 from clickllm.prove.graders import EvalItem
 from clickllm.prove.judge import Agreement, Calibration
@@ -92,12 +93,21 @@ def eval_set_digest(items: list[EvalItem]) -> str:
     return hashlib.sha256("".join(parts).encode()).hexdigest()
 
 
-def _permitted(hint: Any) -> tuple[type, ...] | None:
-    """The concrete types a declared annotation allows, or None for a container.
+#: The three claim groups. Named once because the partition is total — every
+#: cluster lands in exactly one — so a fourth group added to the dataclass and
+#: not to this tuple would silently escape both the parser and the share check.
+_GROUPS = ("proven", "regret", "unproven")
 
-    Containers are skipped because the construction path already types them:
-    `tuple[Claim, ...]` is built by `Claim(**c)`, which refuses anything that is
-    not a claim-shaped mapping.
+
+def _permitted(hint: Any) -> tuple[type, ...] | None:
+    """The concrete types a declared annotation allows.
+
+    A container reduces to the container itself — `tuple[Claim, ...]` to
+    `tuple`, `dict[str, int]` to `dict`. Its *parameters* are covered by the
+    construction path, where `Claim(**c)` refuses anything that is not a
+    claim-shaped mapping; what that path does not cover is the container slot
+    being something else entirely, which is how `redacted: 123` parsed and then
+    raised `AttributeError: 'int' object has no attribute 'items'` in `render`.
 
     `float` admits `int`, because JSON writes `1` for `1.0` and a receipt this
     tool issued must survive its own round trip.
@@ -111,7 +121,7 @@ def _permitted(hint: Any) -> tuple[type, ...] | None:
                 out.extend(part)
         return tuple(out)
     if origin is not None:
-        return None
+        return (origin,)
     if hint is float:
         return (int, float)
     return (hint,)
@@ -175,7 +185,42 @@ class Claim:
     needed: int | None = None
 
     def __post_init__(self) -> None:
+        """Refuse a claim that is the right shape and an impossible measurement.
+
+        The type sweep answers "is this an `int`", which is a different question
+        from "is this a count". A forged receipt recomputes its own digest, so
+        every value here arrives self-consistent and unexamined: `share: 10.0`
+        rendered `Movable: 1000% of captured traffic`, and `passed: 500` over
+        `total: 80` rendered a 625% pass rate, both from a file that verified.
+
+        These are domain invariants, so unlike the type sweep they cannot be
+        derived from the annotations — a hand-written list is the right kind of
+        list here. `share` defers to `check_share`, which is where that rule
+        already lives for `ClusterScore` and for `run()`.
+        """
         _check_declared_types(self)
+        check_share(self.share, cluster=self.cluster)
+        for name in ("passed", "total", "ungraded", "duplicates"):
+            value = getattr(self, name)
+            if value < 0:
+                raise ValueError(f"{self.cluster}: {name} cannot be negative, got {value}")
+        if self.passed > self.total:
+            raise ValueError(
+                f"{self.cluster}: passed cannot exceed total, got {self.passed}/{self.total}"
+            )
+        for name in ("low", "high"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"{self.cluster}: {name} is an interval bound and must be a "
+                    f"fraction, got {value}"
+                )
+        if self.low > self.high:
+            raise ValueError(
+                f"{self.cluster}: interval is inverted, got low={self.low} high={self.high}"
+            )
+        if self.needed is not None and self.needed < 0:
+            raise ValueError(f"{self.cluster}: needed cannot be negative, got {self.needed}")
 
     @property
     def point(self) -> float | None:
@@ -286,6 +331,20 @@ class Receipt:
         """
         _check_declared_types(self)
         check_bar(self.bar)
+        # The aggregate, because per-claim validation is not enough and missing
+        # that was the same mistake made on `CandidateReport` earlier: the value
+        # that reaches the arithmetic is the *sum*. Two individually legal 0.9
+        # shares on a forged-and-resealed receipt claimed 180% of the traffic
+        # and reported `movable_share` 90% off it.
+        #
+        # Same tolerance as `CandidateReport`, and for the same reason: shares
+        # arrive from division upstream, so an exact split can land a hair over.
+        total = sum(c.share for group in _GROUPS for c in getattr(self, group))
+        if total > 1.0 + 1e-6:
+            raise ValueError(
+                f"claimed traffic shares must not exceed all of the traffic, got "
+                f"{total:.6g} across {sum(len(getattr(self, g)) for g in _GROUPS)} clusters"
+            )
 
     # --- the claim ------------------------------------------------------------
 
@@ -353,7 +412,7 @@ class Receipt:
         # from a field's own validator (`check_bar`, say) already carries a
         # better sentence and passes through untouched.
         try:
-            for key in ("proven", "regret", "unproven"):
+            for key in _GROUPS:
                 body[key] = tuple(Claim(**c) for c in body.get(key, ()))
             r = cls(**body)
         except (TypeError, KeyError) as e:

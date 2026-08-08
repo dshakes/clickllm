@@ -433,3 +433,134 @@ def test_a_whole_number_share_written_as_an_integer_still_parses():
         body[k] = tuple(Claim(**c) for c in body.get(k, ()))
     doc = _json.dumps({"receipt": blob["receipt"], "digest": Receipt(**body).digest()})
     assert Receipt.from_json(doc).movable_share == 1
+
+
+# --- the right shape, and an impossible measurement ------------------------------
+
+
+def _refuses_forgery(good, mutate) -> str:
+    """Tamper with a receipt, reseal it with a valid digest, and read it back.
+
+    Returns the refusal message. Resealing itself goes through the same
+    constructors, so a guard can bite either while the forgery is being built or
+    while it is being parsed — both are the guard working, and which one fires
+    is an accident of how a forger happens to assemble the file. Anything other
+    than `ValueError` fails here, because that is the whole contract:
+    `cli.main()` catches `ValueError` and nothing else.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+    from clickllm.prove.receipt import Claim
+
+    blob = _json.loads(good.to_json())
+    mutate(blob["receipt"])
+    try:
+        body = dict(blob["receipt"])
+        for k in ("proven", "regret", "unproven"):
+            body[k] = tuple(Claim(**c) for c in body.get(k, ()))
+        doc = _json.dumps({"receipt": blob["receipt"], "digest": Receipt(**body).digest()})
+        Receipt.from_json(doc)
+    except ValueError as e:
+        return str(e)
+    raise AssertionError("the forged receipt was accepted")
+
+
+def _two_cluster_receipt():
+    from clickllm.prove import issue
+
+    report = CandidateReport(
+        "m",
+        (
+            ClusterScore("good", "good", 0.5, wilson(80, 80), 0),
+            ClusterScore("bad", "bad", 0.5, wilson(41, 80), 0),
+        ),
+    )
+    return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+
+
+@pytest.mark.parametrize(
+    ("label", "field", "value"),
+    [
+        ("a share larger than all traffic", "share", 10.0),
+        ("a negative share", "share", -1.0),
+        ("a negative pass count", "passed", -5),
+        ("a negative denominator", "total", -1),
+        ("a negative exclusion count", "ungraded", -3),
+        ("a negative merge count", "duplicates", -2),
+        ("an interval bound outside 0..1", "low", -2.0),
+        ("a negative sample requirement", "needed", -1),
+    ],
+)
+def test_a_claim_that_is_the_right_shape_and_an_impossible_measurement(label, field, value):
+    """The type sweep answers "is this an `int`", which is a different question
+    from "is this a count".
+
+    A forged receipt recomputes its own digest, so every value arrives
+    self-consistent and, until now, unexamined. `share: 10.0` rendered
+    `Movable: 1000% of captured traffic` off a file that verified.
+    """
+    _refuses_forgery(_two_cluster_receipt(), lambda b: b["proven"][0].__setitem__(field, value))
+
+
+def test_a_pass_count_cannot_exceed_its_denominator():
+    msg = _refuses_forgery(
+        _two_cluster_receipt(), lambda b: b["proven"][0].update({"passed": 500, "total": 80})
+    )
+    assert "cannot exceed total" in msg, msg
+
+
+def test_an_inverted_interval_is_refused():
+    msg = _refuses_forgery(
+        _two_cluster_receipt(), lambda b: b["proven"][0].update({"low": 0.9, "high": 0.1})
+    )
+    assert "inverted" in msg, msg
+
+
+def test_claims_cannot_together_account_for_more_traffic_than_exists():
+    """Per-claim validation is not enough, and missing that was the same mistake
+    made on `CandidateReport` earlier in this branch: the value that reaches the
+    arithmetic is the *sum*. Two individually legal 0.9 shares claimed 180% of
+    the traffic and reported `movable_share` 90% off it."""
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: (
+            b["proven"][0].__setitem__("share", 0.9),
+            b["regret"][0].__setitem__("share", 0.9),
+        ),
+    )
+    assert "exceed all of the traffic" in msg, msg
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("redacted", 123), ("redacted", None), ("fingerprints", "x"), ("fingerprints", 7)],
+)
+def test_a_container_field_that_is_not_a_container_is_refused(key, value):
+    """`_permitted` returned `None` for any subscripted hint, so `redacted:
+    dict[str, int]` was unchecked entirely: `123` parsed and then raised
+    `AttributeError: 'int' object has no attribute 'items'` inside `render()`."""
+    _refuses_forgery(_two_cluster_receipt(), lambda b: b.__setitem__(key, value))
+
+
+def test_the_honest_receipt_survives_all_of_it():
+    """The negative control for this whole block, including the one case these
+    guards must not break: an exact traffic split summing to 1.0."""
+    from clickllm.prove import Receipt, issue
+
+    good = _two_cluster_receipt()
+    assert Receipt.from_json(good.to_json()) == good
+    assert good.render()
+    assert good.movable_share == 0.5
+
+    split = issue(
+        CandidateReport(
+            "m",
+            tuple(ClusterScore(k, k, s, wilson(80, 80), 0) for k, s in (("a", 0.6), ("b", 0.4))),
+        ),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+    )
+    assert Receipt.from_json(split.to_json()).movable_share == 1.0
