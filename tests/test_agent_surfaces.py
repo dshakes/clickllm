@@ -198,3 +198,74 @@ def test_the_build_schema_advertises_the_workload_it_now_accepts():
     workload = schema["inputSchema"]["properties"].get("workload")
     assert workload, "clickllm_build must advertise workload"
     assert set(workload["enum"]) == {"interactive", "realtime", "batch"}
+
+
+# --- the receipt envelope, read off disk from a stranger -------------------------
+
+
+def _good_receipt():
+    from clickllm.prove import issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+
+
+@pytest.mark.parametrize("digest", [True, 7, 3.5, ["abc"], {"a": 1}])
+def test_a_digest_that_is_not_a_string_is_a_sentence_not_a_traceback(digest):
+    """The digest check runs on the *failure* path — the one that executes when
+    a receipt does not verify — and it sliced `stated[:12]` to name it.
+
+    `true`, `7` and `3.5` are not subscriptable and `{"a": 1}` raises `KeyError`
+    on the slice, so the code that exists to report a forged receipt crashed
+    instead. It still failed closed; it failed closed as a traceback, and
+    `cli.main()` catches `ValueError`.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["digest"] = digest
+    with pytest.raises(ValueError, match="digest"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize("body", [True, 7, "text", [], None])
+def test_a_receipt_envelope_that_is_not_an_object_is_refused_the_same_way(body):
+    """Not in the finding that prompted this, and worse: `blob.get` needs the
+    document to be a mapping and `body.get` needs the inner one to be, so
+    `{"receipt": 7}` and a bare `[]` document both raised `AttributeError` —
+    before the digest was ever reached."""
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"] = body
+    with pytest.raises(ValueError, match="JSON object"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize("doc", ["null", "[]", '"text"', "7", "true"])
+def test_a_document_that_is_not_an_object_at_all_is_refused(doc):
+    from clickllm.prove import Receipt
+
+    with pytest.raises(ValueError, match="JSON object"):
+        Receipt.from_json(doc)
+
+
+def test_an_honest_receipt_is_unaffected_and_tampering_is_still_named():
+    """The negative control for the three sweeps above: a guard that refused
+    every document would pass all of them and break the only path that matters.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    good = _good_receipt()
+    assert Receipt.from_json(good.to_json()) == good
+
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["incumbent"] = "someone else"
+    with pytest.raises(ValueError, match="has been altered"):
+        Receipt.from_json(_json.dumps(blob))

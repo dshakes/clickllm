@@ -259,7 +259,18 @@ class Receipt:
             ValueError: unknown format, or content that does not match its digest.
         """
         blob = json.loads(text)
+        # The envelope's own shape, before anything reads a field out of it.
+        # This is the disk-ingest path behind `clickllm receipt`, `guard` and
+        # the box, so every value below is a stranger's. `blob.get` needs `blob`
+        # to be a mapping and `body.get` needs `body` to be one — `{"receipt":
+        # 7}` raised `AttributeError`, and a bare `[]` or `"text"` document
+        # raised it one line earlier. `cli.main()` catches `ValueError`, so all
+        # of those were a traceback where the repo promises a sentence.
+        if not isinstance(blob, dict):
+            raise ValueError(f"a receipt must be a JSON object, got {type(blob).__name__}")
         body = blob.get("receipt", blob)
+        if not isinstance(body, dict):
+            raise ValueError(f"a receipt must be a JSON object, got {type(body).__name__}")
         if body.get("format") != FORMAT:
             raise ValueError(f"unknown receipt format {body.get('format')!r}")
         for key in ("proven", "regret", "unproven"):
@@ -280,6 +291,16 @@ class Receipt:
         if not stated:
             raise ValueError(
                 "receipt carries no digest, so nothing about it can be verified "
+                "— refusing it rather than trusting its claims"
+            )
+        # A truthy digest is not necessarily a string. `true`, `7` and `3.5` are
+        # not subscriptable and `{"a": 1}` raises `KeyError` on the slice, so
+        # the *error path* — the one that runs when a receipt does not verify —
+        # crashed rather than reporting. It still failed closed; it failed
+        # closed as a traceback.
+        if not isinstance(stated, str):
+            raise ValueError(
+                f"receipt digest must be a string, got {type(stated).__name__} "
                 "— refusing it rather than trusting its claims"
             )
         if stated != r.digest():
