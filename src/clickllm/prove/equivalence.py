@@ -21,7 +21,6 @@ as unknown rather than as a confident score. See :mod:`.stats`.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 from .graders import ItemResult
@@ -32,6 +31,7 @@ from .stats import (
     McNemar,
     difference,
     family_wise_z,
+    is_real,
     mcnemar,
     samples_needed,
     weighted_posterior,
@@ -53,9 +53,19 @@ def _real(value: object, what: str, where: str = "") -> None:
 
     `bool` is rejected with the rest: `True` is an `int`, and a bar of `True` is
     a bar of 1.0 nobody typed.
+
+    Finiteness lives here too, in `is_real`, which is also why this does not
+    call `math.isfinite` itself: a JSON document can carry an `int` too large to
+    convert to a float, and `isfinite` raises `OverflowError` on it — the same
+    uncaught-exception-class problem one layer down.
+
+    Two messages, not one: `-inf` *is* a number, so folding it into "must be a
+    number" makes the sentence wrong about the value it is naming.
     """
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{what} must be a number{where}, got {value!r}")
+    if not is_real(value):
+        raise ValueError(f"{what} must be a finite number{where}, got {value!r}")
 
 
 def check_bar(bar: float) -> None:
@@ -98,11 +108,12 @@ def check_share(share: float, *, cluster: str = "") -> None:
         ValueError: naming the offending value, and the cluster when known.
     """
     where = f" for {cluster}" if cluster else ""
+    # `_real` covers both the type and finiteness — NaN must be caught before
+    # the range test, because it fails every ordering comparison and would read
+    # as "not out of range". The separate `math.isfinite` that used to sit here
+    # was a second guard on the same route, and it was the one that raised
+    # `OverflowError` on a large `int`.
     _real(share, "traffic share", where)
-    # Finiteness first: NaN fails every ordering comparison, so checking the
-    # range first would let it through as "not out of range".
-    if not math.isfinite(share):
-        raise ValueError(f"traffic share must be a finite number{where}, got {share!r}")
     if not 0.0 <= share <= 1.0:
         raise ValueError(f"traffic share must be a fraction of traffic{where}, got {share}")
 

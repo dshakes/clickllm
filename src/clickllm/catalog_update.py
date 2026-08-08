@@ -181,7 +181,18 @@ def _number(v: Any, default: float) -> float:
     """
     if isinstance(v, bool) or not isinstance(v, int | float):
         return default
-    return v if math.isfinite(v) else default
+    # Not `math.isfinite(v)` on its own: a JSON document can carry an `int` too
+    # large to convert to a float, and `isfinite` raises `OverflowError` on it —
+    # not `Unreachable` either, so the abort path this guard closed stayed open
+    # one type down. Nor is `isinstance(v, int)` a licence to pass it through:
+    # `trending=float(_number(...))` overflows on the very next line.
+    #
+    # The question is "usable as a float", which is what every caller does with
+    # it, so the conversion is the test.
+    try:
+        return v if math.isfinite(float(v)) else default
+    except OverflowError:
+        return default
 
 
 def _first_int(cfg: dict[str, Any], *keys: str) -> int | None:

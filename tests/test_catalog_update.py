@@ -311,3 +311,19 @@ def test_a_boolean_is_not_a_count():
     one — this module's whole point is that estimates are labelled."""
     got = cu.discover(set(), _index({"modelId": "o/r", "downloads": True, "likes": True}))
     assert (got[0].downloads, got[0].likes) == (0, 0)
+
+
+@pytest.mark.parametrize("field", ["downloads", "likes", "trendingScore"])
+def test_an_integer_too_large_for_a_float_does_not_abort_discovery(field):
+    """`isinstance(v, int)` was the second wrong answer here, after
+    `math.isfinite(v)` was the first.
+
+    An `int` is arbitrary-precision, so `10**400` is genuinely finite and
+    `isfinite` raises `OverflowError` converting it. Passing it through on the
+    strength of being an `int` then moved the same exception one line later:
+    `trending=float(_number(...))` overflows. The question every caller actually
+    asks is "usable as a float", so the conversion is the test.
+    """
+    got = cu.discover(set(), _index({"modelId": "o/r", field: 10**400}))
+    assert [d.repo for d in got] == ["o/r"]
+    assert (got[0].downloads, got[0].likes, got[0].trending) == (0, 0, 0.0)

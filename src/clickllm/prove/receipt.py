@@ -363,15 +363,25 @@ def issue(
     the document.
 
     Raises:
-        ValueError: if `bar` is not a threshold. Guarded here as well as on
-            `Matrix`, because this function takes `bar` directly and never
-            builds one — so a receipt, the portable proof artifact, was
-            issuable at `bar=0.0` and rendered "Proven at or above the 0% bar"
-            over a 41/80 regression while `Matrix` refused the same value.
-            Enforced by `Receipt.__post_init__`, which this constructs — so it
-            is not repeated here, where it would be the unreachable half of a
-            pair.
+        ValueError: if `bar` is not a threshold. This function takes `bar`
+            directly and never builds a `Matrix`, so a receipt — the portable
+            proof artifact — was issuable at `bar=0.0`, rendering "Proven at or
+            above the 0% bar" over a 41/80 regression while `Matrix` refused the
+            same value.
+
+            The guard was then removed from here on the grounds that
+            `Receipt.__post_init__` enforces it and a second one would be the
+            unreachable half of a pair. That was true of the *range* check and
+            false as soon as the check also covered the type: `Claim.of(s, bar)`
+            and `s.band(bar)` below both use `bar`, so a non-numeric one raised
+            `TypeError` from the comparison before the constructor was ever
+            reached — and `cli.main()` catches `ValueError`, not `TypeError`.
+
+            So both, deliberately: this one is about *when*, the constructor's
+            is about the other route in — `from_json`, reading a receipt off
+            disk, which never calls this function at all.
     """
+    check_bar(bar)
     proven, regret, unproven = [], [], []
     for s in report.clusters:
         claim = Claim.of(s, bar)

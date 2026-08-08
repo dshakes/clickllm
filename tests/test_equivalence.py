@@ -321,7 +321,29 @@ def test_no_surface_taking_a_bar_is_left_without_a_check():
     )
 
 
-@pytest.mark.parametrize("bar", [0.0, -1.0, 1.0, 2.0])
+@pytest.mark.parametrize(
+    "bar",
+    [
+        # out of range
+        0.0,
+        -1.0,
+        1.0,
+        2.0,
+        # not a number at all. These belong in the *same* sweep, because the
+        # failure they catch is different in kind: a surface that guards the
+        # range but touches the value first still raises for the four above —
+        # from the range check, inside the object it eventually builds — and
+        # raises `TypeError` from a comparison for these. `cli.main()` catches
+        # `ValueError` and not `TypeError`, so the second is a traceback where
+        # the repo promises a sentence. `issue()` failed exactly here, having
+        # had its own guard removed one commit earlier as redundant.
+        "0.9",
+        None,
+        [0.9],
+        True,
+        10**400,  # finite, and not convertible to a float
+    ],
+)
 def test_every_surface_that_takes_a_bar_refuses_a_degenerate_one(bar):
     unguarded = []
     for name, call in sorted(_call_with(bar).items()):
@@ -330,9 +352,11 @@ def test_every_surface_that_takes_a_bar_refuses_a_degenerate_one(bar):
         except ValueError as e:
             if "equivalence bar" in str(e):
                 continue
-            unguarded.append(f"{name}: rejected {bar}, but not as a bar — {e}")
+            unguarded.append(f"{name}: rejected {bar!r}, but not as a bar — {e}")
+        except Exception as e:  # noqa: BLE001 — the point is which type arrives
+            unguarded.append(f"{name}: raised {type(e).__name__}, which the CLI does not catch")
         else:
-            unguarded.append(f"{name}: accepted bar={bar}")
+            unguarded.append(f"{name}: accepted bar={bar!r}")
     assert not unguarded, "surfaces that take a bar without checking it:\n  " + "\n  ".join(
         unguarded
     )
@@ -452,3 +476,31 @@ def test_a_real_bar_still_reaches_the_judge():
 
     run(items, shares={"x": 1.0}, judge=judge, judge_model="m", bar=0.90)
     assert calls, "a valid bar must still run the eval"
+
+
+@pytest.mark.parametrize(
+    "weight", [float("nan"), float("inf"), float("-inf"), 10**400, "0.5", None, True]
+)
+def test_a_weight_that_cannot_be_averaged_is_refused_before_the_arithmetic(weight):
+    """The third site with the same flaw, and the one the review did not name.
+
+    `_check_weights` called `math.isfinite` directly, so a string raised
+    `TypeError` and an `int` too large to convert raised `OverflowError` — and
+    when the check was first narrowed to let ints through as "finite by
+    construction", `weighted_point` raised `OverflowError` on the next line
+    instead. Guarding the value is not enough if the guard's idea of valid is
+    wider than the arithmetic's.
+    """
+    from clickllm.prove.stats import weighted_point, weighted_posterior, wilson
+
+    for fn in (weighted_point, weighted_posterior):
+        with pytest.raises(ValueError, match="traffic share"):
+            fn([(wilson(41, 80), weight)])
+
+
+def test_weights_that_can_be_averaged_still_are():
+    """The negative control for the sweep above."""
+    from clickllm.prove.stats import weighted_point, wilson
+
+    assert round(weighted_point([(wilson(41, 80), 1.0)]), 4) == 0.5125
+    assert round(weighted_point([(wilson(40, 40), 1), (wilson(0, 40), 1)]), 4) == 0.5
