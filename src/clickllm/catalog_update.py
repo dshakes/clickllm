@@ -23,6 +23,7 @@ logic is testable offline and the whole module works air-gapped.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -167,10 +168,20 @@ def _number(v: Any, default: float) -> float:
 
     `bool` is excluded deliberately — it is an `int` in Python, and `true`
     arriving as a download count of 1 is a fabricated number, not a parsed one.
+
+    Non-finite is excluded for two reasons, and the first version of this
+    checked only the type. `json.loads` accepts the literals `NaN`, `Infinity`
+    and `-Infinity`, and `isinstance(float("nan"), float)` is `True`, so both
+    walked straight through: `int(nan)` raises `ValueError` and `int(inf)`
+    `OverflowError`, neither of which is `Unreachable`, so discovery aborted on
+    one row after all. And a `NaN` that did *not* crash was worse — `trending`
+    reaches `out.sort(key=lambda d: (-d.trending, ...))`, where NaN compares
+    false against everything and quietly makes the order the comment two lines
+    below calls "deterministic" depend on input order.
     """
     if isinstance(v, bool) or not isinstance(v, int | float):
         return default
-    return v
+    return v if math.isfinite(v) else default
 
 
 def _first_int(cfg: dict[str, Any], *keys: str) -> int | None:

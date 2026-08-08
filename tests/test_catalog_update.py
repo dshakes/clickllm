@@ -268,6 +268,43 @@ def test_a_sane_row_still_carries_every_field():
     assert (d.downloads, d.likes, d.trending, d.license) == (5, 2, 1.5, "mit")
 
 
+@pytest.mark.parametrize("field", ["downloads", "likes", "trendingScore"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_number_in_the_index_does_not_abort_discovery(field, value):
+    """The first version of `_number` checked only the *type*, and
+    `isinstance(float("nan"), float)` is `True`.
+
+    `json.loads` accepts the literals `NaN`, `Infinity` and `-Infinity`, so both
+    walked through: `int(nan)` raises `ValueError`, `int(inf)` `OverflowError`,
+    and neither is `Unreachable`. Swept for the wrong thing — the values, not
+    just the shapes.
+    """
+    got = cu.discover(set(), _index({"modelId": "o/r", field: value}))
+    assert [d.repo for d in got] == ["o/r"]
+
+
+def test_a_nan_score_cannot_poison_the_ordering():
+    """The half that does not crash, and is worse for it. `trending` reaches
+    `out.sort(key=lambda d: (-d.trending, ...))`, where NaN compares false
+    against everything and silently makes the order the comment two lines below
+    calls "Deterministic" depend on the order the rows arrived in."""
+    import json
+    import math
+
+    rows = [
+        {"modelId": "o/high", "trendingScore": 9.0},
+        {"modelId": "o/nan", "trendingScore": float("nan")},
+        {"modelId": "o/mid", "trendingScore": 5.0},
+    ]
+
+    def fetch(url: str) -> str:
+        return json.dumps(rows, allow_nan=True)
+
+    got = cu.discover(set(), fetch)
+    assert all(math.isfinite(d.trending) for d in got)
+    assert [d.repo for d in got] == ["o/high", "o/mid", "o/nan"]
+
+
 def test_a_boolean_is_not_a_count():
     """`True` is an `int` in Python, so `int(r.get("downloads") or 0)` turned a
     JSON `true` into one download. A fabricated number is worse than a missing

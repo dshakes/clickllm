@@ -381,6 +381,59 @@ def test_the_guard_fires_before_the_eval_run_it_would_invalidate():
     assert calls == [], f"the judge was called {len(calls)} times before the bar was checked"
 
 
+@pytest.mark.parametrize("value", ["0.9", None, [0.9], {"bar": 0.9}, True])
+def test_a_bar_that_is_not_a_number_is_a_sentence_not_a_traceback(value):
+    """Both checks reached for the value's *range* first, which assumes it has
+    one. `0.0 < "0.9"` raises `TypeError`, and `cli.main()` catches `ValueError`,
+    not `TypeError`.
+
+    So a receipt file carrying `"bar": "0.9"` still failed closed — as a
+    traceback, where the repo promises a sentence and exit 2 for an untrusted
+    file. `True` is in here because it is an `int`: a bar of `True` is a bar of
+    1.0 nobody typed.
+    """
+    from clickllm.prove.equivalence import check_bar
+
+    with pytest.raises(ValueError, match="must be a number"):
+        check_bar(value)
+
+
+@pytest.mark.parametrize("value", ["0.9", None, [0.9], True])
+def test_a_share_that_is_not_a_number_is_refused_the_same_way(value):
+    """The sibling. `check_share` called `math.isfinite` first, which raises
+    `TypeError` on a string exactly as the comparison does — the same defect,
+    in the function next to it, and not in the finding that prompted this."""
+    from clickllm.prove.equivalence import check_share
+
+    with pytest.raises(ValueError, match="must be a number"):
+        check_share(value)
+
+
+def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
+    """The route that matters: `from_json` is what `clickllm receipt`, `guard`
+    and the box read from disk, and `main()`'s handler lists `ValueError`."""
+    import json as _json
+
+    from clickllm.prove import Receipt, issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["bar"] = "0.9"
+    with pytest.raises(ValueError, match="must be a number"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+def test_the_numbers_that_are_numbers_still_pass():
+    """The negative control for the four tests above."""
+    from clickllm.prove.equivalence import check_bar, check_share
+
+    for v in (0.9, 0.5, 1e-9):
+        check_bar(v)
+    for v in (0.0, 0.5, 1.0, 0, 1):
+        check_share(v)
+
+
 def test_a_real_bar_still_reaches_the_judge():
     """The negative control, and it earned its place: the first version of the
     test above used differing-JSON items, which `_judged` never sends to the

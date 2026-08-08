@@ -42,6 +42,22 @@ from .stats import (
 DEFAULT_EQUIVALENCE_BAR = 0.90
 
 
+def _real(value: object, what: str, where: str = "") -> None:
+    """Refuse a non-number before anything tries to compare or measure it.
+
+    Both checks below reached for the value's *range* first, which assumes it
+    has one. `0.0 < "0.9"` raises `TypeError`, and so does `math.isfinite(None)`
+    — and `cli.main()` catches `ValueError`, not `TypeError`. So a receipt file
+    carrying `"bar": "0.9"` still failed closed, as a traceback rather than as
+    the sentence-and-exit-2 the repo promises for an untrusted file.
+
+    `bool` is rejected with the rest: `True` is an `int`, and a bar of `True` is
+    a bar of 1.0 nobody typed.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{what} must be a number{where}, got {value!r}")
+
+
 def check_bar(bar: float) -> None:
     """Refuse a threshold that is not an equivalence bar.
 
@@ -65,6 +81,7 @@ def check_bar(bar: float) -> None:
     Raises:
         ValueError: naming the offending value.
     """
+    _real(bar, "equivalence bar")
     if not 0.0 < bar < 1.0:
         raise ValueError(f"equivalence bar must be between 0 and 1, exclusive, got {bar}")
 
@@ -81,6 +98,7 @@ def check_share(share: float, *, cluster: str = "") -> None:
         ValueError: naming the offending value, and the cluster when known.
     """
     where = f" for {cluster}" if cluster else ""
+    _real(share, "traffic share", where)
     # Finiteness first: NaN fails every ordering comparison, so checking the
     # range first would let it through as "not out of range".
     if not math.isfinite(share):
