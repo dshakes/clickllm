@@ -38,8 +38,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
-from typing import Any
+from dataclasses import asdict, dataclass, field, fields
+from types import UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from clickllm.prove.equivalence import (
     DEFAULT_EQUIVALENCE_BAR,
@@ -91,6 +92,62 @@ def eval_set_digest(items: list[EvalItem]) -> str:
     return hashlib.sha256("".join(parts).encode()).hexdigest()
 
 
+def _permitted(hint: Any) -> tuple[type, ...] | None:
+    """The concrete types a declared annotation allows, or None for a container.
+
+    Containers are skipped because the construction path already types them:
+    `tuple[Claim, ...]` is built by `Claim(**c)`, which refuses anything that is
+    not a claim-shaped mapping.
+
+    `float` admits `int`, because JSON writes `1` for `1.0` and a receipt this
+    tool issued must survive its own round trip.
+    """
+    origin = get_origin(hint)
+    if origin is UnionType or origin is Union:
+        out: list[type] = []
+        for arg in get_args(hint):
+            part = _permitted(arg)
+            if part:
+                out.extend(part)
+        return tuple(out)
+    if origin is not None:
+        return None
+    if hint is float:
+        return (int, float)
+    return (hint,)
+
+
+def _check_declared_types(obj: Any) -> None:
+    """Refuse a field whose value is not the type its own class declares.
+
+    Seven reviews have found seven levels of this document unguarded, each one
+    deeper than the last, and each fix was a hand-written list of the shapes
+    known at the time. This derives the list from the annotations instead, so a
+    field added later is covered by having been declared.
+
+    It matters because the digest does not help: a forger edits the content and
+    recomputes the digest over it, so the file is internally consistent. Thirty
+    combinations of field and wrong type parsed and then crashed `render()` or
+    `movable_share` with `TypeError` — inside `cmd_receipt`, which only catches
+    `ValueError`. Tamper detection answers "was this altered", never "is this
+    the shape it claims to be".
+    """
+    hints = get_type_hints(type(obj))
+    for f in fields(obj):
+        allowed = _permitted(hints.get(f.name))
+        if not allowed:
+            continue
+        value = getattr(obj, f.name)
+        # `bool` is an `int`, so it satisfies an `int` field without being one.
+        wrong_bool = isinstance(value, bool) and bool not in allowed
+        if wrong_bool or not isinstance(value, allowed):
+            names = " or ".join(t.__name__ for t in allowed)
+            raise ValueError(
+                f"{type(obj).__name__}.{f.name} must be {names}, "
+                f"got {type(value).__name__} ({value!r})"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class Claim:
     """What was proven about one cluster, with everything needed to doubt it."""
@@ -116,6 +173,9 @@ class Claim:
     #: below the bar — where the answer is a better candidate, not a bigger eval
     #: set. Carried in the file so "not proven" arrives with its price attached.
     needed: int | None = None
+
+    def __post_init__(self) -> None:
+        _check_declared_types(self)
 
     @property
     def point(self) -> float | None:
@@ -218,7 +278,13 @@ class Receipt:
         On the type, so construction and parsing share it. This is the third
         place the same rule needed to be, and the last one that is not a route
         into another: `Matrix` for the report, `Receipt` for the artifact.
+
+        The type sweep runs first, for the same reason it exists on `Claim`: a
+        forged file recomputes its own digest, so internal consistency proves
+        nothing about shape, and `check_bar` needs `bar` to be a number before
+        it can say anything useful about its range.
         """
+        _check_declared_types(self)
         check_bar(self.bar)
 
     # --- the claim ------------------------------------------------------------

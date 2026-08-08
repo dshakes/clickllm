@@ -435,7 +435,15 @@ def test_a_share_that_is_not_a_number_is_refused_the_same_way(value):
 
 def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
     """The route that matters: `from_json` is what `clickllm receipt`, `guard`
-    and the box read from disk, and `main()`'s handler lists `ValueError`."""
+    and the box read from disk, and `main()`'s handler lists `ValueError`.
+
+    The message moved once the receipt gained a whole-dataclass type sweep,
+    which now runs before `check_bar` and reports the field path instead —
+    "Receipt.bar must be int or float, got str". This asserts the two things the
+    test is named for rather than a wording: the exception type the CLI catches,
+    and that the sentence identifies the field and the value. `check_bar`'s own
+    message is covered directly above, at the layer that produces it.
+    """
     import json as _json
 
     from clickllm.prove import Receipt, issue
@@ -444,8 +452,10 @@ def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
     good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
     blob = _json.loads(good.to_json())
     blob["receipt"]["bar"] = "0.9"
-    with pytest.raises(ValueError, match="must be a number"):
+    with pytest.raises(ValueError) as caught:
         Receipt.from_json(_json.dumps(blob))
+    msg = str(caught.value)
+    assert "bar" in msg and "0.9" in msg, msg
 
 
 def test_the_numbers_that_are_numbers_still_pass():

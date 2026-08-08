@@ -329,3 +329,107 @@ def test_a_fields_own_validator_keeps_its_better_sentence():
     msg = str(caught.value)
     assert msg.startswith("equivalence bar"), msg
     assert "not readable as a receipt" not in msg
+
+
+def test_no_field_of_a_receipt_survives_being_the_wrong_type(tmp_path):
+    """A forger edits the content and recomputes the digest over it, so the file
+    is internally consistent and tamper detection has nothing to say.
+
+    Thirty combinations of field and wrong type parsed and then crashed
+    `render()` or `movable_share` with `TypeError`, inside `cmd_receipt`, which
+    catches `ValueError`. Seven reviews found seven levels of this document
+    unguarded, each fix a hand-written list of the shapes known at the time —
+    so the check is derived from the annotations the classes already declare,
+    and a field added later is covered by having been declared.
+
+    This sweeps every field of `Claim` in every group against five wrong types
+    and asserts that nothing reaches a caller as a non-`ValueError`.
+    """
+    import json as _json
+    from dataclasses import fields
+
+    from clickllm.prove import Receipt, issue
+    from clickllm.prove.receipt import Claim
+
+    report = CandidateReport(
+        "m",
+        (
+            ClusterScore("good", "good", 0.5, wilson(80, 80), 0),
+            ClusterScore("bad", "bad", 0.5, wilson(41, 80), 0),
+        ),
+    )
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+
+    def forged(group: str, field: str, value):
+        blob = _json.loads(good.to_json())
+        if not blob["receipt"][group]:
+            return None
+        blob["receipt"][group][0][field] = value
+        body = dict(blob["receipt"])
+        for k in ("proven", "regret", "unproven"):
+            body[k] = tuple(Claim(**c) for c in body.get(k, ()))
+        r = Receipt(**body)  # recompute the digest over the tampered content
+        return _json.dumps({"receipt": blob["receipt"], "digest": r.digest()})
+
+    escaped, checked = [], 0
+    for group in ("proven", "regret", "unproven"):
+        for f in fields(Claim):
+            for bad in ("1.0", None, [1], True, {"a": 1}):
+                try:
+                    doc = forged(group, f.name, bad)
+                except ValueError:
+                    checked += 1  # refused at construction, which is the point
+                    continue
+                if doc is None:
+                    continue
+                checked += 1
+                try:
+                    r = Receipt.from_json(doc)
+                except ValueError:
+                    continue
+                for label, call in (
+                    ("render", r.render),
+                    ("movable_share", lambda r=r: r.movable_share),
+                    ("to_json", r.to_json),
+                ):
+                    try:
+                        call()
+                    except ValueError:
+                        pass
+                    except Exception as e:  # noqa: BLE001 — the type is the point
+                        escaped.append(f"{group}.{f.name}={bad!r} -> {label}: {type(e).__name__}")
+
+    assert checked > 50, "the sweep did not actually exercise anything"
+    assert not escaped, "these reach a caller as a non-ValueError:\n  " + "\n  ".join(escaped)
+
+
+def test_an_honest_receipt_is_unchanged_by_the_type_sweep():
+    """The negative control, and it is load-bearing: `float` must admit `int`,
+    because JSON writes `1` for `1.0` and a receipt this tool issued has to
+    survive its own round trip."""
+    from clickllm.prove import Receipt, issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(80, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    assert Receipt.from_json(good.to_json()) == good
+    assert good.render()
+    assert good.movable_share == 1.0
+
+
+def test_a_whole_number_share_written_as_an_integer_still_parses():
+    """The specific round-trip hazard the control above generalises: a hand-
+    written or re-serialised receipt carrying `"share": 1` rather than `1.0`."""
+    import json as _json
+
+    from clickllm.prove import Receipt, issue
+    from clickllm.prove.receipt import Claim
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(80, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["proven"][0]["share"] = 1
+    body = dict(blob["receipt"])
+    for k in ("proven", "regret", "unproven"):
+        body[k] = tuple(Claim(**c) for c in body.get(k, ()))
+    doc = _json.dumps({"receipt": blob["receipt"], "digest": Receipt(**body).digest()})
+    assert Receipt.from_json(doc).movable_share == 1
