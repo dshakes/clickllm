@@ -72,12 +72,20 @@ def _locked(path: Path):
             with contextlib.suppress(OSError):
                 handle.close()
         handle = None
-        warnings.warn(
-            f"could not lock {path}: {e}. Writing unlocked — a concurrent "
-            "writer's update may be lost.",
-            RuntimeWarning,
-            stacklevel=3,
-        )
+        # Suppressed because a warning must not be able to prevent the thing it
+        # is warning about. Under `PYTHONWARNINGS=error` — or any test harness
+        # that turns warnings into errors — this call *raises*, which propagates
+        # out of the context manager and skips the write entirely. That inverts
+        # the module's stated design ("a lock is not worth refusing to save
+        # state over") into "an unlockable filesystem cannot save state at all",
+        # measured: the file did not exist afterwards.
+        with contextlib.suppress(RuntimeWarning):
+            warnings.warn(
+                f"could not lock {path}: {e}. Writing unlocked — a concurrent "
+                "writer's update may be lost.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
     try:
         yield
     finally:

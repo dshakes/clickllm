@@ -273,9 +273,25 @@ class Receipt:
             raise ValueError(f"a receipt must be a JSON object, got {type(body).__name__}")
         if body.get("format") != FORMAT:
             raise ValueError(f"unknown receipt format {body.get('format')!r}")
-        for key in ("proven", "regret", "unproven"):
-            body[key] = tuple(Claim(**c) for c in body.get(key, ()))
-        r = cls(**body)
+        # Everything below this line is shape, and shape has been guarded one
+        # level at a time across four reviews: the document, then the envelope,
+        # then the digest, then the claim groups — `{"proven": [7]}` raising
+        # `TypeError` from `Claim(**c)`, `{"proven": 7}` from iterating an int,
+        # an unknown key from `cls(**body)`. Each fix was correct and the next
+        # level was found by the next reviewer.
+        #
+        # So: not a fifth enumeration. The contract is that this file is a
+        # stranger's, and *any* way it fails to be a receipt is a `ValueError` —
+        # which is what `cli.main()` catches. `TypeError` and `KeyError` are the
+        # two families `**`-construction raises for a bad shape; a `ValueError`
+        # from a field's own validator (`check_bar`, say) already carries a
+        # better sentence and passes through untouched.
+        try:
+            for key in ("proven", "regret", "unproven"):
+                body[key] = tuple(Claim(**c) for c in body.get(key, ()))
+            r = cls(**body)
+        except (TypeError, KeyError) as e:
+            raise ValueError(f"this file is not readable as a receipt: {e}") from e
         # A MISSING digest is a failure, not a skip. This was
         # `if (stated := blob.get("digest")) and stated != r.digest()`, so a
         # falsy digest short-circuited the comparison and the receipt parsed

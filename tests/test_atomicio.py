@@ -162,3 +162,31 @@ def test_an_unlocked_write_is_still_a_write_not_a_silent_no_op(tmp_path, monkeyp
 
 def test_the_module_self_check_still_passes():
     atomicio.demo()
+
+
+def test_the_warning_cannot_abort_the_write_it_is_warning_about(tmp_path, monkeypatch):
+    """Under `PYTHONWARNINGS=error` — or any harness turning warnings into
+    errors — `warnings.warn` *raises*, and that propagated out of `_locked` and
+    skipped the write entirely.
+
+    That inverts this module's stated design ("a lock is not worth refusing to
+    save state over") into "an unlockable filesystem cannot save state at all".
+    Measured before the fix: the file did not exist afterwards. A report must
+    not be able to prevent the thing it reports on.
+    """
+    import warnings
+
+    _flock_fails(monkeypatch)
+    p = tmp_path / "state.json"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert update_json(p, lambda cur: {"a": 1}, default={})
+    assert json.loads(p.read_text()) == {"a": 1}
+
+
+def test_it_still_warns_under_the_ordinary_filter(tmp_path, monkeypatch):
+    """The negative control: suppressing the warning outright would satisfy the
+    test above and lose the disclosure entirely."""
+    _flock_fails(monkeypatch)
+    with pytest.warns(RuntimeWarning, match="could not lock"):
+        update_json(tmp_path / "state.json", lambda cur: {"a": 1}, default={})

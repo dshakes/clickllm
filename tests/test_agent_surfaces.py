@@ -269,3 +269,63 @@ def test_an_honest_receipt_is_unaffected_and_tampering_is_still_named():
     blob["receipt"]["incumbent"] = "someone else"
     with pytest.raises(ValueError, match="has been altered"):
         Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize(
+    "proven",
+    [[7], ["a"], [{"bogus": 1}], 7, "text", [[]], [None], {"a": 1}],
+)
+def test_a_claim_group_that_is_not_claims_is_refused_as_a_value_error(proven):
+    """Shape has been guarded one level at a time across four reviews — the
+    document, the envelope, the digest, and now the claim groups inside it.
+    Each fix was right and the next reviewer found the next level.
+
+    So this is not a fifth enumeration: `from_json` now converts any `TypeError`
+    or `KeyError` from `**`-construction into `ValueError`. The contract is that
+    the file is a stranger's, and every way it fails to be a receipt is the one
+    exception `cli.main()` catches.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"]["proven"] = proven
+    with pytest.raises(ValueError):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize("key", ["movable_share", "extra_key", "bar_typo"])
+def test_a_key_the_receipt_does_not_have_is_refused_the_same_way(key):
+    """`cls(**body)` raises `TypeError` for an unexpected keyword, which is the
+    same family and was equally uncaught."""
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"][key] = "x"
+    with pytest.raises(ValueError):
+        Receipt.from_json(_json.dumps(blob))
+
+
+def test_a_fields_own_validator_keeps_its_better_sentence():
+    """The blanket conversion must not swallow the specific messages.
+
+    `match="equivalence bar"` alone does not test this: adding `ValueError` to
+    the caught tuple wraps the message rather than replacing it, so the original
+    text is still a substring and the assertion holds either way. That was the
+    first version, and its control passed. The claim is that the sentence is not
+    buried under a generic prefix.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"]["bar"] = 0.0
+    with pytest.raises(ValueError) as caught:
+        Receipt.from_json(_json.dumps(blob))
+    msg = str(caught.value)
+    assert msg.startswith("equivalence bar"), msg
+    assert "not readable as a receipt" not in msg
