@@ -12,6 +12,14 @@ import pytest
 from clickllm import catalog_update as cu
 from clickllm.catalog import load
 
+_BASE = {
+    "num_hidden_layers": 32,
+    "num_attention_heads": 32,
+    "num_key_value_heads": 8,
+    "head_dim": 128,
+    "max_position_embeddings": 131072,
+}
+
 
 def _spec():
     return load()[0]
@@ -160,3 +168,109 @@ def test_a_real_config_still_parses():
 
 def test_the_module_self_check_still_passes():
     cu.demo()
+
+
+# --- the same assumption, five more times --------------------------------------
+
+# The non-dict guard above covers `cfg` itself. These are the *fields* inside a
+# well-formed object, and inside rows of the discovery index — every one of them
+# coerced without checking what it was. Found by sweeping the file for reads of
+# untrusted JSON after a reviewer named two of them; the sweep found six.
+
+
+@pytest.mark.parametrize("value", [7, "Llama", {"a": 1}, 3.5, True])
+def test_architectures_that_is_not_a_list_does_not_abort_the_parse(value):
+    """`or []` is not a type check — `7 or []` is `7`, and iterating it raises
+    `TypeError`, which `propose` does not catch.
+
+    The same field was read twice in this function, and only the second read
+    tested `isinstance(..., list)`.
+    """
+    # `== "" or isinstance(str)` was the first version of this line and is
+    # tautologically true for a `str`-typed field — it would have passed against
+    # the unfixed code had the unfixed code not raised. The claim is that the
+    # value is *ignored*, which is the empty string here because `_BASE` carries
+    # no `model_type` to fall back to.
+    assert cu.parse_config({**_BASE, "architectures": value}).architecture == ""
+
+
+def test_the_model_type_fallback_still_applies_when_architectures_is_unusable():
+    # ...and the control that "" above means "ignored", not "cleared".
+    got = cu.parse_config({**_BASE, "architectures": 7, "model_type": "qwen3"})
+    assert got.architecture == "qwen3"
+
+
+def test_a_real_architectures_list_is_still_read():
+    assert cu.parse_config({**_BASE, "architectures": ["Qwen3ForCausalLM"]}).architecture == (
+        "Qwen3ForCausalLM"
+    )
+
+
+def test_the_mla_family_is_still_detected_through_the_architecture_name():
+    """The negative control for the guard above: dropping the read entirely
+    would satisfy every test in this block and disable the MLA refusal, which
+    is the one that stops a ~50x KV overestimate."""
+    with pytest.raises(cu.ConfigError, match="MLA"):
+        cu.parse_config({**_BASE, "architectures": ["DeepseekV3ForCausalLM"]})
+
+
+def _index(row: dict):
+    def fetch(url: str) -> str:
+        import json
+
+        return json.dumps([row])
+
+    return fetch
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("downloads", "many"),
+        ("downloads", [1]),
+        ("downloads", {"a": 1}),
+        ("likes", {"a": 1}),
+        ("likes", "lots"),
+        ("trendingScore", "hot"),
+        ("trendingScore", []),
+        ("cardData", "mit"),
+        ("cardData", ["mit"]),
+        ("cardData", 7),
+    ],
+)
+def test_one_odd_field_in_the_index_does_not_abort_discovery(field, value):
+    """`int("many")` raises `ValueError`, `int([1])` `TypeError`, and
+    `(cardData or {}).get(...)` `AttributeError` for a string. None is
+    `Unreachable`, so a single malformed row took the whole discovery run down
+    with a traceback — the failure this module's own comment says it exists to
+    notice, one level below where it was checked.
+    """
+    got = cu.discover(set(), _index({"modelId": "o/r", field: value}))
+    assert [d.repo for d in got] == ["o/r"], "the row must survive its own bad field"
+
+
+def test_a_sane_row_still_carries_every_field():
+    """The negative control: coercing everything to the default would satisfy
+    the sweep above and silently zero the ranking the discovery order uses."""
+    got = cu.discover(
+        set(),
+        _index(
+            {
+                "modelId": "o/r",
+                "downloads": 5,
+                "likes": 2,
+                "trendingScore": 1.5,
+                "cardData": {"license": "mit"},
+            }
+        ),
+    )
+    d = got[0]
+    assert (d.downloads, d.likes, d.trending, d.license) == (5, 2, 1.5, "mit")
+
+
+def test_a_boolean_is_not_a_count():
+    """`True` is an `int` in Python, so `int(r.get("downloads") or 0)` turned a
+    JSON `true` into one download. A fabricated number is worse than a missing
+    one — this module's whole point is that estimates are labelled."""
+    got = cu.discover(set(), _index({"modelId": "o/r", "downloads": True, "likes": True}))
+    assert (got[0].downloads, got[0].likes) == (0, 0)

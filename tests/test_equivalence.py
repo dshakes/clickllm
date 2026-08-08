@@ -344,3 +344,58 @@ def test_the_same_surfaces_all_accept_a_real_bar():
     fail this one."""
     for _name, call in sorted(_call_with(0.90).items()):
         call()  # must not raise
+
+
+def test_the_guard_fires_before_the_eval_run_it_would_invalidate():
+    """The sweep above proves a degenerate bar *raises*. It did before this too —
+    from `Matrix.__post_init__`, after every item had been graded and, with a
+    judge injected, after a paid call per item.
+
+    The exception was correct and cost a full eval run to arrive at. A guard
+    that fires late is a guard the caller pays for, so `run` checks the bar
+    before it grades anything, and `suite` inherits that by calling `run` first.
+
+    Free-text items on purpose: `_judged` skips the judge for an item the
+    deterministic graders already failed, so a fixture of differing JSON never
+    reaches it at *any* bar and "the judge was not called" would prove nothing.
+    The paired test below is the control that this fixture does reach it.
+    """
+    from clickllm.prove import run, suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "x", f"p{i}", "the capital is Paris", "Paris") for i in range(80)]
+    calls: list[int] = []
+
+    def judge(*a, **k):
+        calls.append(1)
+        raise AssertionError("the judge must not be reached with an invalid bar")
+
+    for call in (
+        lambda: run(items, shares={"x": 1.0}, judge=judge, judge_model="m", bar=0.0),
+        lambda: suite(
+            items, shares={"x": 1.0}, issued="2026-08-07", judge=judge, judge_model="m", bar=0.0
+        ),
+    ):
+        with pytest.raises(ValueError, match="equivalence bar"):
+            call()
+    assert calls == [], f"the judge was called {len(calls)} times before the bar was checked"
+
+
+def test_a_real_bar_still_reaches_the_judge():
+    """The negative control, and it earned its place: the first version of the
+    test above used differing-JSON items, which `_judged` never sends to the
+    judge because a graded failure cannot be rescued. `calls == []` held for a
+    reason that had nothing to do with the guard, and this test is what caught
+    it."""
+    from clickllm.prove import run
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "x", f"p{i}", "the capital is Paris", "Paris") for i in range(4)]
+    calls: list[int] = []
+
+    def judge(*a, **k):
+        calls.append(1)
+        return None
+
+    run(items, shares={"x": 1.0}, judge=judge, judge_model="m", bar=0.90)
+    assert calls, "a valid bar must still run the eval"

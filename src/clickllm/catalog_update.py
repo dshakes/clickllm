@@ -128,7 +128,13 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     # factor of fifty and looks ordinary.
     kv_lora_rank = _first_int(cfg, "kv_lora_rank", "kv_lora_dim", "kv_rank")
     mla_signals = [k for k in ("q_lora_rank", "qk_rope_head_dim", "qk_nope_head_dim") if k in cfg]
-    arch = " ".join(str(a) for a in (cfg.get("architectures") or [])).lower()
+    # `or []` is not a type check: `7 or []` is `7`, and iterating it raises
+    # `TypeError`, which `propose` does not catch. The read three lines below
+    # already tested `isinstance(..., list)` — the same field, guarded on one of
+    # its two reads. One read now, used by both.
+    families = cfg.get("architectures")
+    families = families if isinstance(families, list) else []
+    arch = " ".join(str(a) for a in families).lower()
     if not kv_lora_rank and (mla_signals or "deepseek" in arch):
         raise ConfigError(
             f"this config looks like an MLA model "
@@ -141,9 +147,7 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     experts = _first_int(cfg, "num_experts", "num_local_experts", "n_routed_experts")
     per_tok = _first_int(cfg, "num_experts_per_tok", "moe_topk", "num_experts_per_token")
 
-    arch = ""
-    if isinstance(cfg.get("architectures"), list) and cfg["architectures"]:
-        arch = str(cfg["architectures"][0])
+    arch = str(families[0]) if families else ""
 
     return Architecture(
         layers=layers,
@@ -156,6 +160,17 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
         experts_per_token=per_tok,
         architecture=arch or str(cfg.get("model_type", "")),
     )
+
+
+def _number(v: Any, default: float) -> float:
+    """A count from JSON we do not control, or the default.
+
+    `bool` is excluded deliberately — it is an `int` in Python, and `true`
+    arriving as a download count of 1 is a fabricated number, not a parsed one.
+    """
+    if isinstance(v, bool) or not isinstance(v, int | float):
+        return default
+    return v
 
 
 def _first_int(cfg: dict[str, Any], *keys: str) -> int | None:
@@ -389,13 +404,29 @@ def discover(
         repo = str(r.get("modelId") or r.get("id") or "")
         if not repo or repo.casefold() in seen:
             continue
+        # Every field below was coerced without checking what it was, and the
+        # index is a third party's JSON. `int("many")` raises `ValueError`,
+        # `int([1])` and `float("hot")` raise their own, and `(cardData or
+        # {}).get(...)` raises `AttributeError` for a string — none of which is
+        # `Unreachable`, so one odd row aborted the whole discovery run with a
+        # traceback. The row-level `isinstance(r, dict)` guard above shows the
+        # shape was already understood; it just stopped at the row.
+        #
+        # A bad field reads as absent rather than dropping the row: the repo is
+        # the part that matters, and a missing download count is a worse reason
+        # to never see a model than it is a number.
+        card = r.get("cardData")
         out.append(
             Discovery(
                 repo=repo,
-                downloads=int(r.get("downloads") or 0),
-                likes=int(r.get("likes") or 0),
-                trending=float(r.get("trendingScore") or 0.0),
-                license=str(r.get("license") or (r.get("cardData") or {}).get("license") or ""),
+                downloads=int(_number(r.get("downloads"), 0)),
+                likes=int(_number(r.get("likes"), 0)),
+                trending=float(_number(r.get("trendingScore"), 0.0)),
+                license=str(
+                    r.get("license")
+                    or (card.get("license") if isinstance(card, dict) else None)
+                    or ""
+                ),
             )
         )
     # Deterministic: trending, then downloads, then name.
