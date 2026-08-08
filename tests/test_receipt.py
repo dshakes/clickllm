@@ -45,7 +45,6 @@ def receipt(*clusters: ClusterScore, **kw) -> Receipt:
         pytest.param(lambda b: b["proven"][0].__setitem__("passed", 120), id="a-number"),
         pytest.param(lambda b: b["regret"].clear(), id="drop-the-regret-set"),
         pytest.param(lambda b: b["unproven"].clear(), id="drop-the-unknowns"),
-        pytest.param(lambda b: b.__setitem__("bar", 0.5), id="lower-the-bar"),
         pytest.param(lambda b: b.__setitem__("issued", "2027-01-01"), id="the-date"),
         pytest.param(lambda b: b.__setitem__("eval_set", "b" * 64), id="swap-the-questions"),
         pytest.param(lambda b: b.__setitem__("judge_trustworthy", True), id="launder-the-judge"),
@@ -55,6 +54,33 @@ def test_any_alteration_is_caught_by_the_digest(mutate):
     r = receipt(cs("extract", 118, 120, 0.6), cs("long", 41, 80, 0.3), cs("rare", 3, 3, 0.1))
     blob = json.loads(r.to_json())
     mutate(blob["receipt"])
+    with pytest.raises(ValueError, match="altered"):
+        Receipt.from_json(json.dumps(blob))
+
+
+def test_lowering_the_bar_is_caught_before_the_digest_is_reached():
+    """`lower-the-bar` was a case of the sweep above until the receipt began
+    checking its own groups.
+
+    Lowering the bar reclassifies claims — 41/80's `[0.405, 0.619]` stops being
+    a regression against 0.5 and becomes unproven — so the file now contradicts
+    itself before the digest is consulted, and says so more usefully than
+    "altered". The alteration is still caught; the reason is better.
+    """
+    r = receipt(cs("extract", 118, 120, 0.6), cs("long", 41, 80, 0.3), cs("rare", 3, 3, 0.1))
+    blob = json.loads(r.to_json())
+    blob["receipt"]["bar"] = 0.5
+    with pytest.raises(ValueError, match="filed under"):
+        Receipt.from_json(json.dumps(blob))
+
+
+def test_a_bar_change_that_reclassifies_nothing_is_still_caught_by_the_digest():
+    """The half the case above no longer covers. With a single proven cluster,
+    lowering the bar leaves it proven, so the group check has nothing to say and
+    the digest is the only thing standing between the reader and a receipt whose
+    stated bar is not the one it was measured against."""
+    blob = json.loads(receipt(cs("extract", 118, 120, 1.0)).to_json())
+    blob["receipt"]["bar"] = 0.5
     with pytest.raises(ValueError, match="altered"):
         Receipt.from_json(json.dumps(blob))
 
@@ -280,17 +306,21 @@ def test_a_receipt_without_a_digest_is_refused_not_trusted(sabotage):
                 cluster="support",
                 name="support",
                 share=0.42,
-                passed=95,
-                total=100,
-                low=0.89,
-                high=0.98,
+                # 118/120, not the 95/100 this used to carry: the receipt now
+                # checks its own groups against its own numbers, and 95/100 has
+                # a Wilson low of 0.888, which does not clear a 0.90 bar. The
+                # fixture asserted a receipt `issue()` could never produce.
+                passed=118,
+                total=120,
+                low=0.9413,
+                high=0.9954,
             ),
         ),
         regret=(),
         unproven=(),
     )
     blob = json.loads(real.to_json())
-    blob["receipt"]["proven"][0]["passed"] = 100  # forge the result upward
+    blob["receipt"]["proven"][0]["passed"] = 120  # forge the result upward
     sabotage(blob)
 
     with pytest.raises(ValueError, match="no digest|does not match"):
@@ -298,7 +328,18 @@ def test_a_receipt_without_a_digest_is_refused_not_trusted(sabotage):
 
 
 def test_an_intact_receipt_still_round_trips():
-    """The negative control for the above: the refusal must not eat good ones."""
+    """The negative control for the above: the refusal must not eat good ones.
+
+    The hand-built claim used to be 95/100 with `low=0.89`, filed under `proven`
+    against a 0.90 bar — a receipt `issue()` could never produce, because 0.89
+    does not clear 0.90. It asserted exactly the error this product exists to
+    prevent: the README's "at a perfect score you need 35 flawless items to
+    clear 90%" is the same arithmetic. Now that the receipt checks its own
+    groups against its own numbers, that fixture is refused, correctly.
+
+    118/120 genuinely clears — Wilson [0.9413, 0.9954] — so the digest is still
+    what this test is about.
+    """
     from clickllm.prove.receipt import Claim, Receipt
 
     real = Receipt(
@@ -312,16 +353,16 @@ def test_an_intact_receipt_still_round_trips():
                 cluster="support",
                 name="support",
                 share=0.42,
-                passed=95,
-                total=100,
-                low=0.89,
-                high=0.98,
+                passed=118,
+                total=120,
+                low=0.9413,
+                high=0.9954,
             ),
         ),
         regret=(),
         unproven=(),
     )
-    assert Receipt.from_json(real.to_json()).proven[0].passed == 95
+    assert Receipt.from_json(real.to_json()).proven[0].passed == 118
 
 
 # --- reproduction ---------------------------------------------------------------

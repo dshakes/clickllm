@@ -564,3 +564,86 @@ def test_the_honest_receipt_survives_all_of_it():
         bar=0.90,
     )
     assert Receipt.from_json(split.to_json()).movable_share == 1.0
+
+
+# --- the right numbers, filed under the wrong verdict ----------------------------
+
+
+def _three_cluster_receipt(bar: float = 0.90):
+    from clickllm.prove import issue
+
+    report = CandidateReport(
+        "m",
+        (
+            ClusterScore("good", "good", 0.4, wilson(80, 80), 0),
+            ClusterScore("bad", "bad", 0.3, wilson(41, 80), 0),
+            ClusterScore("thin", "thin", 0.3, wilson(3, 3), 0),
+        ),
+    )
+    return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=bar)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        ("regret", "proven"),
+        ("unproven", "proven"),
+        ("proven", "regret"),
+        ("proven", "unproven"),
+        ("regret", "unproven"),
+        ("unproven", "regret"),
+    ],
+)
+def test_a_claim_cannot_be_filed_under_a_verdict_its_numbers_contradict(source, target):
+    """Values and types were checked; which group a claim sat in was not.
+
+    A forger moves a claim between groups, reseals, and the file is internally
+    consistent — so the digest has nothing to say. A 51% [40%–62%] cluster
+    lifted from `regret` into `proven` rendered "Movable: 100% of captured
+    traffic" with an empty regret list, off a receipt that verified. That is the
+    artifact a human reads to authorise a cutover (invariant 8).
+
+    The receipt now recomputes each claim's band from its own `low`/`high`/
+    `total` against its own `bar`, so the document checks itself.
+    """
+    msg = _refuses_forgery(
+        _three_cluster_receipt(),
+        lambda b: b[target].append(b[source].pop(0)),
+    )
+    assert "filed under" in msg, msg
+
+
+def test_the_guard_never_fires_on_a_receipt_this_tool_issued():
+    """The control that matters most for this one: a guard that rejects honest
+    input is a guard someone deletes.
+
+    `issue()` sorts by `ClusterScore.band`; this recomputes the same rule from
+    the fields the receipt carries. If the two ever drift, every honest receipt
+    stops parsing — so the agreement is swept rather than sampled.
+    """
+    from clickllm.prove import Receipt, issue
+
+    checked, broken = 0, []
+    for bar in (0.05, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999):
+        for total in (0, 1, 2, 3, 5, 12, 40, 80, 120, 400):
+            for passed in sorted({0, total // 4, total // 2, (3 * total) // 4, total}):
+                if passed > total:
+                    continue
+                report = CandidateReport(
+                    "m", (ClusterScore("c", "c", 1.0, wilson(passed, total), 0),)
+                )
+                try:
+                    r = issue(
+                        report,
+                        incumbent="i",
+                        issued="2026-08-07",
+                        eval_set="a" * 64,
+                        bar=bar,
+                    )
+                    checked += 1
+                    if Receipt.from_json(r.to_json()) != r:
+                        broken.append(f"bar={bar} {passed}/{total}: round trip changed it")
+                except ValueError as e:
+                    broken.append(f"bar={bar} {passed}/{total}: {e}")
+    assert checked > 200, f"the sweep only covered {checked} receipts"
+    assert not broken, "the guard fired on honest receipts:\n  " + "\n  ".join(broken[:8])

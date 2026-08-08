@@ -339,6 +339,36 @@ class Receipt:
         #
         # Same tolerance as `CandidateReport`, and for the same reason: shares
         # arrive from division upstream, so an exact split can land a hair over.
+        # Each claim in the group its own numbers imply. The digest cannot see
+        # this: a forger moves a claim between groups, reseals, and the file is
+        # internally consistent — a 51% [40%–62%] cluster lifted from `regret`
+        # into `proven` rendered "Movable: 100% of captured traffic" with an
+        # empty regret list, off a receipt that verified. That is the artifact a
+        # human reads to authorise a cutover (invariant 8).
+        #
+        # Recomputed from `low`/`high`/`total` against this receipt's own `bar`,
+        # so the document checks itself rather than being checked against
+        # something a reader has to go and find. Mirrors `ClusterScore.band`,
+        # which is what `issue()` sorts by — the two must not drift, and the
+        # test asserts an honest receipt survives its own round trip.
+        for group in _GROUPS:
+            for c in getattr(self, group):
+                belongs = (
+                    "unproven"
+                    if c.total == 0
+                    else "proven"
+                    if c.low > self.bar
+                    else "regret"
+                    if c.high < self.bar
+                    else "unproven"
+                )
+                if belongs != group:
+                    raise ValueError(
+                        f"{c.cluster} is filed under {group} but its interval "
+                        f"[{c.low:.3g}–{c.high:.3g}] against a bar of {self.bar:.3g} "
+                        f"makes it {belongs}"
+                    )
+
         total = sum(c.share for group in _GROUPS for c in getattr(self, group))
         if total > 1.0 + 1e-6:
             raise ValueError(
