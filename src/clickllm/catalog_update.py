@@ -135,7 +135,13 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     # its two reads. One read now, used by both.
     families = cfg.get("architectures")
     families = families if isinstance(families, list) else []
-    arch = " ".join(str(a) for a in families).lower()
+    # `model_type` as well as `architectures`, because the family name has two
+    # homes and this guard read one. Sanitising a non-list `architectures` to
+    # `[]` turned `{"architectures": 7, "model_type": "deepseek_v3"}` from a
+    # `TypeError` into a silent pass, sized as MHA — and a config carrying only
+    # `model_type` was never caught at all, before or after. The whole point of
+    # this refusal is that missing it overestimates KV by ~50x.
+    arch = " ".join([*(str(a) for a in families), str(cfg.get("model_type", ""))]).lower()
     if not kv_lora_rank and (mla_signals or "deepseek" in arch):
         raise ConfigError(
             f"this config looks like an MLA model "

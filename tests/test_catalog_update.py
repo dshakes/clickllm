@@ -327,3 +327,57 @@ def test_an_integer_too_large_for_a_float_does_not_abort_discovery(field):
     got = cu.discover(set(), _index({"modelId": "o/r", field: 10**400}))
     assert [d.repo for d in got] == ["o/r"]
     assert (got[0].downloads, got[0].likes, got[0].trending) == (0, 0, 0.0)
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        {"architectures": 7, "model_type": "deepseek_v3"},
+        {"model_type": "deepseek_v3"},
+        {"architectures": [], "model_type": "deepseek_v2"},
+        {"model_type": "DeepSeek_V3"},
+        {"architectures": ["DeepseekV3ForCausalLM"]},
+    ],
+)
+def test_the_mla_family_is_detected_wherever_the_name_is_written(cfg):
+    """The family name has two homes and the guard read one.
+
+    Sanitising a non-list `architectures` to `[]` — done two commits ago to stop
+    a `TypeError` — turned `{"architectures": 7, "model_type": "deepseek_v3"}`
+    from a crash into a *silent pass*, sized as MHA. A config carrying only
+    `model_type` was never caught at all, before or after.
+
+    Missing this refusal overestimates KV by ~50x, which CLAUDE.md calls the
+    difference between "fits" and "buy another node".
+    """
+    base = {
+        "num_hidden_layers": 61,
+        "num_attention_heads": 128,
+        "num_key_value_heads": 128,
+        "head_dim": 128,
+        "max_position_embeddings": 131072,
+    }
+    with pytest.raises(cu.ConfigError, match="MLA"):
+        cu.parse_config({**base, **cfg})
+
+
+def test_an_mla_config_that_declares_its_rank_is_not_refused():
+    """The negative control: the guard exists to catch a rank that failed to
+    parse, not to refuse the family."""
+    got = cu.parse_config({**_BASE, "model_type": "deepseek_v3", "kv_lora_rank": 512})
+    assert got.kv_scheme == "mla"
+    assert got.kv_lora_rank == 512
+
+
+def test_an_ordinary_model_is_not_swept_up_by_the_wider_match():
+    """The other control, and the one that matters for a widened pattern: it now
+    reads `model_type` too, so it must not start refusing everything."""
+    got = cu.parse_config(
+        {
+            **_BASE,
+            "architectures": ["LlamaForCausalLM"],
+            "model_type": "llama",
+            "num_key_value_heads": 8,
+        }
+    )
+    assert got.kv_scheme == "gqa"

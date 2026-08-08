@@ -156,6 +156,27 @@ def _check_declared_types(obj: Any) -> None:
                 f"{type(obj).__name__}.{f.name} must be {names}, "
                 f"got {type(value).__name__} ({value!r})"
             )
+        # One level into a mapping. Checking only the container left
+        # `fingerprints: dict[str, str]` accepting `{"m": 7}`, which `verify`
+        # then slices — `TypeError: 'int' object is not subscriptable`. Tuples
+        # are not descended into: their elements are `Claim`s built by
+        # `Claim(**c)`, which validates itself.
+        hint = hints.get(f.name)
+        if get_origin(hint) is dict and isinstance(value, dict):
+            key_hint, val_hint = get_args(hint)
+            for slot, want in (("key", key_hint), ("value", val_hint)):
+                permitted = _permitted(want)
+                if not permitted:
+                    continue
+                for item in value.keys() if slot == "key" else value.values():
+                    bad_bool = isinstance(item, bool) and bool not in permitted
+                    if not bad_bool and isinstance(item, permitted):
+                        continue
+                    names = " or ".join(t.__name__ for t in permitted)
+                    raise ValueError(
+                        f"{type(obj).__name__}.{f.name} {slot}s must be {names}, "
+                        f"got {type(item).__name__} ({item!r})"
+                    )
 
 
 @dataclass(frozen=True, slots=True)

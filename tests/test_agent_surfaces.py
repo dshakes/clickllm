@@ -647,3 +647,45 @@ def test_the_guard_never_fires_on_a_receipt_this_tool_issued():
                     broken.append(f"bar={bar} {passed}/{total}: {e}")
     assert checked > 200, f"the sweep only covered {checked} receipts"
     assert not broken, "the guard fired on honest receipts:\n  " + "\n  ".join(broken[:8])
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("fingerprints", {"m": 7}),
+        ("fingerprints", {"m": None}),
+        ("fingerprints", {7: "a" * 64}),
+        ("fingerprints", {"m": True}),
+        ("redacted", {"p": "many"}),
+        ("redacted", {"p": 1.5}),
+        ("redacted", {"p": True}),
+        ("redacted", {7: 1}),
+    ],
+)
+def test_a_mapping_whose_contents_are_wrong_is_refused_not_just_its_shape(key, value):
+    """Checking only the container left the parameters unchecked.
+
+    `fingerprints: dict[str, str]` accepted `{"m": 7}`, and `verify` then slices
+    it — `TypeError: 'int' object is not subscriptable`. One level in is enough:
+    tuples are not descended into, because their elements are `Claim`s built by
+    `Claim(**c)`, which validates itself.
+    """
+    _refuses_forgery(_two_cluster_receipt(), lambda b: b.__setitem__(key, value))
+
+
+def test_well_formed_mappings_still_round_trip_and_verify():
+    """The negative control for the descent."""
+    from clickllm.prove import Receipt, issue
+    from clickllm.prove.receipt import verify
+
+    good = issue(
+        CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(118, 120), 0),)),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+        fingerprints={"m": "a" * 64},
+        redacted={"email": 3, "phone": 0},
+    )
+    assert Receipt.from_json(good.to_json()) == good
+    assert verify(good, good)[0]
