@@ -689,3 +689,66 @@ def test_well_formed_mappings_still_round_trip_and_verify():
     )
     assert Receipt.from_json(good.to_json()) == good
     assert verify(good, good)[0]
+
+
+def test_a_cluster_cannot_be_described_twice():
+    """The module docstring says the partition is total and `issue()` builds it
+    that way. `from_json` did not check it.
+
+    The damaging version is not the obvious duplicate — that trips the share
+    total. It is deleting the regression and duplicating a *proven* cluster into
+    its share:
+
+        movable 50% -> 80%, regret list empty, cluster "a" listed twice
+
+    Neither the group check nor the share total sees it: both copies are
+    correctly filed and the shares still sum to 1. What is wrong is that the
+    same traffic is described twice.
+    """
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: (b["regret"].clear(), b["proven"].append({**b["proven"][0], "share": 0.5})),
+    )
+    assert "more than once" in msg, msg
+
+
+def test_a_duplicate_that_keeps_the_share_total_honest_is_still_refused():
+    """The version that evades the aggregate check by halving both copies."""
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: (
+            b["proven"][0].__setitem__("share", 0.25),
+            b["proven"].append(dict(b["proven"][0])),
+        ),
+    )
+    assert "more than once" in msg, msg
+
+
+def test_the_same_cluster_in_two_different_groups_is_refused():
+    msg = _refuses_forgery(
+        _three_cluster_receipt(),
+        lambda b: b["unproven"].append(dict(b["proven"][0])),
+    )
+    assert "more than once" in msg or "filed under" in msg, msg
+
+
+def test_distinct_clusters_that_merely_share_a_display_name_are_fine():
+    """The negative control, and the line the guard must not cross: `name` is a
+    label and may repeat; `cluster` is the identity and may not."""
+    from clickllm.prove import Receipt, issue
+
+    good = issue(
+        CandidateReport(
+            "m",
+            (
+                ClusterScore("a", "Support tickets", 0.5, wilson(118, 120), 0),
+                ClusterScore("b", "Support tickets", 0.5, wilson(118, 120), 0),
+            ),
+        ),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+    )
+    assert Receipt.from_json(good.to_json()) == good
+    assert good.movable_share == 1.0

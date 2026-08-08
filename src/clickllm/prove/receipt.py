@@ -390,6 +390,26 @@ class Receipt:
                         f"makes it {belongs}"
                     )
 
+        # One appearance per cluster, across all three groups. The module
+        # docstring says the partition is total and `issue()` builds it that
+        # way; `from_json` did not check it, so a resealed receipt could delete
+        # the regression and duplicate a proven cluster into its share:
+        #
+        #     movable 50% -> 80%, regret list empty, cluster "a" listed twice
+        #
+        # Neither the group check nor the share total sees it — both copies are
+        # correctly filed and the shares still sum to 1. What is wrong is that
+        # the same traffic is described twice.
+        seen: dict[str, str] = {}
+        for group in _GROUPS:
+            for c in getattr(self, group):
+                if c.cluster in seen:
+                    raise ValueError(
+                        f"{c.cluster} appears more than once — in {seen[c.cluster]} "
+                        f"and {group}. Every cluster lands in exactly one group."
+                    )
+                seen[c.cluster] = group
+
         total = sum(c.share for group in _GROUPS for c in getattr(self, group))
         if total > 1.0 + 1e-6:
             raise ValueError(
