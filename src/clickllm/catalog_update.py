@@ -23,6 +23,7 @@ logic is testable offline and the whole module works air-gapped.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,6 +75,22 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
             produce a confident, wrong memory figure — the failure mode this whole
             module exists to remove.
     """
+    # `json.loads` succeeds on `null`, `[]`, `3` and `"text"` as readily as on an
+    # object, and every field read below starts with `cfg.get(...)`. Without this
+    # the first one raises `AttributeError`, which is not a `ConfigError` — and
+    # `propose()` catches only `ConfigError`, so a single such response escaped
+    # the list comprehension in `cmd_catalog`, skipped every model after it, and
+    # reached the user as a traceback. The convention is a sentence and exit 2.
+    #
+    # Here rather than at any one caller: `cli.py` and `watch.py` also call this
+    # with a freshly-parsed body, and all three already handle `ConfigError`
+    # specifically, so this reaches them as the sentence they know how to print.
+    if not isinstance(cfg, dict):
+        raise ConfigError(
+            f"config is not a JSON object, got {type(cfg).__name__} — "
+            "the URL returned something other than a model config"
+        )
+
     layers = _first_int(cfg, "num_hidden_layers", "n_layer", "num_layers")
     if layers is None:
         raise ConfigError("no layer count in config (num_hidden_layers)")
@@ -112,7 +129,19 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     # factor of fifty and looks ordinary.
     kv_lora_rank = _first_int(cfg, "kv_lora_rank", "kv_lora_dim", "kv_rank")
     mla_signals = [k for k in ("q_lora_rank", "qk_rope_head_dim", "qk_nope_head_dim") if k in cfg]
-    arch = " ".join(str(a) for a in (cfg.get("architectures") or [])).lower()
+    # `or []` is not a type check: `7 or []` is `7`, and iterating it raises
+    # `TypeError`, which `propose` does not catch. The read three lines below
+    # already tested `isinstance(..., list)` — the same field, guarded on one of
+    # its two reads. One read now, used by both.
+    families = cfg.get("architectures")
+    families = families if isinstance(families, list) else []
+    # `model_type` as well as `architectures`, because the family name has two
+    # homes and this guard read one. Sanitising a non-list `architectures` to
+    # `[]` turned `{"architectures": 7, "model_type": "deepseek_v3"}` from a
+    # `TypeError` into a silent pass, sized as MHA — and a config carrying only
+    # `model_type` was never caught at all, before or after. The whole point of
+    # this refusal is that missing it overestimates KV by ~50x.
+    arch = " ".join([*(str(a) for a in families), str(cfg.get("model_type", ""))]).lower()
     if not kv_lora_rank and (mla_signals or "deepseek" in arch):
         raise ConfigError(
             f"this config looks like an MLA model "
@@ -125,9 +154,7 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     experts = _first_int(cfg, "num_experts", "num_local_experts", "n_routed_experts")
     per_tok = _first_int(cfg, "num_experts_per_tok", "moe_topk", "num_experts_per_token")
 
-    arch = ""
-    if isinstance(cfg.get("architectures"), list) and cfg["architectures"]:
-        arch = str(cfg["architectures"][0])
+    arch = str(families[0]) if families else ""
 
     return Architecture(
         layers=layers,
@@ -142,6 +169,38 @@ def parse_config(cfg: dict[str, Any]) -> Architecture:
     )
 
 
+def _number(v: Any, default: float) -> float:
+    """A count from JSON we do not control, or the default.
+
+    `bool` is excluded deliberately — it is an `int` in Python, and `true`
+    arriving as a download count of 1 is a fabricated number, not a parsed one.
+
+    Non-finite is excluded for two reasons, and the first version of this
+    checked only the type. `json.loads` accepts the literals `NaN`, `Infinity`
+    and `-Infinity`, and `isinstance(float("nan"), float)` is `True`, so both
+    walked straight through: `int(nan)` raises `ValueError` and `int(inf)`
+    `OverflowError`, neither of which is `Unreachable`, so discovery aborted on
+    one row after all. And a `NaN` that did *not* crash was worse — `trending`
+    reaches `out.sort(key=lambda d: (-d.trending, ...))`, where NaN compares
+    false against everything and quietly makes the order the comment two lines
+    below calls "deterministic" depend on input order.
+    """
+    if isinstance(v, bool) or not isinstance(v, int | float):
+        return default
+    # Not `math.isfinite(v)` on its own: a JSON document can carry an `int` too
+    # large to convert to a float, and `isfinite` raises `OverflowError` on it —
+    # not `Unreachable` either, so the abort path this guard closed stayed open
+    # one type down. Nor is `isinstance(v, int)` a licence to pass it through:
+    # `trending=float(_number(...))` overflows on the very next line.
+    #
+    # The question is "usable as a float", which is what every caller does with
+    # it, so the conversion is the test.
+    try:
+        return v if math.isfinite(float(v)) else default
+    except OverflowError:
+        return default
+
+
 def _first_int(cfg: dict[str, Any], *keys: str) -> int | None:
     for k in keys:
         v = cfg.get(k)
@@ -154,6 +213,29 @@ def _first_int(cfg: dict[str, Any], *keys: str) -> int | None:
     return None
 
 
+#: The fields `propose` compares against a published config, and the same list
+#: `FieldChange.significant` reads. It was two hand-written lists, and the field
+#: that appeared in only one of them was `max_context`: a change to it rendered
+#: without the `!` marker and was excluded from `UpdateReport.significant`, so
+#: `clickllm catalog update --apply` never printed "re-run fit before
+#: deploying" — while `fit.max_context()` caps every context figure it prints
+#: at `min(model.max_context, ...)`. A vendor advertising 128k against a config
+#: publishing 32k is an ordinary discrepancy, and it read as cosmetic.
+#:
+#: Every field here moves a solver answer, which is why they share one list. A
+#: label the comparison starts carrying — a licence, a display name — would be
+#: the first entry that does not, and would need `significant` to become a
+#: lookup rather than a membership test.
+SOLVER_FIELDS: tuple[str, ...] = (
+    "layers",
+    "kv_heads",
+    "head_dim",
+    "kv_scheme",
+    "max_context",
+    "kv_lora_rank",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class FieldChange:
     """One catalogue field that the model's own config contradicts."""
@@ -164,8 +246,8 @@ class FieldChange:
 
     @property
     def significant(self) -> bool:
-        """Whether this changes a memory figure rather than a label."""
-        return self.field in {"layers", "kv_heads", "head_dim", "kv_scheme", "kv_lora_rank"}
+        """Whether this moves a number the solver computes with."""
+        return self.field in SOLVER_FIELDS
 
     def render(self) -> str:
         mark = "!" if self.significant else " "
@@ -200,9 +282,7 @@ class Proposal:
             return f"{head} architecture confirmed — now verified"
         lines = [head, *(c.render() for c in self.changes)]
         if self.significant:
-            lines.append(
-                "    ! marks fields that change a memory calculation — re-run fit after applying"
-            )
+            lines.append("    ! marks fields the solver computes with — re-run fit after applying")
         if self.now_verified:
             lines.append("    architecture confirmed — will be marked verified")
         return "\n".join(lines)
@@ -226,15 +306,8 @@ def propose(spec: ModelSpec, repo: str, fetch: Fetcher) -> Proposal:
         p.error = str(e)
         return p
 
-    for name, proposed in (
-        ("layers", arch.layers),
-        ("kv_heads", arch.kv_heads),
-        ("head_dim", arch.head_dim),
-        ("kv_scheme", arch.kv_scheme),
-        ("max_context", arch.max_context),
-        ("kv_lora_rank", arch.kv_lora_rank),
-    ):
-        current = getattr(spec, name)
+    for name in SOLVER_FIELDS:
+        current, proposed = getattr(spec, name), getattr(arch, name)
         if current != proposed:
             p.changes.append(FieldChange(name, current, proposed))
 
@@ -269,7 +342,7 @@ class UpdateReport:
             return f"All {len(self.proposals)} entries confirmed against their published configs."
         summary = (
             f"{len(self.changed)} of {len(self.proposals)} entries would change"
-            f"{f', {len(self.significant)} affecting memory' if self.significant else ''}"
+            f"{f', {len(self.significant)} affecting sizing' if self.significant else ''}"
             f"{f', {len(self.failed)} could not be checked' if self.failed else ''}."
         )
         out.append("")
@@ -359,13 +432,29 @@ def discover(
         repo = str(r.get("modelId") or r.get("id") or "")
         if not repo or repo.casefold() in seen:
             continue
+        # Every field below was coerced without checking what it was, and the
+        # index is a third party's JSON. `int("many")` raises `ValueError`,
+        # `int([1])` and `float("hot")` raise their own, and `(cardData or
+        # {}).get(...)` raises `AttributeError` for a string — none of which is
+        # `Unreachable`, so one odd row aborted the whole discovery run with a
+        # traceback. The row-level `isinstance(r, dict)` guard above shows the
+        # shape was already understood; it just stopped at the row.
+        #
+        # A bad field reads as absent rather than dropping the row: the repo is
+        # the part that matters, and a missing download count is a worse reason
+        # to never see a model than it is a number.
+        card = r.get("cardData")
         out.append(
             Discovery(
                 repo=repo,
-                downloads=int(r.get("downloads") or 0),
-                likes=int(r.get("likes") or 0),
-                trending=float(r.get("trendingScore") or 0.0),
-                license=str(r.get("license") or (r.get("cardData") or {}).get("license") or ""),
+                downloads=int(_number(r.get("downloads"), 0)),
+                likes=int(_number(r.get("likes"), 0)),
+                trending=float(_number(r.get("trendingScore"), 0.0)),
+                license=str(
+                    r.get("license")
+                    or (card.get("license") if isinstance(card, dict) else None)
+                    or ""
+                ),
             )
         )
     # Deterministic: trending, then downloads, then name.

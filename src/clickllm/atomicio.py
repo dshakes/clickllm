@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -54,11 +55,37 @@ def _locked(path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         handle = (path.parent / f"{path.name}.lock").open("w")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-    except OSError:
+    except OSError as e:
+        # Degrading to an unlocked write is deliberate — a lock is not worth
+        # refusing to save state over — but doing it *silently* is not. The
+        # module header justifies the fallback for a missing `fcntl`, which is
+        # a platform fact; this branch also catches `flock` failing at runtime
+        # on a filesystem that does not implement it (NFS raising EOPNOTSUPP,
+        # ENOLCK), where `update_json`'s promise that "two processes calling
+        # this concurrently each see the other's result" quietly stops holding
+        # and the lost-update bug this module exists to end comes back.
+        #
+        # `warnings.warn` rather than a return value: the default filter
+        # already shows it once per call site, and changing the signature
+        # would make every caller handle a case none of them can fix.
         if handle is not None:
             with contextlib.suppress(OSError):
                 handle.close()
         handle = None
+        # Suppressed because a warning must not be able to prevent the thing it
+        # is warning about. Under `PYTHONWARNINGS=error` — or any test harness
+        # that turns warnings into errors — this call *raises*, which propagates
+        # out of the context manager and skips the write entirely. That inverts
+        # the module's stated design ("a lock is not worth refusing to save
+        # state over") into "an unlockable filesystem cannot save state at all",
+        # measured: the file did not exist afterwards.
+        with contextlib.suppress(RuntimeWarning):
+            warnings.warn(
+                f"could not lock {path}: {e}. Writing unlocked — a concurrent "
+                "writer's update may be lost.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
     try:
         yield
     finally:
@@ -67,17 +94,54 @@ def _locked(path: Path):
                 handle.close()
 
 
+def _fsync_dir(directory: Path) -> None:
+    """Make the rename durable, not just the bytes it points at.
+
+    On filesystems that journal the directory entry separately from file data,
+    a crash can otherwise land the new data and lose the rename, or the other
+    way round. Best-effort: a platform that will not open a directory read-only
+    (Windows) has no equivalent to offer, and there is nothing better to do
+    than the write we already made.
+    """
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def atomic_write(path: Path, text: str) -> None:
     """Replace `path` with `text`, or leave it exactly as it was.
 
     A reader never sees a partial file: the content lands in a private scratch
     file first and `replace` is atomic within a filesystem.
+
+    The `replace` is what makes it atomic; the `fsync` before it is what makes
+    it *true after a crash*. Without it the rename can reach the disk while the
+    data blocks it points at are still dirty in the page cache, and the file
+    reads back empty — neither the old content nor the new one, which is the
+    one outcome this function promises cannot happen.
+
+    Ceiling: on macOS `fsync` flushes to the device but does not force the
+    device's own write cache; `F_FULLFSYNC` does, at a large cost per call. The
+    callers here write caches and a model catalog a few times per run, so the
+    upgrade is affordable if a corrupted catalog is ever seen after a hard
+    power loss on Apple hardware.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = _unique_tmp(path)
     try:
-        tmp.write_text(text)
+        with tmp.open("w") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
         tmp.replace(path)
+        _fsync_dir(path.parent)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink()

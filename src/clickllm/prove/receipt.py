@@ -38,17 +38,20 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
-from typing import Any
+from dataclasses import asdict, dataclass, field, fields
+from types import UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from clickllm.prove.equivalence import (
     DEFAULT_EQUIVALENCE_BAR,
     CandidateReport,
     ClusterScore,
     check_bar,
+    check_share,
 )
 from clickllm.prove.graders import EvalItem
 from clickllm.prove.judge import Agreement, Calibration
+from clickllm.prove.stats import wilson
 
 __all__ = [
     "FORMAT",
@@ -91,6 +94,92 @@ def eval_set_digest(items: list[EvalItem]) -> str:
     return hashlib.sha256("".join(parts).encode()).hexdigest()
 
 
+#: The three claim groups. Named once because the partition is total — every
+#: cluster lands in exactly one — so a fourth group added to the dataclass and
+#: not to this tuple would silently escape both the parser and the share check.
+_GROUPS = ("proven", "regret", "unproven")
+
+
+def _permitted(hint: Any) -> tuple[type, ...] | None:
+    """The concrete types a declared annotation allows.
+
+    A container reduces to the container itself — `tuple[Claim, ...]` to
+    `tuple`, `dict[str, int]` to `dict`. Its *parameters* are covered by the
+    construction path, where `Claim(**c)` refuses anything that is not a
+    claim-shaped mapping; what that path does not cover is the container slot
+    being something else entirely, which is how `redacted: 123` parsed and then
+    raised `AttributeError: 'int' object has no attribute 'items'` in `render`.
+
+    `float` admits `int`, because JSON writes `1` for `1.0` and a receipt this
+    tool issued must survive its own round trip.
+    """
+    origin = get_origin(hint)
+    if origin is UnionType or origin is Union:
+        out: list[type] = []
+        for arg in get_args(hint):
+            part = _permitted(arg)
+            if part:
+                out.extend(part)
+        return tuple(out)
+    if origin is not None:
+        return (origin,)
+    if hint is float:
+        return (int, float)
+    return (hint,)
+
+
+def _check_declared_types(obj: Any) -> None:
+    """Refuse a field whose value is not the type its own class declares.
+
+    Seven reviews have found seven levels of this document unguarded, each one
+    deeper than the last, and each fix was a hand-written list of the shapes
+    known at the time. This derives the list from the annotations instead, so a
+    field added later is covered by having been declared.
+
+    It matters because the digest does not help: a forger edits the content and
+    recomputes the digest over it, so the file is internally consistent. Thirty
+    combinations of field and wrong type parsed and then crashed `render()` or
+    `movable_share` with `TypeError` — inside `cmd_receipt`, which only catches
+    `ValueError`. Tamper detection answers "was this altered", never "is this
+    the shape it claims to be".
+    """
+    hints = get_type_hints(type(obj))
+    for f in fields(obj):
+        allowed = _permitted(hints.get(f.name))
+        if not allowed:
+            continue
+        value = getattr(obj, f.name)
+        # `bool` is an `int`, so it satisfies an `int` field without being one.
+        wrong_bool = isinstance(value, bool) and bool not in allowed
+        if wrong_bool or not isinstance(value, allowed):
+            names = " or ".join(t.__name__ for t in allowed)
+            raise ValueError(
+                f"{type(obj).__name__}.{f.name} must be {names}, "
+                f"got {type(value).__name__} ({value!r})"
+            )
+        # One level into a mapping. Checking only the container left
+        # `fingerprints: dict[str, str]` accepting `{"m": 7}`, which `verify`
+        # then slices — `TypeError: 'int' object is not subscriptable`. Tuples
+        # are not descended into: their elements are `Claim`s built by
+        # `Claim(**c)`, which validates itself.
+        hint = hints.get(f.name)
+        if get_origin(hint) is dict and isinstance(value, dict):
+            key_hint, val_hint = get_args(hint)
+            for slot, want in (("key", key_hint), ("value", val_hint)):
+                permitted = _permitted(want)
+                if not permitted:
+                    continue
+                for item in value.keys() if slot == "key" else value.values():
+                    bad_bool = isinstance(item, bool) and bool not in permitted
+                    if not bad_bool and isinstance(item, permitted):
+                        continue
+                    names = " or ".join(t.__name__ for t in permitted)
+                    raise ValueError(
+                        f"{type(obj).__name__}.{f.name} {slot}s must be {names}, "
+                        f"got {type(item).__name__} ({item!r})"
+                    )
+
+
 @dataclass(frozen=True, slots=True)
 class Claim:
     """What was proven about one cluster, with everything needed to doubt it."""
@@ -116,6 +205,66 @@ class Claim:
     #: below the bar — where the answer is a better candidate, not a bigger eval
     #: set. Carried in the file so "not proven" arrives with its price attached.
     needed: int | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a claim that is the right shape and an impossible measurement.
+
+        The type sweep answers "is this an `int`", which is a different question
+        from "is this a count". A forged receipt recomputes its own digest, so
+        every value here arrives self-consistent and unexamined: `share: 10.0`
+        rendered `Movable: 1000% of captured traffic`, and `passed: 500` over
+        `total: 80` rendered a 625% pass rate, both from a file that verified.
+
+        These are domain invariants, so unlike the type sweep they cannot be
+        derived from the annotations — a hand-written list is the right kind of
+        list here. `share` defers to `check_share`, which is where that rule
+        already lives for `ClusterScore` and for `run()`.
+        """
+        _check_declared_types(self)
+        check_share(self.share, cluster=self.cluster)
+        for name in ("passed", "total", "ungraded", "duplicates"):
+            value = getattr(self, name)
+            if value < 0:
+                raise ValueError(f"{self.cluster}: {name} cannot be negative, got {value}")
+        if self.passed > self.total:
+            raise ValueError(
+                f"{self.cluster}: passed cannot exceed total, got {self.passed}/{self.total}"
+            )
+        for name in ("low", "high"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"{self.cluster}: {name} is an interval bound and must be a "
+                    f"fraction, got {value}"
+                )
+        if self.low > self.high:
+            raise ValueError(
+                f"{self.cluster}: interval is inverted, got low={self.low} high={self.high}"
+            )
+        if self.needed is not None and self.needed < 0:
+            raise ValueError(f"{self.cluster}: needed cannot be negative, got {self.needed}")
+        # The last degree of freedom: `low` and `high` were *stated* rather than
+        # derived, so a forger could file 41/80 under `proven` with an invented
+        # [0.95, 0.99] — passing the bucket check, the bound checks and the
+        # share total, and rendering "51% [95%–99%] over 80 items", a point
+        # estimate outside its own interval, with movable_share 100%.
+        #
+        # Recomputed from the counts, which makes every number in the document
+        # either raw evidence (`passed`, `total`, `share`) or derivable from it.
+        # The tolerance is tight on purpose: JSON round-trips these floats
+        # exactly — measured at 0.0 error over ~2000 intervals — and an interval
+        # rounded enough to fail this would not reproduce the digest either,
+        # which the format already requires.
+        if self.total > 0:
+            expected = wilson(self.passed, self.total)
+            for name, want in (("low", expected.low), ("high", expected.high)):
+                got = getattr(self, name)
+                if abs(got - want) > 1e-6:
+                    raise ValueError(
+                        f"{self.cluster}: {name} is {got:.6g}, but {self.passed}/"
+                        f"{self.total} gives {want:.6g} — the interval does not "
+                        f"follow from the counts"
+                    )
 
     @property
     def point(self) -> float | None:
@@ -218,8 +367,78 @@ class Receipt:
         On the type, so construction and parsing share it. This is the third
         place the same rule needed to be, and the last one that is not a route
         into another: `Matrix` for the report, `Receipt` for the artifact.
+
+        The type sweep runs first, for the same reason it exists on `Claim`: a
+        forged file recomputes its own digest, so internal consistency proves
+        nothing about shape, and `check_bar` needs `bar` to be a number before
+        it can say anything useful about its range.
         """
+        _check_declared_types(self)
         check_bar(self.bar)
+        # The aggregate, because per-claim validation is not enough and missing
+        # that was the same mistake made on `CandidateReport` earlier: the value
+        # that reaches the arithmetic is the *sum*. Two individually legal 0.9
+        # shares on a forged-and-resealed receipt claimed 180% of the traffic
+        # and reported `movable_share` 90% off it.
+        #
+        # Same tolerance as `CandidateReport`, and for the same reason: shares
+        # arrive from division upstream, so an exact split can land a hair over.
+        # Each claim in the group its own numbers imply. The digest cannot see
+        # this: a forger moves a claim between groups, reseals, and the file is
+        # internally consistent — a 51% [40%–62%] cluster lifted from `regret`
+        # into `proven` rendered "Movable: 100% of captured traffic" with an
+        # empty regret list, off a receipt that verified. That is the artifact a
+        # human reads to authorise a cutover (invariant 8).
+        #
+        # Recomputed from `low`/`high`/`total` against this receipt's own `bar`,
+        # so the document checks itself rather than being checked against
+        # something a reader has to go and find. Mirrors `ClusterScore.band`,
+        # which is what `issue()` sorts by — the two must not drift, and the
+        # test asserts an honest receipt survives its own round trip.
+        for group in _GROUPS:
+            for c in getattr(self, group):
+                belongs = (
+                    "unproven"
+                    if c.total == 0
+                    else "proven"
+                    if c.low > self.bar
+                    else "regret"
+                    if c.high < self.bar
+                    else "unproven"
+                )
+                if belongs != group:
+                    raise ValueError(
+                        f"{c.cluster} is filed under {group} but its interval "
+                        f"[{c.low:.3g}–{c.high:.3g}] against a bar of {self.bar:.3g} "
+                        f"makes it {belongs}"
+                    )
+
+        # One appearance per cluster, across all three groups. The module
+        # docstring says the partition is total and `issue()` builds it that
+        # way; `from_json` did not check it, so a resealed receipt could delete
+        # the regression and duplicate a proven cluster into its share:
+        #
+        #     movable 50% -> 80%, regret list empty, cluster "a" listed twice
+        #
+        # Neither the group check nor the share total sees it — both copies are
+        # correctly filed and the shares still sum to 1. What is wrong is that
+        # the same traffic is described twice.
+        seen: dict[str, str] = {}
+        for group in _GROUPS:
+            for c in getattr(self, group):
+                if c.cluster in seen:
+                    raise ValueError(
+                        f"{c.cluster} appears more than once — in {seen[c.cluster]} "
+                        f"and {group}. Every cluster lands in exactly one group."
+                    )
+                seen[c.cluster] = group
+
+        total = sum(c.share for group in _GROUPS for c in getattr(self, group))
+        if total > 1.0 + 1e-6:
+            raise ValueError(
+                f"claimed traffic shares must not exceed all of the traffic, got "
+                f"{total:.6g} across {sum(len(getattr(self, g)) for g in _GROUPS)} clusters"
+            )
 
     # --- the claim ------------------------------------------------------------
 
@@ -259,12 +478,39 @@ class Receipt:
             ValueError: unknown format, or content that does not match its digest.
         """
         blob = json.loads(text)
+        # The envelope's own shape, before anything reads a field out of it.
+        # This is the disk-ingest path behind `clickllm receipt`, `guard` and
+        # the box, so every value below is a stranger's. `blob.get` needs `blob`
+        # to be a mapping and `body.get` needs `body` to be one — `{"receipt":
+        # 7}` raised `AttributeError`, and a bare `[]` or `"text"` document
+        # raised it one line earlier. `cli.main()` catches `ValueError`, so all
+        # of those were a traceback where the repo promises a sentence.
+        if not isinstance(blob, dict):
+            raise ValueError(f"a receipt must be a JSON object, got {type(blob).__name__}")
         body = blob.get("receipt", blob)
+        if not isinstance(body, dict):
+            raise ValueError(f"a receipt must be a JSON object, got {type(body).__name__}")
         if body.get("format") != FORMAT:
             raise ValueError(f"unknown receipt format {body.get('format')!r}")
-        for key in ("proven", "regret", "unproven"):
-            body[key] = tuple(Claim(**c) for c in body.get(key, ()))
-        r = cls(**body)
+        # Everything below this line is shape, and shape has been guarded one
+        # level at a time across four reviews: the document, then the envelope,
+        # then the digest, then the claim groups — `{"proven": [7]}` raising
+        # `TypeError` from `Claim(**c)`, `{"proven": 7}` from iterating an int,
+        # an unknown key from `cls(**body)`. Each fix was correct and the next
+        # level was found by the next reviewer.
+        #
+        # So: not a fifth enumeration. The contract is that this file is a
+        # stranger's, and *any* way it fails to be a receipt is a `ValueError` —
+        # which is what `cli.main()` catches. `TypeError` and `KeyError` are the
+        # two families `**`-construction raises for a bad shape; a `ValueError`
+        # from a field's own validator (`check_bar`, say) already carries a
+        # better sentence and passes through untouched.
+        try:
+            for key in _GROUPS:
+                body[key] = tuple(Claim(**c) for c in body.get(key, ()))
+            r = cls(**body)
+        except (TypeError, KeyError) as e:
+            raise ValueError(f"this file is not readable as a receipt: {e}") from e
         # A MISSING digest is a failure, not a skip. This was
         # `if (stated := blob.get("digest")) and stated != r.digest()`, so a
         # falsy digest short-circuited the comparison and the receipt parsed
@@ -280,6 +526,16 @@ class Receipt:
         if not stated:
             raise ValueError(
                 "receipt carries no digest, so nothing about it can be verified "
+                "— refusing it rather than trusting its claims"
+            )
+        # A truthy digest is not necessarily a string. `true`, `7` and `3.5` are
+        # not subscriptable and `{"a": 1}` raises `KeyError` on the slice, so
+        # the *error path* — the one that runs when a receipt does not verify —
+        # crashed rather than reporting. It still failed closed; it failed
+        # closed as a traceback.
+        if not isinstance(stated, str):
+            raise ValueError(
+                f"receipt digest must be a string, got {type(stated).__name__} "
                 "— refusing it rather than trusting its claims"
             )
         if stated != r.digest():
@@ -363,15 +619,25 @@ def issue(
     the document.
 
     Raises:
-        ValueError: if `bar` is not a threshold. Guarded here as well as on
-            `Matrix`, because this function takes `bar` directly and never
-            builds one — so a receipt, the portable proof artifact, was
-            issuable at `bar=0.0` and rendered "Proven at or above the 0% bar"
-            over a 41/80 regression while `Matrix` refused the same value.
-            Enforced by `Receipt.__post_init__`, which this constructs — so it
-            is not repeated here, where it would be the unreachable half of a
-            pair.
+        ValueError: if `bar` is not a threshold. This function takes `bar`
+            directly and never builds a `Matrix`, so a receipt — the portable
+            proof artifact — was issuable at `bar=0.0`, rendering "Proven at or
+            above the 0% bar" over a 41/80 regression while `Matrix` refused the
+            same value.
+
+            The guard was then removed from here on the grounds that
+            `Receipt.__post_init__` enforces it and a second one would be the
+            unreachable half of a pair. That was true of the *range* check and
+            false as soon as the check also covered the type: `Claim.of(s, bar)`
+            and `s.band(bar)` below both use `bar`, so a non-numeric one raised
+            `TypeError` from the comparison before the constructor was ever
+            reached — and `cli.main()` catches `ValueError`, not `TypeError`.
+
+            So both, deliberately: this one is about *when*, the constructor's
+            is about the other route in — `from_json`, reading a receipt off
+            disk, which never calls this function at all.
     """
+    check_bar(bar)
     proven, regret, unproven = [], [], []
     for s in report.clusters:
         claim = Claim.of(s, bar)
@@ -554,14 +820,27 @@ def demo() -> None:
     back = Receipt.from_json(r.to_json())
     assert back == r and back.digest() == r.digest()
 
-    # Tamper with a single number and the digest refuses it.
+    # Tamper with a label and the digest refuses it. A *count* is caught sooner
+    # and more precisely, by the interval no longer following from it — so this
+    # uses a field the receipt cannot derive, which is what leaves the digest as
+    # the only thing that can notice.
     blob = json.loads(r.to_json())
-    blob["receipt"]["proven"][0]["passed"] = 120
+    blob["receipt"]["incumbent"] = "a model that was never measured"
     try:
         Receipt.from_json(json.dumps(blob))
         raise AssertionError("altered receipt must not parse")
     except ValueError as e:
         assert "altered" in str(e), e
+
+    # And the count, caught by derivation rather than by the digest — which
+    # holds even against a forger who reseals the file.
+    blob = json.loads(r.to_json())
+    blob["receipt"]["proven"][0]["passed"] = 120
+    try:
+        Receipt.from_json(json.dumps(blob))
+        raise AssertionError("a count its interval contradicts must not parse")
+    except ValueError as e:
+        assert "does not follow from the counts" in str(e), e
 
     # Reproduction: same evidence, same receipt.
     ok, diffs = verify(

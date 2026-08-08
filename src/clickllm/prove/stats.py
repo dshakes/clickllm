@@ -167,6 +167,33 @@ def pooled(intervals: list[Interval]) -> Interval:
     return wilson(sum(i.passed for i in intervals), sum(i.total for i in intervals))
 
 
+def is_real(value: object) -> bool:
+    """Whether `value` is a number this module can do arithmetic with.
+
+    Three guards reached for `math.isfinite` directly, and it is wrong twice
+    over. It raises `TypeError` on anything that is not a number, and it raises
+    `OverflowError` on an `int` too large to convert to a float — a JSON
+    document can carry one, and `cli.main()` catches neither, so both arrived as
+    a traceback where the repo promises a sentence and exit 2.
+
+    The test is *usable as a float*, not *mathematically finite*. A Python `int`
+    is arbitrary-precision, so `10**400` is perfectly finite and still cannot be
+    converted — and every caller here feeds the value into float arithmetic, so
+    a number that survives this check and then overflows on the next line has
+    only moved the traceback. `_check_weights` accepted exactly such a weight
+    and `weighted_point` raised `OverflowError` one line later.
+
+    `bool` is excluded because it is an `int`, and a traffic share of `True` is
+    a share of 1.0 that nobody wrote.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
 def _check_weights(pairs: list[tuple[Interval, float]]) -> None:
     """Refuse an impossible traffic share instead of filtering it away.
 
@@ -180,7 +207,7 @@ def _check_weights(pairs: list[tuple[Interval, float]]) -> None:
     # False so it is not caught as impossible, and `w > 0` is False so it is
     # dropped — silently, which is the behaviour this guard exists to stop.
     # `inf` passes both and poisons the weighted sum to NaN instead.
-    unusable = [w for _, w in pairs if not math.isfinite(w)]
+    unusable = [w for _, w in pairs if not is_real(w)]
     if unusable:
         raise ValueError(f"traffic share must be a finite number, got {unusable}")
     bad = [w for _, w in pairs if w < 0]

@@ -151,3 +151,21 @@ def test_the_module_self_check_is_sensitive_to_something(name: str):
         f"genuinely one where constants do not matter, say so by adding it to "
         f"INSENSITIVE with a reason, rather than deleting this assertion."
     )
+
+
+@pytest.mark.parametrize("name", _modules_with_demos())
+def test_the_module_self_check_actually_passes(name: str):
+    """A `demo()` that does not run is a self-check nobody is running.
+
+    The mutation test above *skips* when the baseline fails — correctly, because
+    a mutant surviving proves nothing when the unmutated demo already fails. But
+    nothing else ran these, so a broken `demo()` produced a green suite. That is
+    how `clickllm.prove.receipt.demo()` sat broken for a full CI cycle: it
+    asserted "altered" against a receipt now refused earlier and more
+    specifically, and the harness turned the failure into a skip.
+
+    CLAUDE.md says every module carries an assert-based `demo()` runnable via
+    `python -m clickllm.<mod>`. This is the test that says so.
+    """
+    mod = importlib.import_module(name)
+    mod.demo()

@@ -552,8 +552,31 @@ def demo() -> None:
     # Prefix sharing changes the engine, and therefore the image and the flags.
     s = reconcile(workload(prefixSharing=0.9, structuredOutput=True), cluster)
     assert s.status["engine"] == "sglang"
-    args = s.objects[0]["spec"]["template"]["spec"]["containers"][0]["args"]
-    assert "--context-length" in args and "--max-model-len" not in args
+    # `command`, not `args`: the container carries the whole argv, because the
+    # four engine images disagree about what their ENTRYPOINT already supplies.
+    # This read `args` and had raised `KeyError` since the sizing operator
+    # landed — invisibly, because the only caller of `demo()` skipped it when it
+    # failed rather than failing.
+    argv = s.objects[0]["spec"]["template"]["spec"]["containers"][0]["command"]
+    assert "--context-length" in argv and "--max-model-len" not in argv
+
+    # The advertised port must be the one that engine actually listens on. Two
+    # engines, two ports, and nothing checked either — `DEFAULT_PORT` is this
+    # module's only numeric constant, and doubling it left `demo()` silent. A
+    # containerPort that disagrees with the server is a Deployment that rolls
+    # out, passes its own readiness probe on nothing, and serves no traffic.
+    def container_port(rec):
+        return rec.objects[0]["spec"]["template"]["spec"]["containers"][0]["ports"][0][
+            "containerPort"
+        ]
+
+    # Literals, deliberately. Comparing against `DEFAULT_PORT` and `PORTS` is a
+    # tautology — change the constant and both sides move together, which is
+    # exactly what the first version of this did and why it still noticed
+    # nothing. The numbers are the contract with the two servers: vLLM serves on
+    # 8000, SGLang on 30000.
+    assert container_port(s) == 30000, container_port(s)
+    assert container_port(r) == 8000, container_port(r)
     # ...and SGLang's unverifiable grammar flag is reported, never guessed.
     assert any("structured_output" in g for g in s.status["gaps"]), s.status["gaps"]
 

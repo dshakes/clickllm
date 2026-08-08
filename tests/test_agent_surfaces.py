@@ -198,3 +198,636 @@ def test_the_build_schema_advertises_the_workload_it_now_accepts():
     workload = schema["inputSchema"]["properties"].get("workload")
     assert workload, "clickllm_build must advertise workload"
     assert set(workload["enum"]) == {"interactive", "realtime", "batch"}
+
+
+# --- the receipt envelope, read off disk from a stranger -------------------------
+
+
+def _good_receipt():
+    from clickllm.prove import issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+
+
+@pytest.mark.parametrize("digest", [True, 7, 3.5, ["abc"], {"a": 1}])
+def test_a_digest_that_is_not_a_string_is_a_sentence_not_a_traceback(digest):
+    """The digest check runs on the *failure* path — the one that executes when
+    a receipt does not verify — and it sliced `stated[:12]` to name it.
+
+    `true`, `7` and `3.5` are not subscriptable and `{"a": 1}` raises `KeyError`
+    on the slice, so the code that exists to report a forged receipt crashed
+    instead. It still failed closed; it failed closed as a traceback, and
+    `cli.main()` catches `ValueError`.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["digest"] = digest
+    with pytest.raises(ValueError, match="digest"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize("body", [True, 7, "text", [], None])
+def test_a_receipt_envelope_that_is_not_an_object_is_refused_the_same_way(body):
+    """Not in the finding that prompted this, and worse: `blob.get` needs the
+    document to be a mapping and `body.get` needs the inner one to be, so
+    `{"receipt": 7}` and a bare `[]` document both raised `AttributeError` —
+    before the digest was ever reached."""
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"] = body
+    with pytest.raises(ValueError, match="JSON object"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize("doc", ["null", "[]", '"text"', "7", "true"])
+def test_a_document_that_is_not_an_object_at_all_is_refused(doc):
+    from clickllm.prove import Receipt
+
+    with pytest.raises(ValueError, match="JSON object"):
+        Receipt.from_json(doc)
+
+
+def test_an_honest_receipt_is_unaffected_and_tampering_is_still_named():
+    """The negative control for the three sweeps above: a guard that refused
+    every document would pass all of them and break the only path that matters.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    good = _good_receipt()
+    assert Receipt.from_json(good.to_json()) == good
+
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["incumbent"] = "someone else"
+    with pytest.raises(ValueError, match="has been altered"):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize(
+    "proven",
+    [[7], ["a"], [{"bogus": 1}], 7, "text", [[]], [None], {"a": 1}],
+)
+def test_a_claim_group_that_is_not_claims_is_refused_as_a_value_error(proven):
+    """Shape has been guarded one level at a time across four reviews — the
+    document, the envelope, the digest, and now the claim groups inside it.
+    Each fix was right and the next reviewer found the next level.
+
+    So this is not a fifth enumeration: `from_json` now converts any `TypeError`
+    or `KeyError` from `**`-construction into `ValueError`. The contract is that
+    the file is a stranger's, and every way it fails to be a receipt is the one
+    exception `cli.main()` catches.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"]["proven"] = proven
+    with pytest.raises(ValueError):
+        Receipt.from_json(_json.dumps(blob))
+
+
+@pytest.mark.parametrize("key", ["movable_share", "extra_key", "bar_typo"])
+def test_a_key_the_receipt_does_not_have_is_refused_the_same_way(key):
+    """`cls(**body)` raises `TypeError` for an unexpected keyword, which is the
+    same family and was equally uncaught."""
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"][key] = "x"
+    with pytest.raises(ValueError):
+        Receipt.from_json(_json.dumps(blob))
+
+
+def test_a_fields_own_validator_keeps_its_better_sentence():
+    """The blanket conversion must not swallow the specific messages.
+
+    `match="equivalence bar"` alone does not test this: adding `ValueError` to
+    the caught tuple wraps the message rather than replacing it, so the original
+    text is still a substring and the assertion holds either way. That was the
+    first version, and its control passed. The claim is that the sentence is not
+    buried under a generic prefix.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+
+    blob = _json.loads(_good_receipt().to_json())
+    blob["receipt"]["bar"] = 0.0
+    with pytest.raises(ValueError) as caught:
+        Receipt.from_json(_json.dumps(blob))
+    msg = str(caught.value)
+    assert msg.startswith("equivalence bar"), msg
+    assert "not readable as a receipt" not in msg
+
+
+def test_no_field_of_a_receipt_survives_being_the_wrong_type(tmp_path):
+    """A forger edits the content and recomputes the digest over it, so the file
+    is internally consistent and tamper detection has nothing to say.
+
+    Thirty combinations of field and wrong type parsed and then crashed
+    `render()` or `movable_share` with `TypeError`, inside `cmd_receipt`, which
+    catches `ValueError`. Seven reviews found seven levels of this document
+    unguarded, each fix a hand-written list of the shapes known at the time —
+    so the check is derived from the annotations the classes already declare,
+    and a field added later is covered by having been declared.
+
+    This sweeps every field of `Claim` in every group against five wrong types
+    and asserts that nothing reaches a caller as a non-`ValueError`.
+    """
+    import json as _json
+    from dataclasses import fields
+
+    from clickllm.prove import Receipt, issue
+    from clickllm.prove.receipt import Claim
+
+    report = CandidateReport(
+        "m",
+        (
+            ClusterScore("good", "good", 0.5, wilson(80, 80), 0),
+            ClusterScore("bad", "bad", 0.5, wilson(41, 80), 0),
+        ),
+    )
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+
+    def forged(group: str, field: str, value):
+        blob = _json.loads(good.to_json())
+        if not blob["receipt"][group]:
+            return None
+        blob["receipt"][group][0][field] = value
+        body = dict(blob["receipt"])
+        for k in ("proven", "regret", "unproven"):
+            body[k] = tuple(Claim(**c) for c in body.get(k, ()))
+        r = Receipt(**body)  # recompute the digest over the tampered content
+        return _json.dumps({"receipt": blob["receipt"], "digest": r.digest()})
+
+    escaped, checked = [], 0
+    for group in ("proven", "regret", "unproven"):
+        for f in fields(Claim):
+            for bad in ("1.0", None, [1], True, {"a": 1}):
+                try:
+                    doc = forged(group, f.name, bad)
+                except ValueError:
+                    checked += 1  # refused at construction, which is the point
+                    continue
+                if doc is None:
+                    continue
+                checked += 1
+                try:
+                    r = Receipt.from_json(doc)
+                except ValueError:
+                    continue
+                for label, call in (
+                    ("render", r.render),
+                    ("movable_share", lambda r=r: r.movable_share),
+                    ("to_json", r.to_json),
+                ):
+                    try:
+                        call()
+                    except ValueError:
+                        pass
+                    except Exception as e:  # noqa: BLE001 — the type is the point
+                        escaped.append(f"{group}.{f.name}={bad!r} -> {label}: {type(e).__name__}")
+
+    assert checked > 50, "the sweep did not actually exercise anything"
+    assert not escaped, "these reach a caller as a non-ValueError:\n  " + "\n  ".join(escaped)
+
+
+def test_an_honest_receipt_is_unchanged_by_the_type_sweep():
+    """The negative control, and it is load-bearing: `float` must admit `int`,
+    because JSON writes `1` for `1.0` and a receipt this tool issued has to
+    survive its own round trip."""
+    from clickllm.prove import Receipt, issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(80, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    assert Receipt.from_json(good.to_json()) == good
+    assert good.render()
+    assert good.movable_share == 1.0
+
+
+def test_a_whole_number_share_written_as_an_integer_still_parses():
+    """The specific round-trip hazard the control above generalises: a hand-
+    written or re-serialised receipt carrying `"share": 1` rather than `1.0`."""
+    import json as _json
+
+    from clickllm.prove import Receipt, issue
+    from clickllm.prove.receipt import Claim
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(80, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["proven"][0]["share"] = 1
+    body = dict(blob["receipt"])
+    for k in ("proven", "regret", "unproven"):
+        body[k] = tuple(Claim(**c) for c in body.get(k, ()))
+    doc = _json.dumps({"receipt": blob["receipt"], "digest": Receipt(**body).digest()})
+    assert Receipt.from_json(doc).movable_share == 1
+
+
+# --- the right shape, and an impossible measurement ------------------------------
+
+
+def _refuses_forgery(good, mutate) -> str:
+    """Tamper with a receipt, reseal it with a valid digest, and read it back.
+
+    Returns the refusal message. Resealing itself goes through the same
+    constructors, so a guard can bite either while the forgery is being built or
+    while it is being parsed — both are the guard working, and which one fires
+    is an accident of how a forger happens to assemble the file. Anything other
+    than `ValueError` fails here, because that is the whole contract:
+    `cli.main()` catches `ValueError` and nothing else.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt
+    from clickllm.prove.receipt import Claim
+
+    blob = _json.loads(good.to_json())
+    mutate(blob["receipt"])
+    try:
+        body = dict(blob["receipt"])
+        for k in ("proven", "regret", "unproven"):
+            body[k] = tuple(Claim(**c) for c in body.get(k, ()))
+        doc = _json.dumps({"receipt": blob["receipt"], "digest": Receipt(**body).digest()})
+        Receipt.from_json(doc)
+    except ValueError as e:
+        return str(e)
+    raise AssertionError("the forged receipt was accepted")
+
+
+def _two_cluster_receipt():
+    from clickllm.prove import issue
+
+    report = CandidateReport(
+        "m",
+        (
+            ClusterScore("good", "good", 0.5, wilson(80, 80), 0),
+            ClusterScore("bad", "bad", 0.5, wilson(41, 80), 0),
+        ),
+    )
+    return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+
+
+@pytest.mark.parametrize(
+    ("label", "field", "value"),
+    [
+        ("a share larger than all traffic", "share", 10.0),
+        ("a negative share", "share", -1.0),
+        ("a negative pass count", "passed", -5),
+        ("a negative denominator", "total", -1),
+        ("a negative exclusion count", "ungraded", -3),
+        ("a negative merge count", "duplicates", -2),
+        ("an interval bound outside 0..1", "low", -2.0),
+        ("a negative sample requirement", "needed", -1),
+    ],
+)
+def test_a_claim_that_is_the_right_shape_and_an_impossible_measurement(label, field, value):
+    """The type sweep answers "is this an `int`", which is a different question
+    from "is this a count".
+
+    A forged receipt recomputes its own digest, so every value arrives
+    self-consistent and, until now, unexamined. `share: 10.0` rendered
+    `Movable: 1000% of captured traffic` off a file that verified.
+    """
+    _refuses_forgery(_two_cluster_receipt(), lambda b: b["proven"][0].__setitem__(field, value))
+
+
+def test_a_pass_count_cannot_exceed_its_denominator():
+    msg = _refuses_forgery(
+        _two_cluster_receipt(), lambda b: b["proven"][0].update({"passed": 500, "total": 80})
+    )
+    assert "cannot exceed total" in msg, msg
+
+
+def test_an_inverted_interval_is_refused():
+    msg = _refuses_forgery(
+        _two_cluster_receipt(), lambda b: b["proven"][0].update({"low": 0.9, "high": 0.1})
+    )
+    assert "inverted" in msg, msg
+
+
+def test_claims_cannot_together_account_for_more_traffic_than_exists():
+    """Per-claim validation is not enough, and missing that was the same mistake
+    made on `CandidateReport` earlier in this branch: the value that reaches the
+    arithmetic is the *sum*. Two individually legal 0.9 shares claimed 180% of
+    the traffic and reported `movable_share` 90% off it."""
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: (
+            b["proven"][0].__setitem__("share", 0.9),
+            b["regret"][0].__setitem__("share", 0.9),
+        ),
+    )
+    assert "exceed all of the traffic" in msg, msg
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("redacted", 123), ("redacted", None), ("fingerprints", "x"), ("fingerprints", 7)],
+)
+def test_a_container_field_that_is_not_a_container_is_refused(key, value):
+    """`_permitted` returned `None` for any subscripted hint, so `redacted:
+    dict[str, int]` was unchecked entirely: `123` parsed and then raised
+    `AttributeError: 'int' object has no attribute 'items'` inside `render()`."""
+    _refuses_forgery(_two_cluster_receipt(), lambda b: b.__setitem__(key, value))
+
+
+def test_the_honest_receipt_survives_all_of_it():
+    """The negative control for this whole block, including the one case these
+    guards must not break: an exact traffic split summing to 1.0."""
+    from clickllm.prove import Receipt, issue
+
+    good = _two_cluster_receipt()
+    assert Receipt.from_json(good.to_json()) == good
+    assert good.render()
+    assert good.movable_share == 0.5
+
+    split = issue(
+        CandidateReport(
+            "m",
+            tuple(ClusterScore(k, k, s, wilson(80, 80), 0) for k, s in (("a", 0.6), ("b", 0.4))),
+        ),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+    )
+    assert Receipt.from_json(split.to_json()).movable_share == 1.0
+
+
+# --- the right numbers, filed under the wrong verdict ----------------------------
+
+
+def _three_cluster_receipt(bar: float = 0.90):
+    from clickllm.prove import issue
+
+    report = CandidateReport(
+        "m",
+        (
+            ClusterScore("good", "good", 0.4, wilson(80, 80), 0),
+            ClusterScore("bad", "bad", 0.3, wilson(41, 80), 0),
+            ClusterScore("thin", "thin", 0.3, wilson(3, 3), 0),
+        ),
+    )
+    return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=bar)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        ("regret", "proven"),
+        ("unproven", "proven"),
+        ("proven", "regret"),
+        ("proven", "unproven"),
+        ("regret", "unproven"),
+        ("unproven", "regret"),
+    ],
+)
+def test_a_claim_cannot_be_filed_under_a_verdict_its_numbers_contradict(source, target):
+    """Values and types were checked; which group a claim sat in was not.
+
+    A forger moves a claim between groups, reseals, and the file is internally
+    consistent — so the digest has nothing to say. A 51% [40%–62%] cluster
+    lifted from `regret` into `proven` rendered "Movable: 100% of captured
+    traffic" with an empty regret list, off a receipt that verified. That is the
+    artifact a human reads to authorise a cutover (invariant 8).
+
+    The receipt now recomputes each claim's band from its own `low`/`high`/
+    `total` against its own `bar`, so the document checks itself.
+    """
+    msg = _refuses_forgery(
+        _three_cluster_receipt(),
+        lambda b: b[target].append(b[source].pop(0)),
+    )
+    assert "filed under" in msg, msg
+
+
+def test_the_guard_never_fires_on_a_receipt_this_tool_issued():
+    """The control that matters most for this one: a guard that rejects honest
+    input is a guard someone deletes.
+
+    `issue()` sorts by `ClusterScore.band`; this recomputes the same rule from
+    the fields the receipt carries. If the two ever drift, every honest receipt
+    stops parsing — so the agreement is swept rather than sampled.
+    """
+    from clickllm.prove import Receipt, issue
+
+    checked, broken = 0, []
+    for bar in (0.05, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999):
+        for total in (0, 1, 2, 3, 5, 12, 40, 80, 120, 400):
+            for passed in sorted({0, total // 4, total // 2, (3 * total) // 4, total}):
+                if passed > total:
+                    continue
+                report = CandidateReport(
+                    "m", (ClusterScore("c", "c", 1.0, wilson(passed, total), 0),)
+                )
+                try:
+                    r = issue(
+                        report,
+                        incumbent="i",
+                        issued="2026-08-07",
+                        eval_set="a" * 64,
+                        bar=bar,
+                    )
+                    checked += 1
+                    if Receipt.from_json(r.to_json()) != r:
+                        broken.append(f"bar={bar} {passed}/{total}: round trip changed it")
+                except ValueError as e:
+                    broken.append(f"bar={bar} {passed}/{total}: {e}")
+    assert checked > 200, f"the sweep only covered {checked} receipts"
+    assert not broken, "the guard fired on honest receipts:\n  " + "\n  ".join(broken[:8])
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("fingerprints", {"m": 7}),
+        ("fingerprints", {"m": None}),
+        ("fingerprints", {7: "a" * 64}),
+        ("fingerprints", {"m": True}),
+        ("redacted", {"p": "many"}),
+        ("redacted", {"p": 1.5}),
+        ("redacted", {"p": True}),
+        ("redacted", {7: 1}),
+    ],
+)
+def test_a_mapping_whose_contents_are_wrong_is_refused_not_just_its_shape(key, value):
+    """Checking only the container left the parameters unchecked.
+
+    `fingerprints: dict[str, str]` accepted `{"m": 7}`, and `verify` then slices
+    it — `TypeError: 'int' object is not subscriptable`. One level in is enough:
+    tuples are not descended into, because their elements are `Claim`s built by
+    `Claim(**c)`, which validates itself.
+    """
+    _refuses_forgery(_two_cluster_receipt(), lambda b: b.__setitem__(key, value))
+
+
+def test_well_formed_mappings_still_round_trip_and_verify():
+    """The negative control for the descent."""
+    from clickllm.prove import Receipt, issue
+    from clickllm.prove.receipt import verify
+
+    good = issue(
+        CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(118, 120), 0),)),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+        fingerprints={"m": "a" * 64},
+        redacted={"email": 3, "phone": 0},
+    )
+    assert Receipt.from_json(good.to_json()) == good
+    assert verify(good, good)[0]
+
+
+def test_a_cluster_cannot_be_described_twice():
+    """The module docstring says the partition is total and `issue()` builds it
+    that way. `from_json` did not check it.
+
+    The damaging version is not the obvious duplicate — that trips the share
+    total. It is deleting the regression and duplicating a *proven* cluster into
+    its share:
+
+        movable 50% -> 80%, regret list empty, cluster "a" listed twice
+
+    Neither the group check nor the share total sees it: both copies are
+    correctly filed and the shares still sum to 1. What is wrong is that the
+    same traffic is described twice.
+    """
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: (b["regret"].clear(), b["proven"].append({**b["proven"][0], "share": 0.5})),
+    )
+    assert "more than once" in msg, msg
+
+
+def test_a_duplicate_that_keeps_the_share_total_honest_is_still_refused():
+    """The version that evades the aggregate check by halving both copies."""
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: (
+            b["proven"][0].__setitem__("share", 0.25),
+            b["proven"].append(dict(b["proven"][0])),
+        ),
+    )
+    assert "more than once" in msg, msg
+
+
+def test_the_same_cluster_in_two_different_groups_is_refused():
+    msg = _refuses_forgery(
+        _three_cluster_receipt(),
+        lambda b: b["unproven"].append(dict(b["proven"][0])),
+    )
+    assert "more than once" in msg or "filed under" in msg, msg
+
+
+def test_distinct_clusters_that_merely_share_a_display_name_are_fine():
+    """The negative control, and the line the guard must not cross: `name` is a
+    label and may repeat; `cluster` is the identity and may not."""
+    from clickllm.prove import Receipt, issue
+
+    good = issue(
+        CandidateReport(
+            "m",
+            (
+                ClusterScore("a", "Support tickets", 0.5, wilson(118, 120), 0),
+                ClusterScore("b", "Support tickets", 0.5, wilson(118, 120), 0),
+            ),
+        ),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+    )
+    assert Receipt.from_json(good.to_json()) == good
+    assert good.movable_share == 1.0
+
+
+def test_an_interval_that_does_not_follow_from_the_counts_is_refused():
+    """The last degree of freedom in the document.
+
+    `low` and `high` were *stated* rather than derived, so a forger could file
+    41/80 under `proven` with an invented [0.95, 0.99]: it passes the bucket
+    check (low > bar), the bound checks (0 <= low <= high <= 1) and the share
+    total, and renders
+
+        · b   51% [95%–99%] over 80 items      Movable: 100% of captured traffic
+
+    a point estimate sitting outside its own interval. Recomputing from the
+    counts makes every number in the receipt either raw evidence or derivable
+    from it.
+    """
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: b["regret"][0].update({"low": 0.95, "high": 0.99}),
+    )
+    assert "does not follow from the counts" in msg, msg
+
+
+@pytest.mark.parametrize("delta", [1e-3, 1e-2, -1e-3, -1e-2, -0.1])
+def test_even_a_small_nudge_to_an_interval_is_refused(delta):
+    """The tolerance is 1e-6, which is generous against exact JSON round-trips
+    (measured at 0.0 error) and tight against anything a forger would gain from.
+
+    Deltas that keep `low` inside [0, 1]: a larger positive one pushes it past
+    1.0 and the bound check refuses it first — also correct, different sentence,
+    and covered by the bounds test above.
+    """
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: b["proven"][0].__setitem__("low", b["proven"][0]["low"] + delta),
+    )
+    assert "does not follow from the counts" in msg, msg
+
+
+def test_every_receipt_this_tool_issues_survives_its_own_derivation():
+    """The control, and the one that decides whether this guard is safe: it
+    recomputes `wilson` over the counts, so any disagreement with how `issue()`
+    built the interval rejects every honest receipt."""
+    from clickllm.prove import Receipt, issue
+
+    checked, broken = 0, []
+    for total in (0, 1, 2, 3, 5, 12, 40, 80, 120, 400, 997):
+        for passed in sorted({0, 1, total // 3, total // 2, (3 * total) // 4, total}):
+            if passed > total:
+                continue
+            r = issue(
+                CandidateReport("m", (ClusterScore("c", "c", 1.0, wilson(passed, total), 0),)),
+                incumbent="i",
+                issued="2026-08-07",
+                eval_set="a" * 64,
+                bar=0.90,
+            )
+            checked += 1
+            if Receipt.from_json(r.to_json()) != r:
+                broken.append(f"{passed}/{total}")
+    assert checked > 40, f"the sweep only covered {checked}"
+    assert not broken, f"honest receipts rejected: {broken[:8]}"
+
+
+def test_a_cluster_with_nothing_graded_is_not_asked_to_derive_an_interval():
+    """`total == 0` has no Wilson interval, and `issue()` writes 0/0 for a
+    cluster that was never graded. The guard must skip it rather than demand
+    numbers that do not exist."""
+    from clickllm.prove import Receipt, issue
+
+    r = issue(
+        CandidateReport("m", (ClusterScore("silent", "silent", 1.0, wilson(0, 0), 0),)),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+    )
+    assert Receipt.from_json(r.to_json()) == r
+    assert [c.cluster for c in r.unproven] == ["silent"]

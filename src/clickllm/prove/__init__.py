@@ -50,6 +50,7 @@ from .equivalence import (
     ClusterScore,
     HybridPolicy,
     Matrix,
+    check_bar,
     check_share,
     score_cluster,
 )
@@ -244,6 +245,13 @@ def run(
         raise ValueError("cannot prove anything from an empty eval set")
     if judge is not None and not judge_model.strip():
         raise ValueError("judge_model is required when a judge is supplied, for disclosure")
+    # Here, not at the `Matrix` this returns. The Matrix guard makes a bad bar
+    # *raise*, which is what the surface sweep in `test_equivalence` asserts —
+    # and it raises after every item has been graded and, when a judge is
+    # injected, after two paid calls per item. The exception was right and cost
+    # a full eval run to arrive at. A guard that fires late is a guard the
+    # caller pays for.
+    check_bar(bar)
     # Every share, before anything filters. `ClusterScore` validates its own
     # field, but a share whose cluster has no eval items never becomes one:
     # `_uncovered` keeps only `share > 0`, and NaN and negatives both fail that

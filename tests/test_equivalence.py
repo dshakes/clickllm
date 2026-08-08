@@ -321,7 +321,29 @@ def test_no_surface_taking_a_bar_is_left_without_a_check():
     )
 
 
-@pytest.mark.parametrize("bar", [0.0, -1.0, 1.0, 2.0])
+@pytest.mark.parametrize(
+    "bar",
+    [
+        # out of range
+        0.0,
+        -1.0,
+        1.0,
+        2.0,
+        # not a number at all. These belong in the *same* sweep, because the
+        # failure they catch is different in kind: a surface that guards the
+        # range but touches the value first still raises for the four above —
+        # from the range check, inside the object it eventually builds — and
+        # raises `TypeError` from a comparison for these. `cli.main()` catches
+        # `ValueError` and not `TypeError`, so the second is a traceback where
+        # the repo promises a sentence. `issue()` failed exactly here, having
+        # had its own guard removed one commit earlier as redundant.
+        "0.9",
+        None,
+        [0.9],
+        True,
+        10**400,  # finite, and not convertible to a float
+    ],
+)
 def test_every_surface_that_takes_a_bar_refuses_a_degenerate_one(bar):
     unguarded = []
     for name, call in sorted(_call_with(bar).items()):
@@ -330,9 +352,11 @@ def test_every_surface_that_takes_a_bar_refuses_a_degenerate_one(bar):
         except ValueError as e:
             if "equivalence bar" in str(e):
                 continue
-            unguarded.append(f"{name}: rejected {bar}, but not as a bar — {e}")
+            unguarded.append(f"{name}: rejected {bar!r}, but not as a bar — {e}")
+        except Exception as e:  # noqa: BLE001 — the point is which type arrives
+            unguarded.append(f"{name}: raised {type(e).__name__}, which the CLI does not catch")
         else:
-            unguarded.append(f"{name}: accepted bar={bar}")
+            unguarded.append(f"{name}: accepted bar={bar!r}")
     assert not unguarded, "surfaces that take a bar without checking it:\n  " + "\n  ".join(
         unguarded
     )
@@ -344,3 +368,149 @@ def test_the_same_surfaces_all_accept_a_real_bar():
     fail this one."""
     for _name, call in sorted(_call_with(0.90).items()):
         call()  # must not raise
+
+
+def test_the_guard_fires_before_the_eval_run_it_would_invalidate():
+    """The sweep above proves a degenerate bar *raises*. It did before this too —
+    from `Matrix.__post_init__`, after every item had been graded and, with a
+    judge injected, after a paid call per item.
+
+    The exception was correct and cost a full eval run to arrive at. A guard
+    that fires late is a guard the caller pays for, so `run` checks the bar
+    before it grades anything, and `suite` inherits that by calling `run` first.
+
+    Free-text items on purpose: `_judged` skips the judge for an item the
+    deterministic graders already failed, so a fixture of differing JSON never
+    reaches it at *any* bar and "the judge was not called" would prove nothing.
+    The paired test below is the control that this fixture does reach it.
+    """
+    from clickllm.prove import run, suite
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "x", f"p{i}", "the capital is Paris", "Paris") for i in range(80)]
+    calls: list[int] = []
+
+    def judge(*a, **k):
+        calls.append(1)
+        raise AssertionError("the judge must not be reached with an invalid bar")
+
+    for call in (
+        lambda: run(items, shares={"x": 1.0}, judge=judge, judge_model="m", bar=0.0),
+        lambda: suite(
+            items, shares={"x": 1.0}, issued="2026-08-07", judge=judge, judge_model="m", bar=0.0
+        ),
+    ):
+        with pytest.raises(ValueError, match="equivalence bar"):
+            call()
+    assert calls == [], f"the judge was called {len(calls)} times before the bar was checked"
+
+
+@pytest.mark.parametrize("value", ["0.9", None, [0.9], {"bar": 0.9}, True])
+def test_a_bar_that_is_not_a_number_is_a_sentence_not_a_traceback(value):
+    """Both checks reached for the value's *range* first, which assumes it has
+    one. `0.0 < "0.9"` raises `TypeError`, and `cli.main()` catches `ValueError`,
+    not `TypeError`.
+
+    So a receipt file carrying `"bar": "0.9"` still failed closed — as a
+    traceback, where the repo promises a sentence and exit 2 for an untrusted
+    file. `True` is in here because it is an `int`: a bar of `True` is a bar of
+    1.0 nobody typed.
+    """
+    from clickllm.prove.equivalence import check_bar
+
+    with pytest.raises(ValueError, match="must be a number"):
+        check_bar(value)
+
+
+@pytest.mark.parametrize("value", ["0.9", None, [0.9], True])
+def test_a_share_that_is_not_a_number_is_refused_the_same_way(value):
+    """The sibling. `check_share` called `math.isfinite` first, which raises
+    `TypeError` on a string exactly as the comparison does — the same defect,
+    in the function next to it, and not in the finding that prompted this."""
+    from clickllm.prove.equivalence import check_share
+
+    with pytest.raises(ValueError, match="must be a number"):
+        check_share(value)
+
+
+def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
+    """The route that matters: `from_json` is what `clickllm receipt`, `guard`
+    and the box read from disk, and `main()`'s handler lists `ValueError`.
+
+    The message moved once the receipt gained a whole-dataclass type sweep,
+    which now runs before `check_bar` and reports the field path instead —
+    "Receipt.bar must be int or float, got str". This asserts the two things the
+    test is named for rather than a wording: the exception type the CLI catches,
+    and that the sentence identifies the field and the value. `check_bar`'s own
+    message is covered directly above, at the layer that produces it.
+    """
+    import json as _json
+
+    from clickllm.prove import Receipt, issue
+
+    report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
+    good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
+    blob = _json.loads(good.to_json())
+    blob["receipt"]["bar"] = "0.9"
+    with pytest.raises(ValueError) as caught:
+        Receipt.from_json(_json.dumps(blob))
+    msg = str(caught.value)
+    assert "bar" in msg and "0.9" in msg, msg
+
+
+def test_the_numbers_that_are_numbers_still_pass():
+    """The negative control for the four tests above."""
+    from clickllm.prove.equivalence import check_bar, check_share
+
+    for v in (0.9, 0.5, 1e-9):
+        check_bar(v)
+    for v in (0.0, 0.5, 1.0, 0, 1):
+        check_share(v)
+
+
+def test_a_real_bar_still_reaches_the_judge():
+    """The negative control, and it earned its place: the first version of the
+    test above used differing-JSON items, which `_judged` never sends to the
+    judge because a graded failure cannot be rescued. `calls == []` held for a
+    reason that had nothing to do with the guard, and this test is what caught
+    it."""
+    from clickllm.prove import run
+    from clickllm.prove.graders import EvalItem
+
+    items = [EvalItem(f"i{i}", "x", f"p{i}", "the capital is Paris", "Paris") for i in range(4)]
+    calls: list[int] = []
+
+    def judge(*a, **k):
+        calls.append(1)
+        return None
+
+    run(items, shares={"x": 1.0}, judge=judge, judge_model="m", bar=0.90)
+    assert calls, "a valid bar must still run the eval"
+
+
+@pytest.mark.parametrize(
+    "weight", [float("nan"), float("inf"), float("-inf"), 10**400, "0.5", None, True]
+)
+def test_a_weight_that_cannot_be_averaged_is_refused_before_the_arithmetic(weight):
+    """The third site with the same flaw, and the one the review did not name.
+
+    `_check_weights` called `math.isfinite` directly, so a string raised
+    `TypeError` and an `int` too large to convert raised `OverflowError` — and
+    when the check was first narrowed to let ints through as "finite by
+    construction", `weighted_point` raised `OverflowError` on the next line
+    instead. Guarding the value is not enough if the guard's idea of valid is
+    wider than the arithmetic's.
+    """
+    from clickllm.prove.stats import weighted_point, weighted_posterior, wilson
+
+    for fn in (weighted_point, weighted_posterior):
+        with pytest.raises(ValueError, match="traffic share"):
+            fn([(wilson(41, 80), weight)])
+
+
+def test_weights_that_can_be_averaged_still_are():
+    """The negative control for the sweep above."""
+    from clickllm.prove.stats import weighted_point, wilson
+
+    assert round(weighted_point([(wilson(41, 80), 1.0)]), 4) == 0.5125
+    assert round(weighted_point([(wilson(40, 40), 1), (wilson(0, 40), 1)]), 4) == 0.5

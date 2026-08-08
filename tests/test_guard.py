@@ -314,6 +314,32 @@ def test_a_new_release_alone_does_not_fail_the_cron_job(tmp_path):
 
 
 def test_an_altered_receipt_is_a_sentence_not_a_traceback(tmp_path, capsys):
+    """The alteration has to be one only the digest can catch.
+
+    This used to set `passed` to 999, which the receipt now refuses earlier and
+    more specifically — "passed cannot exceed total, got 999/120" — so the test
+    passed its own name's claim while no longer exercising the digest at all.
+    Changing a *label* leaves every value legal, so the digest is the only thing
+    that can notice.
+    """
+    import json
+
+    from clickllm.cli import main
+
+    blob = json.loads(receipt().to_json())
+    blob["receipt"]["incumbent"] = "a model that was never measured"
+    rp = _write(tmp_path, "bad.json", json.dumps(blob))
+    assert main(["receipt", rp]) == 2
+    assert "altered" in capsys.readouterr().err
+
+
+def test_an_impossible_measurement_is_refused_before_the_digest_is_consulted(tmp_path, capsys):
+    """The case the test above used to cover, kept as its own.
+
+    A forger who reseals the file defeats the digest entirely, so catching this
+    at the value is what matters — and it is a better sentence than "altered",
+    because it names what is wrong rather than that something is.
+    """
     import json
 
     from clickllm.cli import main
@@ -322,7 +348,7 @@ def test_an_altered_receipt_is_a_sentence_not_a_traceback(tmp_path, capsys):
     blob["receipt"]["proven"][0]["passed"] = 999
     rp = _write(tmp_path, "bad.json", json.dumps(blob))
     assert main(["receipt", rp]) == 2
-    assert "altered" in capsys.readouterr().err
+    assert "cannot exceed total" in capsys.readouterr().err
 
 
 def test_a_missing_file_is_a_sentence_not_a_traceback(tmp_path, capsys):
