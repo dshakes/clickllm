@@ -42,7 +42,7 @@ def receipt(*clusters: ClusterScore, **kw) -> Receipt:
 @pytest.mark.parametrize(
     "mutate",
     [
-        pytest.param(lambda b: b["proven"][0].__setitem__("passed", 120), id="a-number"),
+        pytest.param(lambda b: b["proven"][0].__setitem__("share", 0.5), id="a-share"),
         pytest.param(lambda b: b["regret"].clear(), id="drop-the-regret-set"),
         pytest.param(lambda b: b["unproven"].clear(), id="drop-the-unknowns"),
         pytest.param(lambda b: b.__setitem__("issued", "2027-01-01"), id="the-date"),
@@ -55,6 +55,25 @@ def test_any_alteration_is_caught_by_the_digest(mutate):
     blob = json.loads(r.to_json())
     mutate(blob["receipt"])
     with pytest.raises(ValueError, match="altered"):
+        Receipt.from_json(json.dumps(blob))
+
+
+def test_forging_a_count_is_caught_before_the_digest_is_reached():
+    """`a-number` was a case of the sweep above until the receipt began deriving
+    its intervals.
+
+    Raising `passed` from 118 to 120 leaves `low`/`high` describing the old
+    counts, so the file contradicts itself and says which number is wrong —
+    better than "altered", and it holds even against a forger who reseals.
+
+    `a-share` replaces it in the sweep: `share` is evidence about traffic, not
+    derivable from anything else in the file, so the digest is genuinely the
+    only thing that can catch a change to it.
+    """
+    r = receipt(cs("extract", 118, 120, 0.6), cs("long", 41, 80, 0.3), cs("rare", 3, 3, 0.1))
+    blob = json.loads(r.to_json())
+    blob["receipt"]["proven"][0]["passed"] = 120
+    with pytest.raises(ValueError, match="does not follow from the counts"):
         Receipt.from_json(json.dumps(blob))
 
 
@@ -312,15 +331,22 @@ def test_a_receipt_without_a_digest_is_refused_not_trusted(sabotage):
                 # fixture asserted a receipt `issue()` could never produce.
                 passed=118,
                 total=120,
-                low=0.9413,
-                high=0.9954,
+                # Full precision: the receipt now derives the interval from the
+                # counts, and a 4-decimal rounding is 3.6e-5 out — which would not
+                # reproduce the digest either, so the format already required this.
+                low=0.941264037027841,
+                high=0.9954174354340789,
             ),
         ),
         regret=(),
         unproven=(),
     )
     blob = json.loads(real.to_json())
-    blob["receipt"]["proven"][0]["passed"] = 120  # forge the result upward
+    # A label, not a count. The receipt now derives the interval from
+    # `passed`/`total`, so forging the count upward is caught by that check
+    # before the digest is ever consulted — and this test is about what happens
+    # when the digest is missing, which needs a forgery only the digest can see.
+    blob["receipt"]["incumbent"] = "a model that was never measured"
     sabotage(blob)
 
     with pytest.raises(ValueError, match="no digest|does not match"):
@@ -355,8 +381,11 @@ def test_an_intact_receipt_still_round_trips():
                 share=0.42,
                 passed=118,
                 total=120,
-                low=0.9413,
-                high=0.9954,
+                # Full precision: the receipt now derives the interval from the
+                # counts, and a 4-decimal rounding is 3.6e-5 out — which would not
+                # reproduce the digest either, so the format already required this.
+                low=0.941264037027841,
+                high=0.9954174354340789,
             ),
         ),
         regret=(),

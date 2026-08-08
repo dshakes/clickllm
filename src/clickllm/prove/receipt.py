@@ -51,6 +51,7 @@ from clickllm.prove.equivalence import (
 )
 from clickllm.prove.graders import EvalItem
 from clickllm.prove.judge import Agreement, Calibration
+from clickllm.prove.stats import wilson
 
 __all__ = [
     "FORMAT",
@@ -242,6 +243,28 @@ class Claim:
             )
         if self.needed is not None and self.needed < 0:
             raise ValueError(f"{self.cluster}: needed cannot be negative, got {self.needed}")
+        # The last degree of freedom: `low` and `high` were *stated* rather than
+        # derived, so a forger could file 41/80 under `proven` with an invented
+        # [0.95, 0.99] — passing the bucket check, the bound checks and the
+        # share total, and rendering "51% [95%–99%] over 80 items", a point
+        # estimate outside its own interval, with movable_share 100%.
+        #
+        # Recomputed from the counts, which makes every number in the document
+        # either raw evidence (`passed`, `total`, `share`) or derivable from it.
+        # The tolerance is tight on purpose: JSON round-trips these floats
+        # exactly — measured at 0.0 error over ~2000 intervals — and an interval
+        # rounded enough to fail this would not reproduce the digest either,
+        # which the format already requires.
+        if self.total > 0:
+            expected = wilson(self.passed, self.total)
+            for name, want in (("low", expected.low), ("high", expected.high)):
+                got = getattr(self, name)
+                if abs(got - want) > 1e-6:
+                    raise ValueError(
+                        f"{self.cluster}: {name} is {got:.6g}, but {self.passed}/"
+                        f"{self.total} gives {want:.6g} — the interval does not "
+                        f"follow from the counts"
+                    )
 
     @property
     def point(self) -> float | None:
@@ -797,14 +820,27 @@ def demo() -> None:
     back = Receipt.from_json(r.to_json())
     assert back == r and back.digest() == r.digest()
 
-    # Tamper with a single number and the digest refuses it.
+    # Tamper with a label and the digest refuses it. A *count* is caught sooner
+    # and more precisely, by the interval no longer following from it — so this
+    # uses a field the receipt cannot derive, which is what leaves the digest as
+    # the only thing that can notice.
     blob = json.loads(r.to_json())
-    blob["receipt"]["proven"][0]["passed"] = 120
+    blob["receipt"]["incumbent"] = "a model that was never measured"
     try:
         Receipt.from_json(json.dumps(blob))
         raise AssertionError("altered receipt must not parse")
     except ValueError as e:
         assert "altered" in str(e), e
+
+    # And the count, caught by derivation rather than by the digest — which
+    # holds even against a forger who reseals the file.
+    blob = json.loads(r.to_json())
+    blob["receipt"]["proven"][0]["passed"] = 120
+    try:
+        Receipt.from_json(json.dumps(blob))
+        raise AssertionError("a count its interval contradicts must not parse")
+    except ValueError as e:
+        assert "does not follow from the counts" in str(e), e
 
     # Reproduction: same evidence, same receipt.
     ok, diffs = verify(

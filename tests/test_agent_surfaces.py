@@ -752,3 +752,82 @@ def test_distinct_clusters_that_merely_share_a_display_name_are_fine():
     )
     assert Receipt.from_json(good.to_json()) == good
     assert good.movable_share == 1.0
+
+
+def test_an_interval_that_does_not_follow_from_the_counts_is_refused():
+    """The last degree of freedom in the document.
+
+    `low` and `high` were *stated* rather than derived, so a forger could file
+    41/80 under `proven` with an invented [0.95, 0.99]: it passes the bucket
+    check (low > bar), the bound checks (0 <= low <= high <= 1) and the share
+    total, and renders
+
+        · b   51% [95%–99%] over 80 items      Movable: 100% of captured traffic
+
+    a point estimate sitting outside its own interval. Recomputing from the
+    counts makes every number in the receipt either raw evidence or derivable
+    from it.
+    """
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: b["regret"][0].update({"low": 0.95, "high": 0.99}),
+    )
+    assert "does not follow from the counts" in msg, msg
+
+
+@pytest.mark.parametrize("delta", [1e-3, 1e-2, -1e-3, -1e-2, -0.1])
+def test_even_a_small_nudge_to_an_interval_is_refused(delta):
+    """The tolerance is 1e-6, which is generous against exact JSON round-trips
+    (measured at 0.0 error) and tight against anything a forger would gain from.
+
+    Deltas that keep `low` inside [0, 1]: a larger positive one pushes it past
+    1.0 and the bound check refuses it first — also correct, different sentence,
+    and covered by the bounds test above.
+    """
+    msg = _refuses_forgery(
+        _two_cluster_receipt(),
+        lambda b: b["proven"][0].__setitem__("low", b["proven"][0]["low"] + delta),
+    )
+    assert "does not follow from the counts" in msg, msg
+
+
+def test_every_receipt_this_tool_issues_survives_its_own_derivation():
+    """The control, and the one that decides whether this guard is safe: it
+    recomputes `wilson` over the counts, so any disagreement with how `issue()`
+    built the interval rejects every honest receipt."""
+    from clickllm.prove import Receipt, issue
+
+    checked, broken = 0, []
+    for total in (0, 1, 2, 3, 5, 12, 40, 80, 120, 400, 997):
+        for passed in sorted({0, 1, total // 3, total // 2, (3 * total) // 4, total}):
+            if passed > total:
+                continue
+            r = issue(
+                CandidateReport("m", (ClusterScore("c", "c", 1.0, wilson(passed, total), 0),)),
+                incumbent="i",
+                issued="2026-08-07",
+                eval_set="a" * 64,
+                bar=0.90,
+            )
+            checked += 1
+            if Receipt.from_json(r.to_json()) != r:
+                broken.append(f"{passed}/{total}")
+    assert checked > 40, f"the sweep only covered {checked}"
+    assert not broken, f"honest receipts rejected: {broken[:8]}"
+
+
+def test_a_cluster_with_nothing_graded_is_not_asked_to_derive_an_interval():
+    """`total == 0` has no Wilson interval, and `issue()` writes 0/0 for a
+    cluster that was never graded. The guard must skip it rather than demand
+    numbers that do not exist."""
+    from clickllm.prove import Receipt, issue
+
+    r = issue(
+        CandidateReport("m", (ClusterScore("silent", "silent", 1.0, wilson(0, 0), 0),)),
+        incumbent="i",
+        issued="2026-08-07",
+        eval_set="a" * 64,
+        bar=0.90,
+    )
+    assert Receipt.from_json(r.to_json()) == r
+    assert [c.cluster for c in r.unproven] == ["silent"]
