@@ -361,6 +361,12 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                     "context": {"type": "integer"},
                     "ttft_ms": {"type": "integer"},
                     "itl_ms": {"type": "integer"},
+                    # Accepted by `_apply_fields` and, until this PR, broken on
+                    # arrival. Advertised now so a schema-driven agent can find
+                    # it rather than learning it exists from an error message
+                    # listing the known fields — which is how it was being
+                    # discovered, and how the broken call was being made.
+                    "workload": {"enum": ["interactive", "realtime", "batch"]},
                     "prefix_sharing": {"type": "number", "minimum": 0, "maximum": 1},
                 },
             },
@@ -423,10 +429,16 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                         "type": "number",
                         "description": (
                             "Equivalence bar. A cluster moves only when its whole "
-                            "confidence interval clears this."
+                            "confidence interval clears this. Strictly between 0 "
+                            "and 1: a bar of 0 admits every candidate and a bar of "
+                            "1 admits none."
                         ),
-                        "minimum": 0,
-                        "maximum": 1,
+                        # Exclusive, matching the runtime check. Inclusive bounds
+                        # here would advertise 0 and 1 as valid and then refuse
+                        # them — a schema-valid call that fails is worse than one
+                        # the client could have rejected itself.
+                        "exclusiveMinimum": 0,
+                        "exclusiveMaximum": 1,
                     },
                 },
                 "required": ["eval_set"],

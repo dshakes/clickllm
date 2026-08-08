@@ -121,6 +121,15 @@ def _fmt_gb(b: float) -> str:
 #: `bool` is excluded deliberately: `bool("false")` is True, so a string there
 #: must be a refusal rather than a silent yes.
 _REQUIREMENT_TYPES: dict[str, type] = {
+    # `workload` was the one field this map was missing, and the one the error
+    # for an unknown key advertises by name: "Known: concurrency, context,
+    # itl_ms, lora, prefix_sharing, structured_output, ttft_ms, workload". So
+    # an agent read that list, sent the documented value `workload="batch"`,
+    # and got `AttributeError: 'str' object has no attribute 'value'` — the
+    # message inviting the call that then broke. A StrEnum, so the coercion is
+    # `Workload("batch")` and a bad value refuses by name rather than surviving
+    # as a plain string until something reaches for `.value`.
+    "workload": Workload,
     "concurrency": int,
     "context": int,
     "ttft_ms": int,

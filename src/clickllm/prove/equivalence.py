@@ -42,6 +42,33 @@ from .stats import (
 DEFAULT_EQUIVALENCE_BAR = 0.90
 
 
+def check_bar(bar: float) -> None:
+    """Refuse a threshold that is not an equivalence bar.
+
+    `clearly_above(bar)` is `interval.low > bar`, so a bar at or below zero
+    holds for essentially any interval: a cluster scoring 41/80 reads
+    `equivalent`, `movable_share` says move everything, and the artifact a human
+    uses to authorise a cutover says a clearly-regressed candidate holds
+    (invariant 8). The MCP schema advertises bounds, but a JSON Schema is
+    advisory and nothing enforced it.
+
+    One home, because `bar` reaches two places that do not go through each
+    other: `Matrix`, which every report is assembled in, and `issue()`, which
+    takes it directly and never builds a Matrix — so guarding only the first
+    left the *receipt* — the portable proof artifact — issuable at `bar=0.0`,
+    rendering "Proven at or above the 0% bar" over a regression.
+
+    Open interval, matching how `family_wise_z` treats `alpha`: 0 admits
+    everything and 1 admits nothing, and neither is a threshold anyone meant to
+    set.
+
+    Raises:
+        ValueError: naming the offending value.
+    """
+    if not 0.0 < bar < 1.0:
+        raise ValueError(f"equivalence bar must be between 0 and 1, exclusive, got {bar}")
+
+
 def check_share(share: float, *, cluster: str = "") -> None:
     """Refuse a value that is not a fraction of traffic.
 
@@ -327,6 +354,9 @@ class Matrix:
     #: whenever a judge was used, because a judge that was never checked against
     #: anything is a claim, not a measurement.
     calibration: Calibration | None = None
+
+    def __post_init__(self) -> None:
+        check_bar(self.bar)
 
     @property
     def judge_trustworthy(self) -> bool:

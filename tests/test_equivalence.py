@@ -235,3 +235,112 @@ def test_a_valid_share_map_with_an_uncovered_cluster_still_works():
     items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
     m = run(items, shares={"covered": 0.7, "gap": 0.3})
     assert [c.cluster for c in m.candidates[0].clusters] == ["covered", "gap"]
+
+
+# --- the door nobody has opened yet ----------------------------------------------
+
+#: `samples_needed` takes a bar and deliberately does not check it. It is a
+#: calculator, not a decision — "how many more items at the observed rate" — and
+#: it is called in a loop from `render_need`. Every surface that acts on its
+#: answer refuses a degenerate bar before it is ever reached.
+_NOT_A_DECISION = {"samples_needed", "check_bar"}
+
+
+def _call_with(bar: float):
+    """One minimal, otherwise-valid call per surface that takes a `bar`.
+
+    Calling with `bar` alone would raise `TypeError` on the missing positional
+    arguments *before* the body runs, so every surface would look guarded. Each
+    of these is a call that would otherwise succeed.
+    """
+    from clickllm.prove import issue, run, suite
+    from clickllm.prove.equivalence import CandidateReport, ClusterScore
+    from clickllm.prove.gate import Reading, Stage, decide
+    from clickllm.prove.graders import EvalItem
+    from clickllm.prove.stats import wilson
+
+    # 41/80 — the candidate nobody should migrate to, at every surface.
+    score = ClusterScore("x", "x", 1.0, wilson(41, 80), 0)
+    report = CandidateReport("m", (score,))
+    items = [EvalItem(f"i{i}", "x", f"p{i}", '{"a":1}', '{"a":2}') for i in range(80)]
+
+    return {
+        "clickllm.prove.gate.decide": lambda: decide(
+            [Reading(score=score, judge_only=False)], Stage("shadow", 0), bar=bar
+        ),
+        "clickllm.prove.receipt.issue": lambda: issue(
+            report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=bar
+        ),
+        "clickllm.prove.run": lambda: run(items, shares={"x": 1.0}, bar=bar),
+        "clickllm.prove.suite": lambda: suite(
+            items, shares={"x": 1.0}, issued="2026-08-07", bar=bar
+        ),
+    }
+
+
+def _bar_taking_functions() -> set[str]:
+    """Every public function in `clickllm.prove` that takes a `bar`."""
+    import importlib
+    import inspect
+    import pkgutil
+
+    import clickllm.prove as P
+
+    out = set()
+    # The package itself, not just its submodules: `run` and `suite` are defined
+    # in `prove/__init__.py`, and `walk_packages` alone would walk straight past
+    # the two widest entry points in the module.
+    names = ["clickllm.prove"] + [
+        m.name for m in pkgutil.walk_packages(P.__path__, "clickllm.prove.")
+    ]
+    for mod_name in names:
+        mod = importlib.import_module(mod_name)
+        for name, fn in vars(mod).items():
+            if name.startswith("_") or not inspect.isfunction(fn):
+                continue
+            if fn.__module__ != mod_name or name in _NOT_A_DECISION:
+                continue
+            if "bar" in inspect.signature(fn).parameters:
+                out.add(f"{mod_name}.{name}")
+    return out
+
+
+def test_no_surface_taking_a_bar_is_left_without_a_check():
+    """A fifth `bar` parameter must fail here, not in an audit.
+
+    The guard has been added four times, once per door, each time after a
+    reviewer found the door: `Matrix.__post_init__`, then `issue()`, then
+    `Receipt.__post_init__` when a receipt could still arrive from disk, then
+    `gate.decide()` — which builds neither object and so inherited neither
+    guard, while being the one surface that proposes moving production traffic.
+    """
+    missing = _bar_taking_functions() - set(_call_with(0.5))
+    assert not missing, (
+        "these take a `bar` and this test does not exercise them — add a call to "
+        f"`_call_with`, or name them in `_NOT_A_DECISION` with a reason: {sorted(missing)}"
+    )
+
+
+@pytest.mark.parametrize("bar", [0.0, -1.0, 1.0, 2.0])
+def test_every_surface_that_takes_a_bar_refuses_a_degenerate_one(bar):
+    unguarded = []
+    for name, call in sorted(_call_with(bar).items()):
+        try:
+            call()
+        except ValueError as e:
+            if "equivalence bar" in str(e):
+                continue
+            unguarded.append(f"{name}: rejected {bar}, but not as a bar — {e}")
+        else:
+            unguarded.append(f"{name}: accepted bar={bar}")
+    assert not unguarded, "surfaces that take a bar without checking it:\n  " + "\n  ".join(
+        unguarded
+    )
+
+
+def test_the_same_surfaces_all_accept_a_real_bar():
+    """The negative control for the sweep above: these calls are valid apart
+    from the bar, so a guard that refused everything would pass that test and
+    fail this one."""
+    for _name, call in sorted(_call_with(0.90).items()):
+        call()  # must not raise
