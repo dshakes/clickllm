@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -128,7 +129,7 @@ def _macos(root: Path, python: str, port: int) -> Launcher:
     exe.write_text(launch_script(python, port))
     exe.chmod(0o755)
     (app / "Contents" / "Info.plist").write_text(plist(APP_NAME))
-    return Launcher(app, "macos", f"rm -rf {app}")
+    return Launcher(app, "macos", f"rm -rf {shlex.quote(str(app))}")
 
 
 def _linux(root: Path, python: str, port: int, bin_dir: Path | None = None) -> Launcher:
@@ -151,7 +152,7 @@ def _linux(root: Path, python: str, port: int, bin_dir: Path | None = None) -> L
     root.mkdir(parents=True, exist_ok=True)
     entry = root / f"{APP_NAME}.desktop"
     entry.write_text(desktop_entry(exe))
-    return Launcher(entry, "linux", f"rm -f {entry} {exe}")
+    return Launcher(entry, "linux", f"rm -f {shlex.quote(str(entry))} {shlex.quote(str(exe))}")
 
 
 def install(

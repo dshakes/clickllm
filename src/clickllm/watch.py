@@ -53,6 +53,7 @@ per NFR-2, and the only egress is the public index and the config files it names
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -188,12 +189,20 @@ def staged_name(repo: str) -> str:
     was false: it had never been seen, and it was never staged, listed or
     mentioned again.
 
+    Sanitising `/` to `-` fixed that case but opened another: `-` was already a
+    character the sanitiser passed through unchanged, so `meta-llama/3` and
+    `meta/llama-3` both collapse to the same filename and the second one is
+    again reported "already discovered" without ever having been seen. A
+    digest of the *whole* repo string, not just its sanitised characters, is
+    what makes two different repos always produce two different filenames.
+
     The `id` inside the file stays short, because that is the catalogue's
     convention and a human renames it on curation. Only the file's identity
     needs to be as unique as the thing it describes.
     """
     safe = "".join(c if c.isalnum() or c in "-._" else "-" for c in repo.strip("/"))
-    return f"discovered-{safe.lower()}.json"
+    digest = hashlib.sha256(repo.encode("utf-8")).hexdigest()[:10]
+    return f"discovered-{safe.lower()}-{digest}.json"
 
 
 def _spec_from(repo: str, arch: cu.Architecture, license_name: str) -> dict:
@@ -271,6 +280,7 @@ def run(
         spec = _spec_from(d.repo, arch, d.license)
         dest.mkdir(parents=True, exist_ok=True)
         path = dest / staged_name(d.repo)
+        rewrite_reason = ""
         if path.exists():
             # Existence is not the question — *readability* is. A file that
             # cannot be parsed carries nothing a human curated, and treating it
@@ -280,9 +290,7 @@ def run(
             try:
                 json.loads(path.read_text())
             except (OSError, json.JSONDecodeError) as e:
-                outcomes.append(
-                    Outcome(d.repo, False, f"staged file was unreadable, rewriting it ({e})")
-                )
+                rewrite_reason = f"staged file was unreadable, rewrote it ({e})"
             else:
                 outcomes.append(Outcome(d.repo, False, "already discovered"))
                 continue
@@ -290,7 +298,11 @@ def run(
         # discovery must be indistinguishable from something you wrote, so you
         # can edit it in place and keep it.
         path.write_text(json.dumps({"models": [spec]}, indent=2) + "\n")
-        outcomes.append(Outcome(d.repo, True))
+        # One outcome per repo, always — a rewrite is still a single event, not
+        # a skip followed by an add. Two outcomes for one repo made `checked`
+        # and `len(outcomes)` disagree and printed both "skipped" and "added"
+        # for the same model.
+        outcomes.append(Outcome(d.repo, True, rewrite_reason))
         added += 1
 
     return WatchReport(
@@ -398,7 +410,7 @@ def demo() -> None:
         # `staged_name`, not a literal: the file is keyed on the whole repo, so
         # two orgs publishing the same short name stay two files.
         staged = dest / staged_name("acme/new-9b")
-        assert staged.name == "discovered-acme-new-9b.json", staged.name
+        assert staged.name.startswith("discovered-acme-new-9b-"), staged.name
         spec = json.loads(staged.read_text())["models"][0]
         assert spec["verified"] is False, "a robot must never mark an entry verified"
         assert spec["license_ok"] is False, "licence is a reading task, not a parsing task"

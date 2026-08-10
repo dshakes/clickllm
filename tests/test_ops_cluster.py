@@ -59,7 +59,15 @@ def test_two_repos_with_the_same_short_name_are_both_staged(tmp_path):
 
 def test_the_staged_name_keeps_the_org(tmp_path):
     assert watch.staged_name("org/alpha") != watch.staged_name("other/alpha")
-    assert watch.staged_name("org/alpha") == "discovered-org-alpha.json"
+    assert watch.staged_name("org/alpha").startswith("discovered-org-alpha-")
+    assert watch.staged_name("org/alpha").endswith(".json")
+
+
+def test_the_staged_name_does_not_collide_on_where_the_hyphen_falls(tmp_path):
+    """`/` and `-` both sanitised to `-`, so `meta-llama/3` and `meta/llama-3`
+    produced the identical filename — the second one, once staged, then read
+    as "already discovered" for a repo that had never been seen."""
+    assert watch.staged_name("meta-llama/3") != watch.staged_name("meta/llama-3")
 
 
 def test_a_repo_really_seen_before_is_still_skipped(tmp_path):
@@ -87,9 +95,13 @@ def test_an_unreadable_staged_file_does_not_block_rediscovery_forever(tmp_path):
     (tmp_path / watch.staged_name("org/alpha")).write_text('{"models": [{"id": "alpha"')
 
     report = watch.run(_index([{"modelId": "org/alpha", "downloads": 9}]), dest=tmp_path)
-    reason = report.outcomes[0].reason
-    assert "unreadable" in reason, reason
-    assert "already discovered" not in reason
+    # Exactly one outcome for the one repo checked — a rewrite is a single
+    # event, not a skip followed by an add for the same model.
+    assert len(report.outcomes) == 1, report.outcomes
+    outcome = report.outcomes[0]
+    assert outcome.added, "the rewrite must count as added, not skipped"
+    assert "unreadable" in outcome.reason, outcome.reason
+    assert "already discovered" not in outcome.reason
 
     # ...and it was rewritten, so the next run is a normal one.
     staged = json.loads((tmp_path / watch.staged_name("org/alpha")).read_text())
@@ -174,6 +186,20 @@ def test_the_entry_points_at_the_script_that_was_actually_written(tmp_path):
     entry = (tmp_path / "apps" / "clickllm.desktop").read_text()
     exec_line = next(x for x in entry.splitlines() if x.startswith("Exec="))
     assert Path(exec_line.removeprefix("Exec=")).is_file()
+
+
+def test_the_uninstall_command_survives_a_space_in_the_path(tmp_path):
+    """The uninstall string is meant to be copy-pasted into a shell. Unquoted,
+    a `bin_dir` like `/home/user/my setup/bin` turned one path into two shell
+    words and `rm -f` deleted the wrong thing."""
+    import shlex as _shlex
+
+    spaced = tmp_path / "my setup"
+    launcher = desktop._linux(spaced / "apps", "python3", 8009, bin_dir=spaced / "bin")
+
+    words = _shlex.split(launcher.uninstall)
+    assert str(spaced / "apps" / "clickllm.desktop") in words
+    assert str(spaced / "bin" / "clickllm-ui") in words
 
 
 def test_the_default_is_still_the_freedesktop_location(monkeypatch, tmp_path):
