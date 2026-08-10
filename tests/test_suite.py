@@ -362,7 +362,23 @@ def test_no_mcp_tool_can_move_traffic():
     assert not leaked, f"write-side tools exposed to agents: {leaked}"
 
 
-def test_the_agent_gets_the_same_verdict_as_the_cli(tmp_path: Path):
+@pytest.fixture
+def eval_root(tmp_path: Path, monkeypatch) -> Path:
+    """Point `CLICKLLM_EVAL_ROOT` at `tmp_path`, which is what an operator whose
+    eval sets live on a mounted volume does.
+
+    ADR-0014 confined `clickllm_prove` to a root, because it is the one MCP tool
+    where an agent names a path and the contents land in its context. These
+    tests drive it with a path outside the working directory *deliberately* —
+    the claim is "four surfaces, one implementation" — so they set the root
+    rather than being rewritten to give the guard an easier target. The contract
+    they prove is untouched; only the operator's declaration is new.
+    """
+    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    return tmp_path
+
+
+def test_the_agent_gets_the_same_verdict_as_the_cli(tmp_path: Path, eval_root: Path):
     """Four surfaces, one implementation — verified rather than asserted."""
     rows = [
         {
@@ -414,7 +430,9 @@ def test_the_agent_gets_the_same_verdict_as_the_cli(tmp_path: Path):
     assert via_agent["movable_share"] == 0.75
 
 
-def test_the_agent_result_says_when_the_verdict_is_only_equal_weighted(tmp_path: Path):
+def test_the_agent_result_says_when_the_verdict_is_only_equal_weighted(
+    tmp_path: Path, eval_root: Path
+):
     """Equal-weighted is a weaker claim; an agent must be able to tell them apart."""
     rows = [
         {
@@ -435,7 +453,7 @@ def test_the_agent_result_says_when_the_verdict_is_only_equal_weighted(tmp_path:
     assert mcp._prove(str(path2))["traffic_weighted"] is True
 
 
-def test_the_agent_never_claims_a_judge_it_did_not_use(tmp_path: Path):
+def test_the_agent_never_claims_a_judge_it_did_not_use(tmp_path: Path, eval_root: Path):
     rows = [
         {
             "item_id": f"c{i}",
