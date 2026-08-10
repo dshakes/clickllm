@@ -214,3 +214,61 @@ def test_the_module_self_checks_still_pass():
     watch.demo()
     with tempfile.TemporaryDirectory():
         pass
+
+
+# --- what the round-two fixes still needed covering ------------------------------
+
+
+def test_an_unreadable_staged_file_produces_exactly_one_outcome(tmp_path):
+    """The double-report was fixed without a test for it.
+
+    The first version appended a skipped `Outcome` and then fell through to the
+    write, which appended an added one — so `render()` and `to_json()` listed
+    the same repo in both buckets, and `checked` counted it twice. A rewrite is
+    one event.
+    """
+    (tmp_path / watch.staged_name("org/alpha")).write_text('{"models": [{"id"')
+    report = watch.run(_index([{"modelId": "org/alpha", "downloads": 9}]), dest=tmp_path)
+
+    assert [o.repo for o in report.outcomes] == ["org/alpha"]
+    only = report.outcomes[0]
+    assert only.added is True, "it was rewritten, so it was added"
+    assert "unreadable" in only.reason, only.reason
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("org/alpha", "other/alpha"),
+        # `/` and `-` both survive the sanitiser as `-`, so these collided under
+        # the first version of the fix — the same class of bug it exists to
+        # remove, narrower. The digest is what makes the name unique.
+        ("org/alpha", "org-alpha"),
+        ("meta-llama/3", "meta/llama-3"),
+        ("a/b.c", "a-b.c"),
+        ("org/Alpha", "org/alpha"),
+    ],
+)
+def test_two_different_repos_never_share_a_staged_name(a, b):
+    assert watch.staged_name(a) != watch.staged_name(b)
+
+
+def test_the_staged_name_is_deterministic_and_still_readable():
+    """Deterministic or the dedupe stops working; readable or a human cannot
+    tell the staged files apart at a glance."""
+    assert watch.staged_name("org/alpha") == watch.staged_name("org/alpha")
+    assert watch.staged_name("org/alpha").startswith("discovered-org-alpha-")
+
+
+@pytest.mark.parametrize("where", ["My Apps", "apps", "a dir with spaces"])
+def test_every_path_in_the_uninstall_command_resolves(tmp_path, where):
+    """Parametrised over a directory with and without a space: the quoting must
+    hold in both, and each quoted argument must name a file that exists — an
+    uninstall listing a path nothing wrote is as bad as one that splits."""
+    import shlex
+
+    launcher = desktop._linux(tmp_path / where, "python3", 8009, bin_dir=tmp_path / "my bin")
+    parts = shlex.split(launcher.uninstall)
+    assert parts[:2] == ["rm", "-f"]
+    assert parts[2:], "nothing to remove"
+    assert all(Path(p).is_file() for p in parts[2:]), parts
