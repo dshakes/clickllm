@@ -442,8 +442,7 @@ def test_every_diagram_is_embedded_somewhere():
 
     orphans = [f.name for f in assets if f.name not in pages_text]
     assert not orphans, (
-        "built but never referenced from README.md, site/**/*.html or "
-        f"docs/**/*.md: {orphans}"
+        f"built but never referenced from README.md, site/**/*.html or docs/**/*.md: {orphans}"
     )
 
 

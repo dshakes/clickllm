@@ -69,9 +69,9 @@ def test_an_io_processor_names_a_class_that_actually_exists():
     processor = next((v for k, v in files.items() if k.endswith("processor.py")), None)
     assert processor is not None, f"no processor.py among {list(files)}"
     tree = ast.parse(processor)
-    assert any(
-        isinstance(n, ast.ClassDef) and n.name == "MyIOProcessor" for n in tree.body
-    ), processor
+    assert any(isinstance(n, ast.ClassDef) and n.name == "MyIOProcessor" for n in tree.body), (
+        processor
+    )
 
 
 def test_a_stat_logger_implements_the_full_abstract_contract():
@@ -98,12 +98,7 @@ def test_an_endpoint_plugin_implements_the_endpoint_plugin_protocol():
     assert "torch.ops.load_library" not in src
     classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
     assert classes, "no class emitted"
-    methods = {
-        m.name
-        for c in classes.values()
-        for m in c.body
-        if isinstance(m, ast.FunctionDef)
-    }
+    methods = {m.name for c in classes.values() for m in c.body if isinstance(m, ast.FunctionDef)}
     assert {"attach_router", "init_state"} <= methods, methods
     assert "required_tasks" in src
     funcs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}

@@ -565,7 +565,7 @@ cargo clippy --all-targets -- -D warnings
 uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1619 Python
 ```
 
-**1,846 tests.** 1619 Python, 227 Rust. Eighteen of the Python tests skip on a
+**1846 tests.** 1619 Python, 227 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'

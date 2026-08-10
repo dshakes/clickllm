@@ -302,7 +302,7 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
             '    """Zero-argument factory. The loader calls this, then reads\n'
             "    `required_tasks` and calls `attach_router` on what it returns —\n"
             "    an `APIRouter` here would resolve to a value the loader cannot\n"
-            '    read `required_tasks` from at all.\n'
+            "    read `required_tasks` from at all.\n"
             '    """\n'
             "    return MyEndpointPlugin()\n"
         )
