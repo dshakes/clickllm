@@ -562,7 +562,7 @@ class Session:
                 devices=h.get("devices", 1),
                 note=h.get("note", ""),
             )
-        return cls(
+        out = cls(
             text=d["text"],
             stage=Stage(d["stage"]),
             requirements=Requirements(**r),
@@ -572,6 +572,22 @@ class Session:
             hw=hw,
             hw_source=d.get("hw_source", ""),
         )
+        # Recomputed, not serialised. `evidence` is "what was read out of your
+        # sentence, quoted back with the words that produced it" — one of this
+        # module's three stated design rules — and a resumed session had none of
+        # it, because `to_json` never wrote it and `from_json` never re-derived
+        # it. The prose that produced it *is* restored, so the trail was
+        # recoverable and simply was not recovered.
+        #
+        # Re-reading beats storing for the same reason the receipt derives its
+        # intervals: a serialised copy can drift from the text it claims to
+        # explain, and then the quotes cite a sentence nobody wrote. Only the
+        # evidence is recomputed — `requirements` are restored as saved, because
+        # a field the user set explicitly must not be re-read out of the prose
+        # and overridden.
+        if out.text:
+            out.evidence = tuple(i.render() for i in intent.read(out.text).inferred)
+        return out
 
 
 def demo() -> None:
