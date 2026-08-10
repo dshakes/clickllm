@@ -98,9 +98,27 @@ def test_an_endpoint_plugin_implements_the_endpoint_plugin_protocol():
     assert "torch.ops.load_library" not in src
     classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
     assert classes, "no class emitted"
-    methods = {m.name for c in classes.values() for m in c.body if isinstance(m, ast.FunctionDef)}
-    assert {"attach_router", "init_state"} <= methods, methods
+    methods = {
+        m.name: m
+        for c in classes.values()
+        for m in c.body
+        if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert {"attach_router", "init_state"} <= set(methods), methods
     assert "required_tasks" in src
+
+
+def test_an_endpoint_plugins_init_state_is_awaited_not_called():
+    """The lifecycle awaits `init_state(engine_client, state, args)` — a plain
+    `def` satisfies "a method named init_state exists" but not the protocol:
+    called with no coroutine to await, it does nothing at startup."""
+    src = _init(PluginKind.ENDPOINT)
+    tree = ast.parse(src)
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+    init_state = next(m for m in cls.body if getattr(m, "name", None) == "init_state")
+    assert isinstance(init_state, ast.AsyncFunctionDef), "init_state must be an async def"
+    params = [a.arg for a in init_state.args.args if a.arg != "self"]
+    assert params == ["engine_client", "state", "args"], params
     funcs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
     assert "register" in funcs, "the entry point must stay a zero-argument factory"
     register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "register")

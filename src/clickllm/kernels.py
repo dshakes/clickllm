@@ -296,8 +296,12 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
             "        async def my_endpoint():\n"
             '            return {"ok": True}\n\n'
             "        app.include_router(router)\n\n"
-            "    def init_state(self, *args, **kwargs) -> None:\n"
-            '        """Called once at startup with engine state. Nothing to keep here."""\n\n\n'
+            "    async def init_state(self, engine_client, state, args) -> None:\n"
+            '        """Called once at startup, awaited before any request is served.\n\n'
+            "        vLLM's endpoint plugin lifecycle awaits this hook, so a `def` here\n"
+            "        satisfies the method-exists check but not the protocol: called\n"
+            '        without a coroutine to await, it does nothing.\n'
+            '        """\n\n\n'
             "def register() -> MyEndpointPlugin:\n"
             '    """Zero-argument factory. The loader calls this, then reads\n'
             "    `required_tasks` and calls `attach_router` on what it returns —\n"
