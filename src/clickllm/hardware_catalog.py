@@ -114,7 +114,13 @@ PROFILES: tuple[Profile, ...] = (
         "TPU v5e (8 chips)",
         "tpu",
         16,
-        859,  # 800 GiB/s expressed in GB/s, to match every other row here
+        # 819 GB/s, which is the figure Google publishes — not a GiB/s value
+        # needing conversion. This read 859, from treating the "800 GiB/s" that
+        # appears in some docs as the source of truth and converting it; 819
+        # GB/s is ~763 GiB/s, so the two are different claims and the converted
+        # one is ~5% high. v5p (2765) and v6e (1638) match their published
+        # figures directly and were not touched.
+        819,
         devices=8,
         # HOST total, 8 x $1.20/chip-hr. These three rows carried the per-chip
         # list price while every NVIDIA multi-device row here carries the

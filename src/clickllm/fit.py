@@ -132,6 +132,23 @@ class Fit:
         """Fits, but you won't enjoy it."""
         return self.feasible and self.tokens_per_sec is not None and self.tokens_per_sec < 15
 
+    @property
+    def beyond_published_context(self) -> bool:
+        """Whether the requested context exceeds the model's own ceiling.
+
+        `max_context()` applies `min(model.max_context, ...)`; `solve()` never
+        did, so the two entry points disagreed about the same model — one
+        answering "32,768 is the most that fits" while the other accepted a
+        request for twice that and reported it feasible (#159).
+
+        Disclosed rather than refused. `max_position_embeddings` is not always
+        the operational limit: a deployment served with RoPE scaling runs above
+        it deliberately, and refusing would make this solver wrong about a real
+        case. What it must not do is stay silent, because the memory answer is
+        correct and the serving answer is not.
+        """
+        return self.context > self.model.max_context
+
     def explain(self) -> str:
         m = self.model
         kv_per_tok = m.kv_bytes_per_token()
@@ -174,6 +191,15 @@ class Fit:
                     "    The aggregate throughput and $/Mtok figures take the low end, so"
                     " they flatter rather than warn.",
                 ]
+        if self.beyond_published_context:
+            lines += [
+                "",
+                f"  ! {self.context:,} ctx is above this model's published limit of"
+                f" {m.max_context:,}.",
+                "    The memory arithmetic above is real — that much KV genuinely fits — but the",
+                "    model will refuse the request unless it is served with RoPE scaling. `where`",
+                f"    and `max_context` cap at {m.max_context:,}; this figure does not.",
+            ]
         if not m.verified:
             lines += ["", "  ! architecture unverified — KV figures are estimates"]
         return "\n".join(lines)
