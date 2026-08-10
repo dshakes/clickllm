@@ -54,7 +54,7 @@
 <text class="t cap"  x="62" y="209">stream: true</text>
 
 <g filter="url(#lift)"><rect x="300" y="140" width="330" height="88" rx="10" fill="url(#hot)" stroke="#a855f7" stroke-width="1.6"/></g>
-<text class="t ttl"  x="318" y="166" fill="#fff">clickllm gateway</text>
+<text class="t ttl"  x="318" y="166" style="fill:#fff">clickllm gateway</text>
 <text class="t cap"  x="318" y="184">① authn → ② route by policy → ③ mirror to shadow</text>
 <text class="t cap"  x="318" y="200">④ stream through → ⑤ meter tokens → ⑥ redact + persist</text>
 <text class="t ok"   x="318" y="218">zero-copy passthrough · backpressure sheds, never buffers</text>
@@ -74,13 +74,13 @@
 <path d="M244 184 H296" stroke="#a855f7" stroke-width="2" marker-end="url(#req)"/>
 <path d="M630 172 H682" stroke="#a855f7" stroke-width="2" marker-end="url(#req)"/>
 <path d="M630 196 H660 V250 H1050 V232" stroke="#a855f7" stroke-width="2" fill="none" marker-end="url(#req)"/>
-<text class="t cap" x="668" y="266" fill="#c9a6f5">canary % — advanced only when the gate holds</text>
+<text class="t cap" x="668" y="266" style="fill:#c9a6f5">canary % — advanced only when the gate holds</text>
 
 <!-- ═══ THE GATE ═══ -->
 <g filter="url(#lift)"><rect x="300" y="288" width="330" height="72" rx="10" fill="url(#ours)" stroke="#a855f7" stroke-width="1.4"/></g>
 <text class="t ttl"  x="318" y="312">Quality gate</text>
 <text class="t cap"  x="318" y="330">scores the open response against the closed one, live</text>
-<text class="t cap"  x="318" y="347" fill="#f0a0a0">regression → rollback in &lt;10s, no human in the loop</text>
+<text class="t cap"  x="318" y="347" style="fill:#f0a0a0">regression → rollback in &lt;10s, no human in the loop</text>
 <path d="M465 232 V284" stroke="#a855f7" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#req)"/>
 
 <!-- ═══ CONTROL LOOP ═══ -->
@@ -103,12 +103,12 @@
   <text class="ttl" x="258" y="440">Distill</text>
   <text class="cap" x="258" y="459">cluster by task shape</text>
   <text class="cap" x="258" y="475">sample per cluster</text>
-  <text class="cap" x="258" y="494" fill="#c9a6f5">→ private eval set</text>
+  <text class="cap" x="258" y="494" style="fill:#c9a6f5">→ private eval set</text>
 
   <text class="ttl" x="454" y="440">Prove</text>
   <text class="cap" x="454" y="459">assert → grade → judge</text>
   <text class="cap" x="454" y="475">vs. incumbent, per task</text>
-  <text class="cap" x="454" y="494" fill="#c9a6f5">→ equivalence + regret</text>
+  <text class="cap" x="454" y="494" style="fill:#c9a6f5">→ equivalence + regret</text>
 
   <text class="ttl" x="650" y="440">Fit + Tune</text>
   <text class="cap" x="650" y="459">MoE/GQA/MLA sizing</text>
@@ -123,7 +123,7 @@
   <text class="ttl" x="1042" y="440">Guard</text>
   <text class="cap" x="1042" y="459">watch releases</text>
   <text class="cap" x="1042" y="475">re-prove</text>
-  <text class="cap" x="1042" y="494" fill="#c9a6f5">→ propose</text>
+  <text class="cap" x="1042" y="494" style="fill:#c9a6f5">→ propose</text>
 </g>
 
 <g stroke="#46a758" stroke-width="2" fill="none">
@@ -140,16 +140,16 @@
 
 <!-- prove feeds the gate -->
 <path d="M524 412 V376 H560 V364" stroke="#46a758" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#ctl)"/>
-<text class="t note" x="574" y="386" fill="#7fc79a">the graders that decide the gate come from here</text>
+<text class="t note" x="574" y="386" style="fill:#7fc79a">the graders that decide the gate come from here</text>
 
 <!-- pack deploys the fleet -->
 <path d="M916 416 V300 H1050 V236" stroke="#46a758" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#ctl)"/>
-<text class="t note" x="930" y="292" fill="#7fc79a">deploys the fleet</text>
+<text class="t note" x="930" y="292" style="fill:#7fc79a">deploys the fleet</text>
 
 <!-- guard loops back -->
 <path d="M1090 512 V556 Q1090 566 1080 566 H534 Q524 566 524 556 V516"
       stroke="#46a758" stroke-width="1.8" fill="none" stroke-dasharray="5 5" marker-end="url(#ctl)"/>
-<text class="t note" x="807" y="562" text-anchor="middle" fill="#7fc79a">a better model ships → re-proved on your traffic → promotion proposed</text>
+<text class="t note" x="807" y="562" text-anchor="middle" style="fill:#7fc79a">a better model ships → re-proved on your traffic → promotion proposed</text>
 
 <!-- ═══ FOUNDATION ═══ -->
 <g filter="url(#lift)">
@@ -171,5 +171,5 @@
 <g filter="url(#lift)"><rect x="44" y="692" width="1112" height="46" rx="10" fill="url(#card)" stroke="#2c3442"/></g>
 <text class="t zone" x="64" y="712" fill="#c9a6f5">SURFACES</text>
 <text class="t cap"  x="150" y="712">CLI · TUI cockpit · local web console · MCP server · Python + TypeScript SDK · agent skills</text>
-<text class="t cap"  x="64" y="730" fill="#6e7681">Every stage is scriptable and non-interactive. An agent may analyse and recommend a migration; a human presses the button that moves traffic.</text>
+<text class="t cap"  x="64" y="730" style="fill:#6e7681">Every stage is scriptable and non-interactive. An agent may analyse and recommend a migration; a human presses the button that moves traffic.</text>
 </svg>

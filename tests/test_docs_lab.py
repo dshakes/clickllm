@@ -1264,3 +1264,50 @@ def test_the_homebrew_formula_is_not_still_a_placeholder():
 
     url = re.search(r"archive/refs/tags/(v[0-9.]+)\.tar\.gz", text)
     assert url, "formula URL does not point at a release tag"
+
+
+def test_no_diagram_sets_a_presentation_attribute_its_own_stylesheet_overrides():
+    """The same trap as above, widened to every diagram including hand-authored
+    ones — which the generated-only check deliberately skips.
+
+    That exemption was right when it was written: `gap-map.svg` defines a `.t`
+    carrying nothing but a font-family, so its `fill` attributes are honoured
+    and flagging them would be a false alarm. It stopped being right the moment
+    a hand-authored diagram defined a class that *does* set `fill`. Two new ones
+    did, and six labels rendered grey instead of the red/amber/green that
+    carried the entire point of the figure.
+
+    So this reads each file's own `<style>` rather than assuming: a class is
+    only a trap in the file where it sets the property. No exemption list, and
+    none needed.
+    """
+    import re
+
+    assets = sorted((Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg"))
+    assert assets, "no diagrams found"
+
+    offenders = []
+    for f in assets:
+        text = f.read_text()
+        block = re.search(r"<style>(.*?)</style>", text, re.S)
+        if not block:
+            continue
+        css = block.group(1)
+        setters = {
+            prop: {m.group(1) for m in re.finditer(rf"\.(\w+)\s*\{{[^}}]*\b{prop}:", css)}
+            for prop in ("fill", "font-size")
+        }
+        for tag in re.finditer(r"<text[^>]*>", text):
+            t = tag.group(0)
+            classes = re.search(r'class="([^"]+)"', t)
+            if not classes:
+                continue
+            named = set(classes.group(1).split())
+            for prop, owners in setters.items():
+                if named & owners and re.search(rf'\s{prop}="', t):
+                    offenders.append(f"{f.name}: {prop} on {t[:74]}")
+
+    assert not offenders, (
+        "a CSS rule beats a presentation attribute — use style= instead:\n  "
+        + "\n  ".join(offenders)
+    )

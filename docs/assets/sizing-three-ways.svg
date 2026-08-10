@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-label="Three ways KV cache sizing goes wrong. Mixture-of-experts sizing on active parameters instead of total understates memory ninefold, in the dangerous direction that says a model fits when it does not. Grouped-query attention counted with attention heads instead of key-value heads overstates fourfold. Multi-head latent attention sized with the grouped-query formula overstates sixty-fourfold. The last two waste money; the first causes an out-of-memory crash.">
+<defs>
+  <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0b0f16"/><stop offset=".55" stop-color="#0d1117"/><stop offset="1" stop-color="#12161f"/>
+  </linearGradient>
+  <linearGradient id="danger" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#f85149"/><stop offset="1" stop-color="#da3633"/>
+  </linearGradient>
+  <linearGradient id="waste" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#d29922"/><stop offset="1" stop-color="#9e6a03"/>
+  </linearGradient>
+  <linearGradient id="right" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#3fb950"/><stop offset="1" stop-color="#2ea043"/>
+  </linearGradient>
+  <filter id="lift" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity=".5"/>
+  </filter>
+  <style>
+    .t    { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif; }
+    .m    { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .kick { font-size:11.5px; fill:#6e7681; letter-spacing:.20em; font-weight:700; }
+    .h1   { font-size:31px; font-weight:800; fill:#f0f6fc; letter-spacing:-.015em; }
+    .lede { font-size:13.5px; fill:#8b949e; }
+    .name { font-size:15px; font-weight:800; fill:#e6edf3; }
+    .sub  { font-size:11px; fill:#7d8590; }
+    .mono { font-size:11.5px; fill:#c9d1d9; }
+    .big  { font-size:27px; font-weight:800; }
+    .tag  { font-size:9.5px; font-weight:800; letter-spacing:.09em; }
+    .foot { font-size:11.5px; fill:#7d8590; }
+    .cap  { font-size:10.5px; fill:#6e7681; }
+  </style>
+</defs>
+
+<rect width="1200" height="600" fill="url(#canvas)"/>
+
+<text class="t kick" x="64" y="52">THE ARITHMETIC EVERYONE GETS WRONG</text>
+<text class="t h1"   x="64" y="88">Three ways to mis-size a KV cache</text>
+<text class="t lede" x="64" y="114">Measured on real catalogue entries. Two of these waste money. One of them crashes.</text>
+
+<!-- ============ MoE ============ -->
+<g filter="url(#lift)">
+  <rect x="64" y="150" width="1072" height="118" rx="12" fill="#161b22" stroke="#f85149" stroke-opacity=".38"/>
+</g>
+<rect x="64" y="150" width="4" height="118" rx="2" fill="url(#danger)"/>
+
+<text class="t name" x="92" y="180">MoE — sparsity cuts compute, not memory</text>
+<text class="t sub"  x="92" y="199">Qwen3 30B-A3B · 3.3B active of 30.5B total · every expert has to be resident</text>
+
+<text class="m mono" x="92"  y="232">sized on active  3.1 GB</text>
+<text class="m mono" x="92"  y="250" style="fill:#3fb950">sized on total  28.4 GB   ← what it actually needs</text>
+
+<rect x="470" y="216" width="46"  height="15" rx="3" fill="#f85149" fill-opacity=".18"/>
+<rect x="470" y="238" width="420" height="15" rx="3" fill="#3fb950" fill-opacity=".22"/>
+
+<text class="t big"  x="1108" y="216" text-anchor="end" fill="#f85149">9× under</text>
+<text class="t tag"  x="1108" y="238" text-anchor="end" fill="#f85149">SAYS IT FITS WHEN IT DOES NOT</text>
+<text class="t cap"  x="1108" y="256" text-anchor="end">the server starts, then OOMs</text>
+
+<!-- ============ GQA ============ -->
+<g filter="url(#lift)">
+  <rect x="64" y="288" width="1072" height="118" rx="12" fill="#161b22" stroke="#30363d"/>
+</g>
+<rect x="64" y="288" width="4" height="118" rx="2" fill="url(#waste)"/>
+
+<text class="t name" x="92" y="318">GQA — count KV heads, not attention heads</text>
+<text class="t sub"  x="92" y="337">Llama 3.1 8B · 32 attention heads share 8 KV heads · the cache follows the 8</text>
+
+<text class="m mono" x="92" y="370" style="fill:#d29922">counted at 32 heads  524,288 B/tok</text>
+<text class="m mono" x="92" y="388" style="fill:#3fb950">counted at  8 heads  131,072 B/tok   ← correct</text>
+
+<rect x="470" y="354" width="420" height="15" rx="3" fill="#d29922" fill-opacity=".20"/>
+<rect x="470" y="376" width="105" height="15" rx="3" fill="#3fb950" fill-opacity=".22"/>
+
+<text class="t big" x="1108" y="354" text-anchor="end" fill="#d29922">4× over</text>
+<text class="t tag" x="1108" y="376" text-anchor="end" fill="#d29922">BUYS HARDWARE IT DOES NOT NEED</text>
+<text class="t cap" x="1108" y="394" text-anchor="end">up to 8× on other models</text>
+
+<!-- ============ MLA ============ -->
+<g filter="url(#lift)">
+  <rect x="64" y="426" width="1072" height="118" rx="12" fill="#161b22" stroke="#30363d"/>
+</g>
+<rect x="64" y="426" width="4" height="118" rx="2" fill="url(#waste)"/>
+
+<text class="t name" x="92" y="456">MLA — a compressed latent, not a per-head cache</text>
+<text class="t sub"  x="92" y="475">DeepSeek-V3 · 61 layers · stores a 512-wide latent, so the GQA formula does not apply at all</text>
+
+<text class="m mono" x="92" y="508" style="fill:#d29922">with the GQA formula  3,997,696 B/tok</text>
+<text class="m mono" x="92" y="526" style="fill:#3fb950">with kv_lora_rank        62,464 B/tok   ← correct</text>
+
+<rect x="470" y="492" width="420" height="15" rx="3" fill="#d29922" fill-opacity=".20"/>
+<rect x="470" y="514" width="7"   height="15" rx="3" fill="#3fb950" fill-opacity=".30"/>
+
+<text class="t big" x="1108" y="492" text-anchor="end" fill="#d29922">64× over</text>
+<text class="t tag" x="1108" y="514" text-anchor="end" fill="#d29922">RULES OUT A MODEL THAT FITS EASILY</text>
+<text class="t cap" x="1108" y="532" text-anchor="end">"buy another node" vs "it already fits"</text>
+
+<text class="t foot" x="64" y="576">Every figure above is what <tspan class="m" fill="#c9d1d9">clickllm fit --explain</tspan> prints, with the arithmetic shown, so you check it rather than trust it.</text>
+</svg>

@@ -95,7 +95,7 @@
   <text class="q"    x="140"  y="498">which one for my job?</text>
   <text class="step" x="328"  y="482">Hardware fit</text>
   <text class="q"    x="328"  y="498">what runs on my silicon?</text>
-  <text class="step" x="516"  y="482" fill="#e0c9fb">Proof</text>
+  <text class="step" x="516"  y="482" style="fill:#e0c9fb">Proof</text>
   <text class="q"    x="516"  y="498">good enough on MY traffic?</text>
   <text class="step" x="704"  y="482">Deployment</text>
   <text class="q"    x="704"  y="498">get it serving</text>
@@ -107,6 +107,6 @@
 
 <!-- ══ punchline ══ -->
 <g filter="url(#lift)"><rect x="44" y="518" width="1112" height="1" fill="#1c2430"/></g>
-<text class="t lede" x="44" y="544" fill="#c9d1d9">clickllm builds the four empty columns — and composes the two that are already won.</text>
+<text class="t lede" x="44" y="544" style="fill:#c9d1d9">clickllm builds the four empty columns — and composes the two that are already won.</text>
 <text class="t q"    x="1156" y="544" text-anchor="end">Deployment was finished before the migration was started.</text>
 </svg>

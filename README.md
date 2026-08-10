@@ -18,8 +18,10 @@ an editor. When you need to know it is good enough — not on someone's
 leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
+<sub>**It refuses rather than guesses.** A model that will not fit says how far short and in what unit. A flag the installed engine does not accept is a refusal, not a command that fails on start-up. A cell with too little evidence renders `?` rather than a confident score. Every estimate is labelled as one.</sub>
+
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1825-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1826-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -422,12 +424,23 @@ The motto is the control flow. Nothing skips a step, and each step can say *no*.
 
 <img src="docs/assets/in-a-box.svg" alt="One artifact landing on three machines and producing three outcomes: run as packed, re-solved with the changes reported, or refused" width="100%">
 
-**Proof is an artifact, not a dashboard.** A receipt is a file: every claim with
-its confidence interval, the bar it was measured against, the judge and how much
-it agreed with humans, and — required, never optional — the clusters that did
-*not* pass. Re-run the same eval set and the digest must match, which is a
-stronger claim than a signature. A signature says *we said this*; reproduction
-says *and it is true*, and anyone holding the eval set can check it.
+**Proof is an artifact, not a dashboard.**
+
+<img src="docs/assets/receipt-anatomy.svg" alt="Anatomy of a migration receipt: real unedited output leading with what must stay on the incumbent, then what is not proven either way, then what is proven above the bar, ending with the movable share and coverage gaps. Four properties make it defensible: bad news first, every number with its interval, the eval set identified by digest, and every field derived from the counts so a forged copy contradicts itself." width="100%">
+
+A receipt is a file: every claim with its confidence interval, the bar it was
+measured against, the judge and how much it agreed with humans, and — required,
+never optional — the clusters that did *not* pass. Re-run the same eval set and
+the digest must match, which is a stronger claim than a signature. A signature
+says *we said this*; reproduction says *and it is true*, and anyone holding the
+eval set can check it.
+
+The format has no field that can hold a bare `PASSED`. That is deliberate: a
+report with no unknowns in it is a report whose unknowns were removed. And every
+number in it is *derived* from the counts rather than stated — the interval, the
+band it lands in, the evidence still needed — so a forged receipt does not merely
+fail a signature check, it contradicts itself. Tamper detection answers "was this
+altered". It cannot answer "was this ever true".
 
 **Moving is asymmetric.** Rollback is automatic and deliberately easy to trigger.
 Advancing is only ever a proposal — the gate says the evidence supports 25%, a
@@ -445,13 +458,17 @@ you no longer know whether production is adequate.
 
 ## Three things everyone gets wrong
 
-The docs teach the whole inference stack from first principles — [start here](https://dshakes.github.io/clickllm/docs/#edu-why) if you've never sized a KV cache. The short version:
+<img src="docs/assets/sizing-three-ways.svg" alt="Three ways KV cache sizing goes wrong, measured on real catalogue entries: MoE sized on active parameters instead of total understates memory 9x, in the direction that says a model fits when it does not; GQA counted with attention heads instead of KV heads overstates 4x; MLA sized with the GQA formula overstates 64x. The last two waste money, the first crashes." width="100%">
 
-**① MoE sizes on *total* parameters.** Kimi K3 activates 50B of 2.8T per token, so people assume it needs 50B of memory. All 2.8T must be resident. *Sparsity cuts compute, not memory.*
+The docs teach the whole inference stack from first principles — [start here](https://dshakes.github.io/clickllm/docs/#edu-why) if you've never sized a KV cache. The short version, and note that the errors do not point the same way:
+
+**① MoE sizes on *total* parameters.** Kimi K3 activates 50B of 2.8T per token, so people assume it needs 50B of memory. All 2.8T must be resident. *Sparsity cuts compute, not memory.* This is the dangerous one: it says a model fits, the server starts, and then it dies.
 
 **② GQA uses `kv_heads`, not attention heads.** Using attention heads overestimates KV cache by up to 8×.
 
-**③ MLA has a different formula entirely.** DeepSeek-family models compress K and V into one low-rank latent. Applying the GQA formula overestimates by ~50×.
+**③ MLA has a different formula entirely.** DeepSeek-family models compress K and V into one low-rank latent. Applying the GQA formula overestimates by ~50× — the difference between "buy another node" and "it already fits".
+
+② and ③ cost money. ① costs you the outage. A tool that only ever errs toward "it fits" is worse than useless, which is why the arithmetic here saturates rather than wraps and an overflowed requirement reads as *too big* and refuses.
 
 And one that costs money in the other direction: **speculative decoding turns negative past batch ~32.** EAGLE-3's headline "2–3×" is a single-stream figure.
 
@@ -558,10 +575,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1598 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1599 Python
 ```
 
-**1,825 tests.** 1598 Python, 227 Rust. Eighteen of the Python tests skip on a
+**1,826 tests.** 1599 Python, 227 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'

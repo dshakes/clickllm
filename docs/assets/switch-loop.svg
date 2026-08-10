@@ -77,7 +77,7 @@
   <circle cx="123"  cy="176" r="13" fill="#e5484d"/><text class="nn" x="123"  y="181" text-anchor="middle">1</text>
   <circle cx="282"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="282"  y="181" text-anchor="middle">2</text>
   <circle cx="441"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="441"  y="181" text-anchor="middle">3</text>
-  <circle cx="600"  cy="176" r="19" fill="#a855f7" filter="url(#glow)"/><text class="nn" x="600" y="182" text-anchor="middle" font-size="14">4</text>
+  <circle cx="600"  cy="176" r="19" fill="#a855f7" filter="url(#glow)"/><text class="nn" x="600" y="182" text-anchor="middle" style="font-size:14">4</text>
   <circle cx="759"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="759"  y="181" text-anchor="middle">5</text>
   <circle cx="918"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="918"  y="181" text-anchor="middle">6</text>
   <circle cx="1077" cy="176" r="13" fill="#46a758"/><text class="nn" x="1077" y="181" text-anchor="middle">7</text>
@@ -141,21 +141,21 @@
     <rect x="568" y="274" width="17" height="9" rx="2" fill="#e5a00d"/>
     <rect x="588" y="274" width="17" height="9" rx="2" fill="#46a758"/>
     <rect x="608" y="274" width="17" height="9" rx="2" fill="#46a758"/>
-    <text class="cap m" x="634" y="282" fill="#46a758">96%</text>
+    <text class="cap m" x="634" y="282" style="fill:#46a758">96%</text>
 
     <rect x="528" y="288" width="17" height="9" rx="2" fill="#46a758"/>
     <rect x="548" y="288" width="17" height="9" rx="2" fill="#46a758"/>
     <rect x="568" y="288" width="17" height="9" rx="2" fill="#e5a00d"/>
     <rect x="588" y="288" width="17" height="9" rx="2" fill="#46a758"/>
     <rect x="608" y="288" width="17" height="9" rx="2" fill="#46a758"/>
-    <text class="cap m" x="634" y="296" fill="#46a758">98%</text>
+    <text class="cap m" x="634" y="296" style="fill:#46a758">98%</text>
 
     <rect x="528" y="302" width="17" height="9" rx="2" fill="#e5a00d"/>
     <rect x="548" y="302" width="17" height="9" rx="2" fill="#e5484d"/>
     <rect x="568" y="302" width="17" height="9" rx="2" fill="#e5484d"/>
     <rect x="588" y="302" width="17" height="9" rx="2" fill="#46a758"/>
     <rect x="608" y="302" width="17" height="9" rx="2" fill="#e5a00d"/>
-    <text class="cap m" x="634" y="310" fill="#e5a00d">84%</text>
+    <text class="cap m" x="634" y="310" style="fill:#e5a00d">84%</text>
   </g>
 </g>
 
@@ -163,7 +163,7 @@
 <path d="M1077 324 V352 Q1077 362 1067 362 H610 Q600 362 600 352 V332"
       stroke="#46a758" stroke-width="1.6" fill="none" stroke-dasharray="5 5" opacity=".8"/>
 <path d="M600 336 l-5 9 h10 z" fill="#46a758"/>
-<text class="t cap" x="838" y="357" text-anchor="middle" fill="#46a758">a better model ships → re-proved on your traffic → promotion proposed</text>
+<text class="t cap" x="838" y="357" text-anchor="middle" style="fill:#46a758">a better model ships → re-proved on your traffic → promotion proposed</text>
 
 <!-- ══ the transformation ══ -->
 <g filter="url(#lift)">
@@ -174,12 +174,12 @@
   <text class="tag"  x="66" y="421" fill="#e5484d">BEFORE</text>
   <text class="big m" x="66" y="452" fill="#e5484d">$2,847</text>
   <text class="lbl"  x="164" y="452">/mo · gpt-5 · every request, one vendor</text>
-  <text class="cap"  x="66" y="469" fill="#6e7681">no eval set · no alternative proven · no exit</text>
+  <text class="cap"  x="66" y="469" style="fill:#6e7681">no eval set · no alternative proven · no exit</text>
 
   <text class="tag"  x="760" y="421" fill="#46a758">AFTER</text>
   <text class="big m" x="760" y="452" fill="#46a758">$317</text>
   <text class="lbl"  x="836" y="452">/mo · GLM-5.2 open + gpt-5 on the regret set</text>
-  <text class="cap"  x="760" y="469" fill="#6e7681">89% of traffic moved · zero quality loss · rollback armed</text>
+  <text class="cap"  x="760" y="469" style="fill:#6e7681">89% of traffic moved · zero quality loss · rollback armed</text>
 </g>
 
 <!-- centre delta -->
@@ -193,7 +193,7 @@
 <!-- legend -->
 <g class="t">
   <circle cx="52" cy="516" r="5" fill="#a855f7"/>
-  <text class="cap" x="66" y="520" fill="#c8b4e8">stages 2 · 4 · 6 · 7 — unowned by any existing tool. This is the product.</text>
+  <text class="cap" x="66" y="520" style="fill:#c8b4e8">stages 2 · 4 · 6 · 7 — unowned by any existing tool. This is the product.</text>
   <circle cx="620" cy="516" r="5" fill="#4a5568"/>
   <text class="cap" x="634" y="520">stages 1 · 3 · 5 — built on LiteLLM · Inspect AI · vLLM · SGLang · llm-d · MLX</text>
 </g>
