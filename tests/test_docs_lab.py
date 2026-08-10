@@ -418,6 +418,35 @@ def test_every_generated_svg_is_intrinsically_proportional():
     assert not bad, "intrinsically distorted: " + "; ".join(bad)
 
 
+def test_every_diagram_is_embedded_somewhere():
+    """A diagram nobody references is a file, not a figure.
+
+    Two new diagrams were built specifically to replace text-only claims in
+    README.md and landed in `docs/assets/` — correct, well-formed, and never
+    added to any page. The PR that built them shipped everything except the
+    one line that makes them do their job.
+    """
+    root = Path(__file__).resolve().parents[1]
+    assets = sorted((root / "docs" / "assets").glob("*.svg"))
+    assert assets, "no diagrams found"
+
+    pages_text = "".join(
+        p.read_text()
+        for p in (
+            [root / "README.md"]
+            + sorted((root / "site").rglob("*.html"))
+            + sorted((root / "docs").rglob("*.md"))
+        )
+        if p.exists()
+    )
+
+    orphans = [f.name for f in assets if f.name not in pages_text]
+    assert not orphans, (
+        "built but never referenced from README.md, site/**/*.html or "
+        f"docs/**/*.md: {orphans}"
+    )
+
+
 # --- published claims ------------------------------------------------------
 # The test count appears on three surfaces that drifted apart unnoticed: the
 # site said 478, the README badge said 668, and the suite was actually 675.
@@ -1289,17 +1318,26 @@ def test_no_diagram_sets_a_presentation_attribute_its_own_stylesheet_overrides()
     offenders = []
     for f in assets:
         text = f.read_text()
-        block = re.search(r"<style>(.*?)</style>", text, re.S)
-        if not block:
-            continue
-        css = block.group(1)
-        setters = {
-            prop: {m.group(1) for m in re.finditer(rf"\.(\w+)\s*\{{[^}}]*\b{prop}:", css)}
-            for prop in ("fill", "font-size")
-        }
+        # Every `<style>` block, not just the first — a second one silently
+        # went unchecked otherwise.
+        setters = {prop: set() for prop in ("fill", "font-size")}
+        for block in re.finditer(r"<style[^>]*>(.*?)</style>", text, re.S):
+            css = block.group(1)
+            # Per rule, not per class token: a selector's class list may be
+            # compound (`.t.cap`), grouped (`.cap,.warn`), or hyphenated
+            # (`.bad-label`) — `[\w-]+` after each `.` catches all of those,
+            # and matching whole `selector { body }` rules (rather than
+            # scanning class-then-brace) means a property set anywhere in the
+            # rule body is attributed to every class the selector names.
+            for rule in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+                selector, body = rule.group(1), rule.group(2)
+                classes = re.findall(r"\.([\w-]+)", selector)
+                for prop, owners in setters.items():
+                    if re.search(rf"\b{prop}\s*:", body):
+                        owners.update(classes)
         for tag in re.finditer(r"<text[^>]*>", text):
             t = tag.group(0)
-            classes = re.search(r'class="([^"]+)"', t)
+            classes = re.search(r"""class=["']([^"']+)["']""", t)
             if not classes:
                 continue
             named = set(classes.group(1).split())
