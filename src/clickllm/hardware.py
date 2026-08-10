@@ -270,9 +270,17 @@ def _detect_amd() -> Hardware | None:
 
     sizes: list[int] = []
     names: list[str] = []
-    for card in cards.values():
+    for key, card in cards.items():
         if not isinstance(card, dict):
             continue
+        # `rocm-smi --json` keys every physical device `card0`, `card1`, … and
+        # everything else is metadata (a `system` block, timestamps). That is
+        # the only reliable way to tell "this entry is not a card" from "this
+        # entry IS a card whose VRAM key I no longer recognise" — and the skip
+        # below could not distinguish them, so a ROCm release renaming the key
+        # for one card on a 4-card box reported a 3-card machine. It understates
+        # capacity, which is the safe direction, and it is silent, which is not.
+        is_card = key.lower().startswith("card")
         # Key spelling has moved between ROCm versions; match on shape.
         # "VRAM Total Used Memory (B)" also contains "vram" and "total", so a
         # broad match could read used VRAM as installed VRAM depending on key
@@ -287,6 +295,11 @@ def _detect_amd() -> Hardware | None:
             None,
         )
         if total is None:
+            if is_card:
+                # Fail closed. Declining detection sends the caller to the CPU
+                # path with nothing invented; reporting three of four cards
+                # hands them a machine that does not exist.
+                return None
             continue
         try:
             sizes.append(int(str(total).strip()))
