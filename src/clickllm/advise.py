@@ -61,6 +61,11 @@ __all__ = [
 #: sends that the KV cache is being sized for traffic nobody generates.
 OVERSIZED_CONTEXT = 65_536
 
+#: The smallest context worth recommending. Below this the advice is not
+#: actionable — no engine is usefully started with a few hundred tokens — and
+#: the observation behind it is too thin to be evidence of anything.
+MIN_SERVING_CONTEXT = 2_048
+
 #: Headroom fraction above which a better quantisation is worth proposing.
 #: Deliberately generous: proposing an upgrade that then does not fit is worse
 #: than staying quiet, because the user pays for the failed attempt in time.
@@ -394,7 +399,19 @@ def reconcile(req: Requirements, p: Plan, seen: Observed) -> list[Suggestion]:
 
     # Context sized for traffic that never arrives — the reverse of the usual bug,
     # and only visible once you have seen real prompts.
-    if seen.peak_context is not None and seen.peak_context * 2 < req.context:
+    # `peak_context` of 0 is not evidence of over-provisioning — it is the
+    # absence of evidence, and it produced "Consider serving 0 tokens instead
+    # of 32,768". A peak of 1 produced "serve 2 tokens". Neither is a context
+    # any engine can be started with, and both read as confident advice.
+    #
+    # So: a floor on what may be recommended, and silence below it. A corpus
+    # whose longest prompt is under `MIN_SERVING_CONTEXT` has not shown that a
+    # smaller deployment would work; it has shown almost nothing.
+    if (
+        seen.peak_context is not None
+        and seen.peak_context * 2 < req.context
+        and seen.peak_context * 2 >= MIN_SERVING_CONTEXT
+    ):
         out.append(
             Suggestion(
                 id="context-never-used",
