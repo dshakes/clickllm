@@ -831,3 +831,57 @@ def test_a_cluster_with_nothing_graded_is_not_asked_to_derive_an_interval():
     )
     assert Receipt.from_json(r.to_json()) == r
     assert [c.cluster for c in r.unproven] == ["silent"]
+
+
+def test_the_evidence_price_cannot_be_forged():
+    """`needed` was the last claim field still stated rather than derived (#160).
+
+    It cannot promote a regression, so it is not the forgery that moves traffic.
+    What it changes is the *price* the receipt puts on an unproven cluster —
+    "12 more graded items would settle this" against a truth of 229 makes a gap
+    look cheap to close, and that number is what the README leads on.
+    """
+    msg = _refuses_forgery(
+        _three_cluster_receipt(),
+        lambda b: b["unproven"][0].__setitem__("needed", 12),
+    )
+    assert "does not follow from the counts" in msg, msg
+
+
+def test_a_cleared_cluster_cannot_be_given_a_price_it_does_not_have():
+    """The other direction: `issue()` writes `None` for a cluster that cleared
+    the bar, because the answer there is not a bigger eval set."""
+    msg = _refuses_forgery(
+        _three_cluster_receipt(),
+        lambda b: b["proven"][0].__setitem__("needed", 40),
+    )
+    assert "does not follow from the counts" in msg, msg
+
+
+def test_every_receipt_this_tool_issues_still_carries_a_derivable_price():
+    """The control that decides whether this guard is safe: it recomputes
+    `samples_needed` over the counts, so any disagreement with how `issue()`
+    wrote it rejects every honest receipt."""
+    from clickllm.prove import Receipt, issue
+
+    checked, broken = 0, []
+    for bar in (0.05, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999):
+        for total in (0, 1, 2, 3, 5, 12, 40, 80, 120, 400):
+            for passed in sorted({0, 1, total // 3, total // 2, total}):
+                if passed > total:
+                    continue
+                r = issue(
+                    CandidateReport("m", (ClusterScore("c", "c", 1.0, wilson(passed, total), 0),)),
+                    incumbent="i",
+                    issued="2026-08-07",
+                    eval_set="a" * 64,
+                    bar=bar,
+                )
+                checked += 1
+                try:
+                    if Receipt.from_json(r.to_json()) != r:
+                        broken.append(f"bar={bar} {passed}/{total}: round trip changed it")
+                except ValueError as e:
+                    broken.append(f"bar={bar} {passed}/{total}: {e}")
+    assert checked > 200, f"the sweep only covered {checked}"
+    assert not broken, f"honest receipts rejected: {broken[:6]}"
