@@ -197,10 +197,60 @@ def test_the_extension_version_the_package_accepts_is_the_one_it_builds():
     crate = re.search(r'^version = "([^"]+)"', (root / "Cargo.toml").read_text(), re.M)
     assert crate, "no workspace version in Cargo.toml"
 
-    assert (__version__,) == core.COMPATIBLE, (
+    # Not `assert (__version__,) == core.COMPATIBLE`. `COMPATIBLE` *is*
+    # `(__version__,)`, so that compared a value to itself and passed whatever
+    # either one became — the regression it was written to catch (a literal
+    # "0.1.0" drifting from a shipped 0.1.9) is exactly the one it could no
+    # longer see, because the fix for that regression is what made it a
+    # tautology.
+    #
+    # The property worth asserting is the behaviour: a matched install must be
+    # accepted, and a mismatched one refused with a sentence naming both sides.
+    assert __version__ in core.COMPATIBLE, (
         f"package is {__version__} but it accepts {core.COMPATIBLE} — a matched "
         f"install would be refused"
     )
     assert crate.group(1) == __version__, (
         f"the crate builds {crate.group(1)} and the package accepts {__version__}"
     )
+
+
+def test_a_matched_extension_is_accepted_and_a_skewed_one_is_refused(monkeypatch):
+    """The behaviour the version-pair check exists for, asserted directly.
+
+    `test_the_three_versions_move_together` used to compare `COMPATIBLE` to the
+    expression it is defined as, which is a tautology — and the regression it
+    guarded (a hardcoded compat version drifting from the shipped one) became
+    invisible the moment that value was derived. Deriving it was right; keeping
+    the assertion was not.
+
+    This drives `_skew()` with a stand-in extension instead, so a change to how
+    compatibility is decided has to keep both answers true.
+    """
+    from clickllm import __version__, core
+
+    class Ext:
+        def __init__(self, version):
+            self.__version__ = version
+
+    monkeypatch.setattr(core, "_ext", Ext(__version__))
+    assert core._skew() is None
+    assert core.available()
+
+    monkeypatch.setattr(core, "_ext", Ext("0.0.1-not-this"))
+    reason = core._skew()
+    assert reason is not None
+    assert "0.0.1-not-this" in reason, reason
+    assert __version__ in reason, "the message must name what it expected"
+    assert core.INSTALL_HINT in reason, "and how to fix it"
+    assert not core.available()
+
+
+def test_an_extension_with_no_version_is_refused_rather_than_assumed(monkeypatch):
+    """A build without `__version__` is not a matched build; `getattr` defaults
+    to "unknown", and "unknown" must not satisfy the check."""
+    from clickllm import core
+
+    monkeypatch.setattr(core, "_ext", object())
+    reason = core._skew()
+    assert reason is not None and "unknown" in reason
