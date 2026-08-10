@@ -69,9 +69,12 @@ def cmd_fit(args: argparse.Namespace) -> int:
                 )
             )
             return 0 if f.feasible else 1
-        if not getattr(args, "quiet", False):
-            print(f"\n{f.explain()}\n")
-            print(f"  verdict: {'FITS' if f.feasible else 'DOES NOT FIT'}\n")
+        # Unconditional. `--quiet` is documented as "hide the NOT FEASIBLE
+        # section", and `--explain` has no such section — it is one model. The
+        # gate here meant `fit --explain X --quiet` printed *nothing* and exited
+        # 0, which reads as "no answer" rather than as a suppressed list.
+        print(f"\n{f.explain()}\n")
+        print(f"  verdict: {'FITS' if f.feasible else 'DOES NOT FIT'}\n")
         return 0 if f.feasible else 1
 
     feasible, rejected = fit.rank(hw, ctx, conc)
