@@ -1311,3 +1311,31 @@ def test_no_diagram_sets_a_presentation_attribute_its_own_stylesheet_overrides()
         "a CSS rule beats a presentation attribute — use style= instead:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_no_diagram_declares_a_css_length_without_a_unit():
+    """`style="font-size:14"` is invalid CSS and silently ignored; the
+    presentation attribute `font-size="14"` it replaced was valid.
+
+    The two are not interchangeable, and converting one to the other is exactly
+    what the fix for the override trap does — so a mechanical rewrite that gets
+    the colours right can get the sizes wrong in the same pass, and nothing
+    errors. The text simply renders at whatever the class said, which is the
+    quiet failure the override trap was about in the first place.
+    """
+    import re
+
+    assets = sorted((Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg"))
+    lengths = ("font-size", "stroke-width", "letter-spacing")
+    offenders = []
+    for f in assets:
+        for m in re.finditer(r'style="([^"]*)"', f.read_text()):
+            for decl in m.group(1).split(";"):
+                prop, _, value = decl.partition(":")
+                v = value.strip()
+                if prop.strip() in lengths and re.fullmatch(r"[0-9.]+", v):
+                    offenders.append(f"{f.name}: {prop.strip()}:{v} has no unit")
+
+    assert not offenders, "unitless CSS lengths are ignored by the renderer:\n  " + "\n  ".join(
+        offenders
+    )

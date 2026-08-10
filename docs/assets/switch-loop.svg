@@ -77,7 +77,7 @@
   <circle cx="123"  cy="176" r="13" fill="#e5484d"/><text class="nn" x="123"  y="181" text-anchor="middle">1</text>
   <circle cx="282"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="282"  y="181" text-anchor="middle">2</text>
   <circle cx="441"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="441"  y="181" text-anchor="middle">3</text>
-  <circle cx="600"  cy="176" r="19" fill="#a855f7" filter="url(#glow)"/><text class="nn" x="600" y="182" text-anchor="middle" style="font-size:14">4</text>
+  <circle cx="600"  cy="176" r="19" fill="#a855f7" filter="url(#glow)"/><text class="nn" x="600" y="182" text-anchor="middle" style="font-size:14px">4</text>
   <circle cx="759"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="759"  y="181" text-anchor="middle">5</text>
   <circle cx="918"  cy="176" r="13" fill="#6b7482"/><text class="nn" x="918"  y="181" text-anchor="middle">6</text>
   <circle cx="1077" cy="176" r="13" fill="#46a758"/><text class="nn" x="1077" y="181" text-anchor="middle">7</text>
