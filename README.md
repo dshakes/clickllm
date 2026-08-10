@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1837-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1834-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -268,23 +268,6 @@ evaluation* and recommend a migration, and **structurally cannot** be the thing
 that moves production traffic. Add such a tool and the build fails. The
 vocabulary is deliberately broad: the failure it guards against is someone
 adding a helpful-looking `clickllm_promote` and nothing objecting.
-
-**An agent may name a path; it may not name *any* path.** `clickllm_prove` is
-the one tool where a caller supplies a filesystem path and the contents land in
-the agent's context — a file-read primitive addressable by whatever is steering
-that agent, which may itself have come out of a customer's request log. It is
-confined to an **eval root**: the working directory, or wherever
-`CLICKLLM_EVAL_ROOT` points. Paths are resolved first, so a symlink cannot walk
-out.
-
-The CLI is deliberately *not* confined. The person typing `clickllm prove
-<path>` is the person the confinement protects; restricting a command a human
-typed would be theatre. The two surfaces have different threat models on
-purpose — [ADR-0014](docs/adr/0014-an-eval-root-for-agent-named-paths.md) is the
-record that the asymmetry is intentional rather than an inconsistency to tidy
-away. The variable is an environment variable rather than a tool argument for
-the same reason: a flag is set by whoever composes the command, which for an MCP
-server may be the agent.
 
 **It tells you what you didn't ask.** A planner that only answers the question
 asked is a form. Somebody deploys an agent fleet with a 2,000-token system prompt
@@ -575,10 +558,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 227 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1610 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1607 Python
 ```
 
-**1,837 tests.** 1610 Python, 227 Rust. Eighteen of the Python tests skip on a
+**1,834 tests.** 1607 Python, 227 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
