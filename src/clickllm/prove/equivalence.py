@@ -400,14 +400,23 @@ class Matrix:
         return max(scored, key=lambda c: (c.movable_share(self.bar), c.weighted_score() or 0))
 
     def hybrid_for(self, candidate: CandidateReport) -> HybridPolicy:
+        # `share > 0`, because a cluster carrying none of the traffic cannot
+        # be moved, held back, or gathered more evidence for — naming it
+        # under "Not yet proven" beside "Move 100% of traffic" reads as a
+        # contradiction and is really just noise. `unproven()` keeps every
+        # unknown, because as a *query* that is the honest answer; the
+        # policy is a list of things to do about traffic. `needs` must use
+        # the same filtered set, or a 0%-share cluster left out of the
+        # header still gets an orphaned remediation bullet in render().
+        actionable = tuple(c for c in candidate.unproven(self.bar) if c.share > 0)
         return HybridPolicy(
             candidate=candidate.model,
             moved_share=candidate.movable_share(self.bar),
             regret_clusters=tuple(c.name for c in candidate.regret(self.bar)),
-            unproven_clusters=tuple(c.name for c in candidate.unproven(self.bar)),
+            unproven_clusters=tuple(c.name for c in actionable),
             incumbent_cost=self.incumbent_cost,
             candidate_cost=candidate.monthly_cost,
-            needs=tuple(c.render_need(self.bar) for c in candidate.unproven(self.bar)),
+            needs=tuple(c.render_need(self.bar) for c in actionable),
         )
 
     def render(self) -> str:
@@ -535,12 +544,30 @@ class Matrix:
         agg = best.weighted_interval()
         if agg.total:
             measured = best.measured_share()
+            # "never measured" is true of an uncovered cluster and false of one
+            # whose items all came back with no applicable grader: those were
+            # collected and run, and excluded at grading. `known` means
+            # *graded* (`interval.total > 0`), so both landed under one word.
+            #
+            # The distinction is free — a cluster carries its `ungraded` count —
+            # so the sentence names whichever case it is rather than picking the
+            # stronger claim and being wrong half the time.
+            missing = [c for c in best.clusters if not c.known]
+            collected = sum(c.share for c in missing if c.ungraded)
             coverage = (
                 ""
                 if measured >= 0.999
                 else (
-                    f" — over {measured:.0%} of traffic; the other "
-                    f"{1 - measured:.0%} was never measured and is not in this number"
+                    f" — over {measured:.0%} of traffic; the other {1 - measured:.0%} "
+                    + (
+                        "was collected but nothing in it could be graded"
+                        if collected >= (1 - measured) - 1e-9
+                        else "was never measured"
+                        if collected <= 1e-9
+                        else "was not graded — some of it never measured, some collected "
+                        "with no applicable grader"
+                    )
+                    + " and is not in this number"
                 )
             )
             out.append(f"weighted verdict {agg.render()}{coverage} — {agg.method}")

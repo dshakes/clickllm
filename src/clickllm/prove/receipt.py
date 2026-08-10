@@ -51,7 +51,7 @@ from clickllm.prove.equivalence import (
 )
 from clickllm.prove.graders import EvalItem
 from clickllm.prove.judge import Agreement, Calibration
-from clickllm.prove.stats import wilson
+from clickllm.prove.stats import samples_needed, wilson
 
 __all__ = [
     "FORMAT",
@@ -411,6 +411,23 @@ class Receipt:
                         f"{c.cluster} is filed under {group} but its interval "
                         f"[{c.low:.3g}–{c.high:.3g}] against a bar of {self.bar:.3g} "
                         f"makes it {belongs}"
+                    )
+                # `needed` was the last field still *stated* rather than
+                # derived. It cannot promote a regression, so it is not the
+                # forgery that moves traffic — what it changes is the price the
+                # receipt puts on an unproven cluster. "12 more graded items
+                # would settle this" against a truth of 400 makes a gap look
+                # cheap to close, and that number is what the README leads on.
+                #
+                # It lives here rather than on `Claim` because it depends on
+                # `bar`, which is the receipt's, and on the band, which this
+                # loop has just computed.
+                want = None if belongs == "proven" else samples_needed(c.passed, c.total, self.bar)
+                if c.needed != want:
+                    raise ValueError(
+                        f"{c.cluster}: needed is {c.needed!r}, but {c.passed}/{c.total} "
+                        f"against a bar of {self.bar:.3g} gives {want!r} — it does not "
+                        f"follow from the counts"
                     )
 
         # One appearance per cluster, across all three groups. The module
