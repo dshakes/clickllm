@@ -1155,12 +1155,16 @@ def _plugin_kinds() -> list[str]:
 
 def cmd_kernel(args: argparse.Namespace) -> int:
     """Scaffold a vLLM plugin package, and the plan for proving it."""
-    from .kernels import KernelClaim, Plugin, PluginKind, scaffold
+    from .kernels import KernelClaim, Plugin, PluginKind, entry_point_target, scaffold
 
+    kind = PluginKind(args.kind)
     plugin = Plugin(
         name=args.name,
-        kind=PluginKind(args.kind),
-        target=f"{args.name.replace('-', '_')}:register",
+        kind=kind,
+        # Not a hardcoded `:register` — STAT_LOGGER's entry point is the class
+        # itself, so a fixed attribute here generated a package whose entry
+        # point named something its own module did not define.
+        target=entry_point_target(args.name, kind),
     )
     claim = KernelClaim(
         name=args.name,
