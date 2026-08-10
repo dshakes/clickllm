@@ -514,3 +514,99 @@ def test_weights_that_can_be_averaged_still_are():
 
     assert round(weighted_point([(wilson(41, 80), 1.0)]), 4) == 0.5125
     assert round(weighted_point([(wilson(40, 40), 1), (wilson(0, 40), 1)]), 4) == 0.5
+
+
+# --- what the coverage caveat is actually claiming --------------------------------
+
+
+def _coverage_line(scores) -> str:
+    m = Matrix([CandidateReport("m", tuple(scores))], incumbent_cost=1000.0)
+    return next((line for line in m.render().splitlines() if "weighted verdict" in line), "")
+
+
+def test_traffic_that_was_collected_but_ungraded_is_not_called_unmeasured():
+    """`known` means *graded* (`interval.total > 0`), so a cluster whose items
+    all came back with no applicable grader counted as unmeasured and the report
+    said "was never measured".
+
+    Those items were collected and run, and excluded at grading. The
+    conservative arithmetic is right either way; the sentence was wrong in one
+    of the two cases, and the distinction is free — a cluster carries its
+    `ungraded` count.
+    """
+    line = _coverage_line(
+        [
+            ClusterScore("good", "good", 0.7, wilson(118, 120), 0),
+            ClusterScore("silent", "silent", 0.3, wilson(0, 0), 12),
+        ]
+    )
+    assert "never measured" not in line, line
+    assert "could be graded" in line, line
+
+
+def test_traffic_that_really_was_never_measured_still_says_so():
+    """The negative control: softening the wording everywhere would be a
+    different lie."""
+    line = _coverage_line(
+        [
+            ClusterScore("good", "good", 0.7, wilson(118, 120), 0),
+            ClusterScore("absent", "absent", 0.3, wilson(0, 0), 0),
+        ]
+    )
+    assert "never measured" in line, line
+
+
+def test_a_mixture_names_both_rather_than_picking_one():
+    line = _coverage_line(
+        [
+            ClusterScore("good", "good", 0.4, wilson(118, 120), 0),
+            ClusterScore("silent", "silent", 0.3, wilson(0, 0), 9),
+            ClusterScore("absent", "absent", 0.3, wilson(0, 0), 0),
+        ]
+    )
+    assert "some of it never measured" in line, line
+
+
+def test_full_coverage_says_nothing_at_all():
+    assert "of traffic;" not in _coverage_line(
+        [ClusterScore("good", "good", 1.0, wilson(118, 120), 0)]
+    )
+
+
+def test_a_cluster_carrying_no_traffic_is_not_a_policy_item():
+    """`unproven()` includes every unknown regardless of share, so a 0%-share
+    cluster landed in `HybridPolicy.unproven_clusters` — printed under "Not yet
+    proven" directly beneath "Move 100% of traffic", which reads as a
+    contradiction and is really just noise."""
+    m = Matrix(
+        [
+            CandidateReport(
+                "m",
+                (
+                    ClusterScore("live", "live", 1.0, wilson(118, 120), 0),
+                    ClusterScore("deprecated", "deprecated", 0.0, wilson(0, 0), 0),
+                ),
+            )
+        ],
+        incumbent_cost=1000.0,
+    )
+    policy = m.hybrid_for(m.candidates[0])
+    assert "deprecated" not in policy.unproven_clusters, policy.unproven_clusters
+    assert policy.moved_share == 1.0
+
+
+def test_a_cluster_that_carries_traffic_is_still_named():
+    """The negative control: filtering on share must not empty the list."""
+    m = Matrix(
+        [
+            CandidateReport(
+                "m",
+                (
+                    ClusterScore("live", "live", 0.7, wilson(118, 120), 0),
+                    ClusterScore("thin", "thin", 0.3, wilson(3, 3), 0),
+                ),
+            )
+        ],
+        incumbent_cost=1000.0,
+    )
+    assert "thin" in m.hybrid_for(m.candidates[0]).unproven_clusters
