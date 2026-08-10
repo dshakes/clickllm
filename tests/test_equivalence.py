@@ -593,6 +593,10 @@ def test_a_cluster_carrying_no_traffic_is_not_a_policy_item():
     policy = m.hybrid_for(m.candidates[0])
     assert "deprecated" not in policy.unproven_clusters, policy.unproven_clusters
     assert policy.moved_share == 1.0
+    # `needs` must be filtered identically to `unproven_clusters`, or render()
+    # prints a "→" remediation bullet for a cluster the header never named.
+    assert not any("deprecated" in n for n in policy.needs), policy.needs
+    assert "deprecated" not in policy.render()
 
 
 def test_a_cluster_that_carries_traffic_is_still_named():

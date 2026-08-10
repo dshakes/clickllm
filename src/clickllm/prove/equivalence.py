@@ -400,20 +400,23 @@ class Matrix:
         return max(scored, key=lambda c: (c.movable_share(self.bar), c.weighted_score() or 0))
 
     def hybrid_for(self, candidate: CandidateReport) -> HybridPolicy:
+        # `share > 0`, because a cluster carrying none of the traffic cannot
+        # be moved, held back, or gathered more evidence for — naming it
+        # under "Not yet proven" beside "Move 100% of traffic" reads as a
+        # contradiction and is really just noise. `unproven()` keeps every
+        # unknown, because as a *query* that is the honest answer; the
+        # policy is a list of things to do about traffic. `needs` must use
+        # the same filtered set, or a 0%-share cluster left out of the
+        # header still gets an orphaned remediation bullet in render().
+        actionable = tuple(c for c in candidate.unproven(self.bar) if c.share > 0)
         return HybridPolicy(
             candidate=candidate.model,
             moved_share=candidate.movable_share(self.bar),
             regret_clusters=tuple(c.name for c in candidate.regret(self.bar)),
-            # `share > 0`, because a cluster carrying none of the traffic cannot
-            # be moved, held back, or gathered more evidence for — naming it
-            # under "Not yet proven" beside "Move 100% of traffic" reads as a
-            # contradiction and is really just noise. `unproven()` keeps every
-            # unknown, because as a *query* that is the honest answer; the
-            # policy is a list of things to do about traffic.
-            unproven_clusters=tuple(c.name for c in candidate.unproven(self.bar) if c.share > 0),
+            unproven_clusters=tuple(c.name for c in actionable),
             incumbent_cost=self.incumbent_cost,
             candidate_cost=candidate.monthly_cost,
-            needs=tuple(c.render_need(self.bar) for c in candidate.unproven(self.bar)),
+            needs=tuple(c.render_need(self.bar) for c in actionable),
         )
 
     def render(self) -> str:
