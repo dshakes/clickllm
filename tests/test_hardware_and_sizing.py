@@ -78,18 +78,21 @@ def test_a_vram_figure_that_is_not_a_number_still_declines():
 # --- a rented figure that is not the rented one ----------------------------------
 
 
-def test_the_v5e_bandwidth_is_the_published_number_not_a_converted_one():
-    """It read 859, from treating the "800 GiB/s" that appears in some docs as
-    the source of truth and converting it.
+def test_the_v5e_bandwidth_is_the_primary_source_converted_not_a_secondary_quote():
+    """#131 finding 2 said this was inflated ~5% and should read 819. It should
+    not, and this test exists because I changed it and had to change it back.
 
-    Google publishes 819 GB/s per v5e chip. 819 GB/s is ~763 GiB/s, so the two
-    are different claims and the converted one is ~5% high — flattering TPUs in
-    exactly the ranking `where()` produces.
+    Google's v5e table says "HBM bandwidth per chip: 800 GiBps" and, in the same
+    table, "ICI bandwidth: 400 GBps" — it distinguishes the units deliberately.
+    800 GiB/s is 859 GB/s, which is what every other row here is in. The 819
+    figure is what secondary sources quote, and 819 GB/s is 763 GiB/s, which
+    contradicts the primary table.
     """
     from clickllm.hardware_catalog import PROFILES
 
     v5e = next(p for p in PROFILES if p.id == "tpu-v5e-8")
-    assert v5e.bandwidth_gbps == 819
+    assert v5e.bandwidth_gbps == 859
+    assert round(800 * 1.073741824) == 859, "the conversion this row encodes"
 
 
 def test_the_other_tpu_rows_were_left_alone():

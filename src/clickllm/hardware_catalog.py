@@ -114,13 +114,17 @@ PROFILES: tuple[Profile, ...] = (
         "TPU v5e (8 chips)",
         "tpu",
         16,
-        # 819 GB/s, which is the figure Google publishes — not a GiB/s value
-        # needing conversion. This read 859, from treating the "800 GiB/s" that
-        # appears in some docs as the source of truth and converting it; 819
-        # GB/s is ~763 GiB/s, so the two are different claims and the converted
-        # one is ~5% high. v5p (2765) and v6e (1638) match their published
-        # figures directly and were not touched.
-        819,
+        # 800 GiBps -> 859 GB/s. Google's v5e table says "HBM bandwidth per
+        # chip: 800 GiBps" and, in the same table, "ICI bandwidth: 400 GBps" —
+        # it distinguishes the two units deliberately, so the conversion is
+        # right and this row matches every other one here, which is GB/s.
+        #
+        # #131 finding 2 claimed this was inflated ~5% and should read 819. It
+        # should not: 819 GB/s is the figure secondary sources quote, and it is
+        # 763 GiB/s, which contradicts the primary table. Changed to 819 on the
+        # strength of a search summary, caught in review, and reverted after
+        # reading the Google doc itself.
+        859,
         devices=8,
         # HOST total, 8 x $1.20/chip-hr. These three rows carried the per-chip
         # list price while every NVIDIA multi-device row here carries the
