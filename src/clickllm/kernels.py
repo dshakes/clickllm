@@ -91,6 +91,29 @@ ENTRY_POINT_GROUPS: dict[PluginKind, str] = {
 }
 
 
+#: What the entry point must resolve to, per group. `register` for the four
+#: groups whose entry point is a callable, and the class itself for STAT_LOGGER,
+#: whose contract is "the entry point is the class".
+#:
+#: One home, because `scaffold()` emits the module and `cli.py` builds the
+#: target, and they disagreed: the STAT_LOGGER scaffold emitted `MyStatLogger`
+#: while the CLI still wrote `pkg:register`, so the generated package installed
+#: with an entry point resolving to a name that no longer existed in it. Two
+#: places encoding one fact, fixed in one of them.
+ENTRY_POINT_ATTR: dict[PluginKind, str] = {
+    PluginKind.GENERAL: "register",
+    PluginKind.PLATFORM: "register",
+    PluginKind.STAT_LOGGER: "MyStatLogger",
+    PluginKind.IO_PROCESSOR: "register",
+    PluginKind.ENDPOINT: "register",
+}
+
+
+def entry_point_target(package: str, kind: PluginKind) -> str:
+    """The `module:attribute` an entry point for this group must name."""
+    return f"{package.replace('-', '_')}:{ENTRY_POINT_ATTR[kind]}"
+
+
 @dataclass(frozen=True, slots=True)
 class Plugin:
     """A kernel or platform plugin, as a package rather than a fork."""
@@ -205,8 +228,68 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
         f'build-backend = "hatchling.build"\n'
     )
 
-    if plugin.kind is PluginKind.PLATFORM:
-        body = (
+    # One template per group, because the five groups genuinely differ in what
+    # the entry point must *be* — and this branched two ways, so STAT_LOGGER,
+    # IO_PROCESSOR and ENDPOINT all received the GENERAL boilerplate: a
+    # side-effecting `register()` that loads a torch op library and returns
+    # nothing. For those three that is not merely unhelpful, it is the wrong
+    # artifact. `ENTRY_POINT_GROUPS` above says so in this same file, which is
+    # the part that makes it a defect rather than a gap: the module documented
+    # the contract it then failed to emit.
+    #
+    # A plugin scaffolded wrong loads cleanly and does nothing, which is the
+    # failure mode this module exists to prevent.
+    if plugin.kind is PluginKind.STAT_LOGGER:
+        # The entry point *is* the class. A `register()` here would resolve to a
+        # function where vLLM expects a type, and the plugin would be skipped.
+        module = (
+            f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
+            "from __future__ import annotations\n\n"
+            "from vllm.v1.metrics.loggers import StatLoggerBase\n\n\n"
+            "class MyStatLogger(StatLoggerBase):\n"
+            '    """The entry point is this class itself, not a function.\n\n'
+            "    vLLM instantiates one per engine and calls `record` on every\n"
+            "    iteration, so anything slow here is in the serving loop.\n"
+            '    """\n\n'
+            "    def record(self, scheduler_stats, iteration_stats, engine_idx=0):\n"
+            "        raise NotImplementedError\n\n"
+            "    def log(self):\n"
+            "        raise NotImplementedError\n"
+        )
+    elif plugin.kind is PluginKind.IO_PROCESSOR:
+        module = (
+            f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
+            "from __future__ import annotations\n\n\n"
+            "def register():\n"
+            '    """Return the IOProcessor class\'s fully-qualified name.\n\n'
+            "    A string, not a side effect: vLLM imports the name you return.\n"
+            "    Returning None here means the processor is unavailable, which is\n"
+            "    how you decline on a machine that cannot support it.\n"
+            '    """\n'
+            f'    return "{pkg}.processor.MyIOProcessor"\n'
+        )
+    elif plugin.kind is PluginKind.ENDPOINT:
+        module = (
+            f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
+            "from __future__ import annotations\n\n"
+            "from fastapi import APIRouter\n\n"
+            "router = APIRouter()\n\n\n"
+            '@router.get("/my-endpoint")\n'
+            "async def my_endpoint():\n"
+            '    return {"ok": True}\n\n\n'
+            "def register():\n"
+            '    """Return the routes to add.\n\n'
+            "    This group is NOT loaded by default — vLLM must be started with\n"
+            "    the endpoint plugin explicitly enabled, so a scaffold that works\n"
+            "    and appears to do nothing is usually this and not your code.\n"
+            '    """\n'
+            "    return router\n"
+        )
+    elif plugin.kind is PluginKind.PLATFORM:
+        module = (
+            f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
+            "from __future__ import annotations\n\n\n"
+            "def register():\n"
             '    """Return the platform class, or None if it cannot run here.\n\n'
             "    Returning None is not a failure — it is how a plugin says the\n"
             "    hardware it targets is absent, which must not stop vLLM starting\n"
@@ -219,7 +302,10 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
             f'    return "{pkg}.platform.MyPlatform"\n'
         )
     else:
-        body = (
+        module = (
+            f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
+            "from __future__ import annotations\n\n\n"
+            "def register():\n"
             '    """Register the op. Called once per process — must be re-entrant.\n\n'
             "    vLLM loads plugins in every process it spawns, so under tensor\n"
             "    parallelism this runs once per worker. A register() that appends\n"
@@ -232,11 +318,7 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
             "    torch.ops.load_library(_library_path())\n"
         )
 
-    files[f"{pkg}/__init__.py"] = (
-        f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
-        f"from __future__ import annotations\n\n\n"
-        f"def register():\n{body}\n"
-    )
+    files[f"{pkg}/__init__.py"] = module
 
     steps = verification_plan(claim) if claim else []
     files["PROVING.md"] = (
