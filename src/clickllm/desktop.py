@@ -131,9 +131,18 @@ def _macos(root: Path, python: str, port: int) -> Launcher:
     return Launcher(app, "macos", f"rm -rf {app}")
 
 
-def _linux(root: Path, python: str, port: int) -> Launcher:
-    """A .desktop entry plus the script it points at."""
-    bin_dir = Path.home() / ".local" / "bin"
+def _linux(root: Path, python: str, port: int, bin_dir: Path | None = None) -> Launcher:
+    """A .desktop entry plus the script it points at.
+
+    Two directories, because freedesktop separates them: the entry belongs in
+    `~/.local/share/applications` and the executable on `PATH`. That split is
+    correct — and `bin_dir` was hard-coded to the real home, so a caller who
+    passed `target=` had the entry land where they asked and the *script* land
+    in `~/.local/bin` regardless. A test installing to a temporary directory
+    wrote to the user's home; there is no test for this function, which is why
+    nobody noticed.
+    """
+    bin_dir = bin_dir or Path.home() / ".local" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     exe = bin_dir / f"{APP_NAME}-ui"
     exe.write_text(launch_script(python, port))
@@ -149,6 +158,7 @@ def install(
     target: Path | None = None,
     python: str | None = None,
     port: int = DEFAULT_PORT,
+    bin_dir: Path | None = None,
 ) -> Launcher:
     """Install a launcher for this platform.
 
@@ -160,6 +170,10 @@ def install(
         python: interpreter to launch with. Defaults to the one running this,
             so a virtualenv install keeps working after the shell is closed.
         port: port for the workbench.
+        bin_dir: Linux only — where the launch script goes. Defaults to
+            `~/.local/bin`, which is the freedesktop convention and the reason
+            it is a separate argument rather than derived from `target`. Pass
+            it to keep an install self-contained.
 
     Raises:
         RuntimeError: on an unsupported platform, naming it rather than
@@ -169,7 +183,9 @@ def install(
     if sys.platform == "darwin":
         return _macos(target or Path.home() / "Applications", python, port)
     if sys.platform.startswith("linux"):
-        return _linux(target or Path.home() / ".local" / "share" / "applications", python, port)
+        return _linux(
+            target or Path.home() / ".local" / "share" / "applications", python, port, bin_dir
+        )
     raise RuntimeError(
         f"no launcher for {sys.platform}. `clickllm ui` works everywhere — this "
         f"only adds the icon, and adding one on this platform is not implemented."

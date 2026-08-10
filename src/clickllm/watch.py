@@ -108,8 +108,13 @@ def pending(dest: Path | None = None) -> list[dict]:
     for p in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
         try:
             out.extend(json.loads(p.read_text()).get("models", []))
-        except (OSError, json.JSONDecodeError):
-            continue  # a corrupt staging file must not break the listing
+        except (OSError, json.JSONDecodeError) as e:
+            # Not `continue`. A corrupt staging file must not *break* the
+            # listing, which is why this is caught — but skipping it silently
+            # made the file invisible in the one place a human looks, while it
+            # went on blocking re-discovery of that repo. Reported as an entry
+            # so it is seen and can be deleted.
+            out.append({"id": f"<unreadable: {p.name}>", "name": str(p), "error": str(e)})
     return out
 
 
@@ -172,6 +177,23 @@ class WatchReport:
             },
             indent=2,
         )
+
+
+def staged_name(repo: str) -> str:
+    """Filename for a staged discovery, keyed on the whole repo.
+
+    It used to be `discovered-{spec['id']}.json`, and `id` is the last path
+    segment — so `org/alpha` and `other/alpha` are two different models that
+    produced one filename. The second was reported "already discovered", which
+    was false: it had never been seen, and it was never staged, listed or
+    mentioned again.
+
+    The `id` inside the file stays short, because that is the catalogue's
+    convention and a human renames it on curation. Only the file's identity
+    needs to be as unique as the thing it describes.
+    """
+    safe = "".join(c if c.isalnum() or c in "-._" else "-" for c in repo.strip("/"))
+    return f"discovered-{safe.lower()}.json"
 
 
 def _spec_from(repo: str, arch: cu.Architecture, license_name: str) -> dict:
@@ -248,10 +270,22 @@ def run(
 
         spec = _spec_from(d.repo, arch, d.license)
         dest.mkdir(parents=True, exist_ok=True)
-        path = dest / f"discovered-{spec['id']}.json"
+        path = dest / staged_name(d.repo)
         if path.exists():
-            outcomes.append(Outcome(d.repo, False, "already discovered"))
-            continue
+            # Existence is not the question — *readability* is. A file that
+            # cannot be parsed carries nothing a human curated, and treating it
+            # as "already discovered" blocked re-discovery of that repo
+            # permanently while `pending()` skipped it silently. Nothing then
+            # mentioned the model again, in either direction.
+            try:
+                json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError) as e:
+                outcomes.append(
+                    Outcome(d.repo, False, f"staged file was unreadable, rewriting it ({e})")
+                )
+            else:
+                outcomes.append(Outcome(d.repo, False, "already discovered"))
+                continue
         # `models` wrapper, matching the hand-written format exactly — a
         # discovery must be indistinguishable from something you wrote, so you
         # can edit it in place and keep it.
@@ -361,7 +395,11 @@ def demo() -> None:
         bad = next(o for o in r.outcomes if o.repo == "acme/broken")
         assert not bad.added and "layer count" in bad.reason, bad
 
-        spec = json.loads((dest / "discovered-new-9b.json").read_text())["models"][0]
+        # `staged_name`, not a literal: the file is keyed on the whole repo, so
+        # two orgs publishing the same short name stay two files.
+        staged = dest / staged_name("acme/new-9b")
+        assert staged.name == "discovered-acme-new-9b.json", staged.name
+        spec = json.loads(staged.read_text())["models"][0]
         assert spec["verified"] is False, "a robot must never mark an entry verified"
         assert spec["license_ok"] is False, "licence is a reading task, not a parsing task"
         assert "params_b" not in spec, "an invented parameter count looks right and is not"
