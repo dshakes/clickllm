@@ -13,6 +13,8 @@ standard library.
 from __future__ import annotations
 
 import json
+import os
+import pathlib
 import sys
 from collections.abc import Callable
 from typing import Any, BinaryIO
@@ -188,6 +190,48 @@ def _advise(
     }
 
 
+def eval_root() -> pathlib.Path:
+    """The directory `clickllm_prove` may read an eval set from.
+
+    The working directory unless the operator says otherwise via
+    `CLICKLLM_EVAL_ROOT`. An environment variable rather than a tool argument or
+    a CLI flag on purpose: a flag is set by whoever composes the command, which
+    for an MCP server started by an agent harness may be the agent. The variable
+    is set when the server is launched, by the party the boundary protects.
+
+    See ADR-0014.
+    """
+    return pathlib.Path(os.environ.get("CLICKLLM_EVAL_ROOT", ".")).resolve()
+
+
+def _within_eval_root(candidate: str) -> pathlib.Path:
+    """Resolve `candidate` and refuse it if it leaves the eval root.
+
+    This is the one MCP tool where an agent names a filesystem path and the
+    contents come back into its context — a file-read primitive addressable by
+    whatever is steering that agent, which invariant 7 says may itself have come
+    out of a customer's request log.
+
+    Resolved *before* the comparison, so a symlink cannot walk out of the root by
+    pointing at something outside it.
+
+    Raises:
+        ValueError: naming both the path and the root, because a refusal nobody
+            can act on is only marginally better than the read.
+    """
+    root = eval_root()
+    path = pathlib.Path(candidate).expanduser()
+    resolved = (root / path if not path.is_absolute() else path).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ValueError(
+            f"{candidate} is outside the eval root ({root}). Set "
+            f"CLICKLLM_EVAL_ROOT to the directory holding your eval sets, or "
+            f"pass a path inside it. The CLI is unrestricted — this applies to "
+            f"paths an agent names, not paths you type."
+        )
+    return resolved
+
+
 def _prove(
     eval_set: str,
     candidate: str = "candidate",
@@ -202,12 +246,11 @@ def _prove(
     :func:`demo`.
     """
     import json as _json
-    import pathlib
     from datetime import date
 
     from .prove import EvalItem, suite
 
-    raw = _json.loads(pathlib.Path(eval_set).read_text())
+    raw = _json.loads(_within_eval_root(eval_set).read_text())
     rows = raw.get("items", []) if isinstance(raw, dict) else raw
     shares = raw.get("shares", {}) if isinstance(raw, dict) else {}
     names = raw.get("names", {}) if isinstance(raw, dict) else {}
@@ -635,6 +678,11 @@ def demo() -> None:
         for i in range(15)
     ]
     with tempfile.TemporaryDirectory() as d:
+        # Declare the root, as an operator whose eval sets live on a mounted
+        # volume would. ADR-0014 confined this tool to one; a demo that pointed
+        # it somewhere arbitrary and passed would mean the guard was not on the
+        # path the agent takes.
+        os.environ["CLICKLLM_EVAL_ROOT"] = d
         p = f"{d}/evalset.json"
         with open(p, "w") as fh:
             _json.dump({"items": items, "shares": {"codegen": 0.75, "rare-json": 0.25}}, fh)
@@ -646,6 +694,7 @@ def demo() -> None:
                 "params": {"name": "clickllm_prove", "arguments": {"eval_set": p}},
             }
         )["result"]["structuredContent"]
+        os.environ.pop("CLICKLLM_EVAL_ROOT", None)
 
     assert proved["movable_share"] == 0.75, proved["movable_share"]
     assert proved["regret_clusters"] == ["rare-json"], proved["regret_clusters"]
