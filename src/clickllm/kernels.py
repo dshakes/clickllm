@@ -91,6 +91,29 @@ ENTRY_POINT_GROUPS: dict[PluginKind, str] = {
 }
 
 
+#: What the entry point must resolve to, per group. `register` for the four
+#: groups whose entry point is a callable, and the class itself for STAT_LOGGER,
+#: whose contract is "the entry point is the class".
+#:
+#: One home, because `scaffold()` emits the module and `cli.py` builds the
+#: target, and they disagreed: the STAT_LOGGER scaffold emitted `MyStatLogger`
+#: while the CLI still wrote `pkg:register`, so the generated package installed
+#: with an entry point resolving to a name that no longer existed in it. Two
+#: places encoding one fact, fixed in one of them.
+ENTRY_POINT_ATTR: dict[PluginKind, str] = {
+    PluginKind.GENERAL: "register",
+    PluginKind.PLATFORM: "register",
+    PluginKind.STAT_LOGGER: "MyStatLogger",
+    PluginKind.IO_PROCESSOR: "register",
+    PluginKind.ENDPOINT: "register",
+}
+
+
+def entry_point_target(package: str, kind: PluginKind) -> str:
+    """The `module:attribute` an entry point for this group must name."""
+    return f"{package.replace('-', '_')}:{ENTRY_POINT_ATTR[kind]}"
+
+
 @dataclass(frozen=True, slots=True)
 class Plugin:
     """A kernel or platform plugin, as a package rather than a fork."""

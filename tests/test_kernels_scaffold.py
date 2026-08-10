@@ -16,9 +16,13 @@ import pytest
 from clickllm.kernels import ENTRY_POINT_GROUPS, Plugin, PluginKind, scaffold
 
 
-def _init(kind: PluginKind) -> str:
-    files = scaffold(Plugin(name="demo", kind=kind, target="x"))
+def _init_for(kind: PluginKind, target: str) -> str:
+    files = scaffold(Plugin(name="demo", kind=kind, target=target))
     return next(v for k, v in files.items() if k.endswith("__init__.py"))
+
+
+def _init(kind: PluginKind) -> str:
+    return _init_for(kind, "x")
 
 
 @pytest.mark.parametrize("kind", list(PluginKind))
@@ -87,3 +91,50 @@ def test_the_scaffold_names_the_contract_it_implements(kind):
     should carry enough of that wording for the author to check it against the
     table without leaving the file."""
     assert kind.value in _init(kind), ENTRY_POINT_GROUPS[kind]
+
+
+@pytest.mark.parametrize("kind", list(PluginKind))
+def test_the_entry_point_names_something_the_module_defines(kind):
+    """The gap in the first version of this fix: the module shape changed and
+    the entry-point target did not.
+
+    `STAT_LOGGER` emitted a `MyStatLogger` class while the CLI still wrote
+    `pkg:register`, so the generated package installed with an entry point
+    resolving to a name its own module no longer contained. It scaffolds, it
+    builds, and vLLM finds nothing — the exact failure this module exists to
+    prevent, reintroduced by the fix for it.
+    """
+    from clickllm.kernels import entry_point_target
+
+    target = entry_point_target("demo", kind)
+    module, _, attr = target.partition(":")
+    tree = ast.parse(_init_for(kind, target))
+    defined = {n.name for n in tree.body if isinstance(n, ast.FunctionDef | ast.ClassDef)}
+    assert attr in defined, f"{kind.name}: entry point names {attr}, module defines {defined}"
+
+
+def test_the_cli_and_the_scaffold_read_the_same_table():
+    """One home for "what the entry point must point at". They were two places
+    encoding one fact and they disagreed."""
+    import inspect
+
+    from clickllm import cli
+    from clickllm.kernels import ENTRY_POINT_ATTR
+
+    tree = ast.parse(inspect.getsource(cli.cmd_kernel).lstrip())
+    calls = {
+        n.func.id
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "entry_point_target" in calls, calls
+
+    # Over the AST, not the text: the first version of this assertion grepped
+    # the source for ":register" and matched the *comment* explaining why the
+    # hardcoded attribute was removed. A test that reads prose as code is the
+    # same defect it is checking for.
+    literals = {
+        n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    }
+    assert not [x for x in literals if x.endswith(":register")], literals
+    assert set(ENTRY_POINT_ATTR) == set(PluginKind), "every group needs an answer"
