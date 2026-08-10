@@ -61,10 +61,55 @@ def test_an_io_processor_returns_a_name_rather_than_loading_a_library():
     assert "return " in src and "MyIOProcessor" in src
 
 
-def test_an_endpoint_plugin_returns_routes():
+def test_an_io_processor_names_a_class_that_actually_exists():
+    """`register()` returns `"{pkg}.processor.MyIOProcessor"` — vLLM imports
+    that name. Returning a plausible-looking FQN with no `processor.py` behind
+    it means selecting the plugin fails on import, not on load."""
+    files = scaffold(Plugin(name="demo", kind=PluginKind.IO_PROCESSOR, target="x"))
+    processor = next((v for k, v in files.items() if k.endswith("processor.py")), None)
+    assert processor is not None, f"no processor.py among {list(files)}"
+    tree = ast.parse(processor)
+    assert any(
+        isinstance(n, ast.ClassDef) and n.name == "MyIOProcessor" for n in tree.body
+    ), processor
+
+
+def test_a_stat_logger_implements_the_full_abstract_contract():
+    """`StatLoggerBase` declares `__init__`, `record`, `log` and
+    `log_engine_initialized` as abstract, and `record` takes `mm_cache_stats`.
+    A scaffold missing any of these instantiates as an abstract class, or
+    raises `TypeError` the first time vLLM calls it with the real signature."""
+    src = _init(PluginKind.STAT_LOGGER)
+    tree = ast.parse(src)
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+    methods = {m.name: m for m in cls.body if isinstance(m, ast.FunctionDef)}
+    assert {"__init__", "record", "log", "log_engine_initialized"} <= set(methods), methods
+    record_args = {a.arg for a in methods["record"].args.args + methods["record"].args.kwonlyargs}
+    assert "mm_cache_stats" in record_args, record_args
+
+
+def test_an_endpoint_plugin_implements_the_endpoint_plugin_protocol():
+    """A bare `APIRouter` is not what the loader wants: it instantiates a
+    zero-argument factory and reads `required_tasks` off what comes back,
+    then calls `attach_router(app)`. A function returning a router has
+    neither attribute and is skipped."""
     src = _init(PluginKind.ENDPOINT)
+    tree = ast.parse(src)
     assert "torch.ops.load_library" not in src
-    assert "APIRouter" in src and "return router" in src
+    classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
+    assert classes, "no class emitted"
+    methods = {
+        m.name
+        for c in classes.values()
+        for m in c.body
+        if isinstance(m, ast.FunctionDef)
+    }
+    assert {"attach_router", "init_state"} <= methods, methods
+    assert "required_tasks" in src
+    funcs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+    assert "register" in funcs, "the entry point must stay a zero-argument factory"
+    register = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "register")
+    assert not register.args.args, "register() must take no arguments"
     # The group is not loaded by default, and a scaffold that appears to do
     # nothing is usually that rather than the author's code.
     assert "NOT loaded by default" in src

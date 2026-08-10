@@ -441,6 +441,8 @@ void), your traffic moved (the eval set answers questions nobody asks now), or
 something new was released (your proof is still true). Only the first two mean
 you no longer know whether production is adequate.
 
+<img src="docs/assets/receipt-anatomy.svg" alt="Anatomy of a migration receipt. A file, not a dashboard: it leads with what must stay on the incumbent model, then what is not proven either way, then what is proven above the bar, and ends with the movable share, the coverage gaps, and which judge was used. Four properties make it defensible: the bad news is printed first, every number carries a confidence interval, the eval set is identified by digest so the questions can be re-asked, and every field is derived from the counts so a forged copy contradicts itself." width="100%">
+
 ---
 
 ## Three things everyone gets wrong
@@ -452,6 +454,8 @@ The docs teach the whole inference stack from first principles — [start here](
 **② GQA uses `kv_heads`, not attention heads.** Using attention heads overestimates KV cache by up to 8×.
 
 **③ MLA has a different formula entirely.** DeepSeek-family models compress K and V into one low-rank latent. Applying the GQA formula overestimates by ~50×.
+
+<img src="docs/assets/sizing-three-ways.svg" alt="Three ways KV cache sizing goes wrong. Mixture-of-experts sizing on active parameters instead of total understates memory ninefold, in the dangerous direction that says a model fits when it does not. Grouped-query attention counted with attention heads instead of key-value heads overstates fourfold. Multi-head latent attention sized with the grouped-query formula overstates sixty-fourfold. The last two waste money; the first causes an out-of-memory crash." width="100%">
 
 And one that costs money in the other direction: **speculative decoding turns negative past batch ~32.** EAGLE-3's headline "2–3×" is a single-stream figure.
 
