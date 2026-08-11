@@ -8,6 +8,7 @@ hw.memsize — is the real ceiling.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
 import shutil
@@ -219,7 +220,12 @@ def _detect_nvidia() -> Hardware | None:
         # device and picked shards the 64 GiB card cannot hold.
         usable_bytes=int((smallest * len(gpus) if mixed else total) * 0.90),
         bandwidth_gbps=None,
-        cores=0,
+        # Host CPU cores, not GPU cores — this is the denominator `measure.py`
+        # uses for load-per-core, and load average is always a host-CPU metric.
+        # Hardcoded 0 here used to mean "not tracked" and instead read as "0
+        # cores", which crashed `Load.render()` and silently disabled the load
+        # gate on every NVIDIA box.
+        cores=os.cpu_count() or 0,
         devices=len(gpus),
         note="assumes gpu-memory-utilization=0.90"
         + (f"; {len(gpus)}× {name} — tensor parallelism required" if len(gpus) > 1 else "")
@@ -335,7 +341,9 @@ def _detect_amd() -> Hardware | None:
         # what a sharded model can use is the smallest card times the count.
         usable_bytes=int((min(sizes) * len(sizes) if mixed else total_bytes) * 0.90),
         bandwidth_gbps=None,
-        cores=0,
+        # See the matching comment in `_detect_nvidia`: host CPU cores, not GPU
+        # cores.
+        cores=os.cpu_count() or 0,
         devices=len(sizes),
         note="assumes gpu-memory-utilization=0.90"
         + (f"; {len(sizes)}× {name} — tensor parallelism required" if len(sizes) > 1 else "")
@@ -361,7 +369,6 @@ def _detect_cpu() -> Hardware:
                         break
         except OSError:
             pass
-    import os
 
     return Hardware(
         kind="cpu",

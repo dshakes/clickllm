@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1965-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1998-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -71,6 +71,18 @@ that rate — and the report says how many would be.
 
 That is the whole answer: **which of your tasks an open model already does, with
 a number you can defend.** What you do with it is yours.
+
+**Estimates say so, and measurements have to earn the name.** Every throughput
+figure here is a memory-bandwidth roofline until something measures it, and
+`clickllm measure` is the thing that can — against a real endpoint, timing
+decode from the first token to the last. It refuses more readily than it
+reports: identical inputs on an idle-looking laptop have produced 46.9 and 33.7
+tok/s, tracking the load average, and a measured number 30% low is *worse* than
+the estimate it replaces because it carries more authority and outlives the
+browser tab that caused it. So a wide spread is reported as the finding, a busy
+machine is a refusal rather than a number, and the estimate is printed beside
+the measurement every time. [#80](https://github.com/dshakes/clickllm/issues/80)
+filed that constraint before the code existed.
 
 **Why the interval and not the average.** 90% over 20 items and 90% over 400 are
 the same number and completely different decisions. Every cell is a Wilson score
@@ -419,6 +431,7 @@ And two the suite enforces underneath:
 | ⑥ | **Gateway** — SSE streaming, metering, router, real shadow dispatch | ✅ |
 | — | **Gate** — automatic rollback, human-gated advance, live control surface | ✅ |
 | — | **Telemetry** — KV pressure, prefill/decode split, plan-vs-reality check | ✅ |
+| — | **Measure** — `clickllm measure`: real decode throughput, and a refusal when the machine is too busy to take one | ✅ |
 | ⑦ | **Guard** — model drift, traffic drift, re-prove proposals | ✅ |
 | — | **Post-training** — distil from your own captured incumbent output | ✅ |
 | — | **Surfaces** — CLI · MCP · Python SDK · agent skill · local console · native launcher | ✅ |
@@ -657,10 +670,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1716 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1749 Python
 ```
 
-**1965 tests.** 1716 Python, 249 Rust. Eighteen of the Python tests skip on a
+**1998 tests.** 1749 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'

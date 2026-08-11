@@ -41,6 +41,16 @@ def test_a_rocm_box_is_not_reported_as_cpu_only(tmp_path, monkeypatch):
     assert hw.usable_bytes == int(hw.total_bytes * 0.90)
 
 
+def test_a_rocm_box_reports_host_cpu_cores_not_zero(tmp_path, monkeypatch):
+    """`cores` here is the host's CPU count, for `measure.py`'s load-per-core
+    gate — not a GPU figure. A hardcoded 0 used to mean "not tracked" and
+    instead read as "0 cores", which crashed `Load.render()` and silently
+    disabled the contention gate on every ROCm box (and every NVIDIA one)."""
+    fake_smi(tmp_path, monkeypatch, json.dumps(CARDS))
+    hw = hardware._detect_amd()
+    assert hw.cores == os.cpu_count()
+
+
 def test_mixed_cards_are_summed_and_the_smallest_is_named(tmp_path, monkeypatch):
     mixed = {
         "card0": {"Card Series": "MI300X", "VRAM Total Memory (B)": "206158430208"},
