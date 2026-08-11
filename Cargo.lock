@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "clickllm-core"
-version = "0.1.9"
+version = "1.0.0"
 dependencies = [
  "hex",
  "serde",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "clickllm-gateway"
-version = "0.1.9"
+version = "1.0.0"
 dependencies = [
  "axum",
  "bytes",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "clickllm-py"
-version = "0.1.9"
+version = "1.0.0"
 dependencies = [
  "clickllm-core",
  "clickllm-gateway",

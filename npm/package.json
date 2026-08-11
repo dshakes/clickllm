@@ -1,6 +1,6 @@
 {
   "name": "clickllm",
-  "version": "0.1.9",
+  "version": "1.0.0",
   "description": "Prove which open model can replace your closed one \u2014 on your own traffic, hardware and budget.",
   "bin": {
     "clickllm": "bin/clickllm.js"

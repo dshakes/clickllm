@@ -438,7 +438,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">1998</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">1999</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">7</div><div class="l">engines planned for and emitted</div></div>
@@ -751,7 +751,7 @@ const CMDS = {
   // clickllm-cli and the command is clickllm; dropping the --from breaks the line.
   uvx:  [['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
           'size what runs on this machine — nothing cloned, nothing installed'],
-         ['uvx --from clickllm-cli==0.1.9 clickllm fit --context 32k --concurrency 8',
+         ['uvx --from clickllm-cli==1.0.0 clickllm fit --context 32k --concurrency 8',
           'pinned to a build that stays put; unpinned always fetches the newest'],
          ['uv tool install clickllm-cli',
           'or put the clickllm command on your PATH']],
@@ -764,8 +764,8 @@ const CMDS = {
   // cautious. tests/test_docs_lab.py now checks both directions.
   npm:  [['npx clickllm fit --context 32k --concurrency 8',
           'no Python packaging to name — the shim execs uvx --from clickllm-cli underneath'],
-         ['npx clickllm@0.1.9 fit --context 32k --concurrency 8',
-          'pinned: runs clickllm-cli==0.1.9 exactly, so the two registries cannot drift apart']],
+         ['npx clickllm@1.0.0 fit --context 32k --concurrency 8',
+          'pinned: runs clickllm-cli==1.0.0 exactly, so the two registries cannot drift apart']],
   git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
          ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
 };

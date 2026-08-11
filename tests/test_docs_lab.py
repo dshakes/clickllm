@@ -1615,3 +1615,30 @@ def test_the_published_latency_figure_matches_the_test_that_measures_it():
         text = (root / rel).read_text()
         assert "15 ms" in text, f"{rel} no longer states the budget"
         assert "+0.07 ms" in text, f"{rel} no longer states the measured figure"
+
+
+def test_every_intra_workspace_dependency_pin_matches_the_workspace_version():
+    """A pin of `0.1.0` is a caret requirement — `>=0.1.0, <0.2.0`.
+
+    It matched every release this project ever cut, so three crates pinning
+    `0.1.0` against a workspace at `0.1.9` resolved fine and nothing complained.
+    It cannot match `1.0.0`. The first bump across a major boundary broke
+    `cargo build` on a tree whose entire test suite was green — which is to say
+    this repo could not have released a 1.0.0 without finding it the hard way.
+
+    `tools/bump.py` now moves these, and this fails if a new crate arrives with
+    a pin the bumper does not know about.
+    """
+    root = Path(__file__).resolve().parents[1]
+    workspace = re.search(r'^version = "([^"]+)"', (root / "Cargo.toml").read_text(), re.M)
+    assert workspace, "the workspace has no version"
+    want = workspace.group(1)
+
+    wrong = []
+    for manifest in sorted(root.glob("clickllm-*/Cargo.toml")):
+        for dep, pin in re.findall(
+            r'(clickllm-[a-z]+) = \{ path = "[^"]+", version = "([^"]+)"', manifest.read_text()
+        ):
+            if pin != want:
+                wrong.append(f"{manifest.name}: {dep} pinned {pin}, workspace is {want}")
+    assert not wrong, "cargo will refuse to resolve these:\n  " + "\n  ".join(wrong)

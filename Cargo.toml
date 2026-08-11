@@ -3,7 +3,7 @@ members = ["clickllm-core", "clickllm-gateway", "clickllm-py"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.9"
+version = "1.0.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/dshakes/clickllm"
