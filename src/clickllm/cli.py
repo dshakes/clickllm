@@ -847,6 +847,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
             )
             for r in doc["items"]
         ]
+        _refuse_ungraded(items, endpoint=args.candidate_endpoint, source="the distilled eval set")
         items, _ = _collect_replies(items, args)
         if not items:
             raise ValueError(
@@ -1105,6 +1106,31 @@ def cmd_advise(args: argparse.Namespace) -> int:
     return 1 if drift else 0
 
 
+def _refuse_ungraded(items: list, *, endpoint: str | None, source: str) -> None:
+    """Refuse to grade a set where nothing was ever collected.
+
+    Every candidate answer empty means every grader fails, and the verdict comes
+    back 0% — "keep the incumbent", stated with exactly the confidence of a real
+    result. It fails closed, so nobody ships a bad model on it; they abandon a
+    good one instead, which is the same defect pointing the other way.
+
+    `clickllm distill` writes precisely this file, deliberately: the candidate
+    column is for `--candidate-endpoint` to fill. So the refusal belongs at the
+    solver rather than in the hint distill prints (ADR-0011) — and in *one*
+    place, because it was written for `clickllm prove` and `clickllm migrate`
+    then reached the same grader through its own prover without it, scoring a
+    verdict over answers nobody gave and recording it as a real run.
+    """
+    if endpoint or any(i.candidate for i in items):
+        return
+    raise ValueError(
+        f"{source}: every candidate answer is blank and no --candidate-endpoint "
+        "was given, so there is nothing to grade. Pass --candidate-endpoint <url> "
+        "to collect the candidate's replies, or fill the `candidate` field in the "
+        "file yourself. Grading it as-is would report 0% and read as a verdict."
+    )
+
+
 def _add_collection_flags(parser: argparse.ArgumentParser) -> None:
     """Declare the flags `_collect_replies` reads.
 
@@ -1281,14 +1307,7 @@ def cmd_prove(args: argparse.Namespace) -> int:
     # `clickllm distill` writes exactly this file, deliberately: the candidate
     # column is for `--candidate-endpoint` to fill. So the refusal belongs here,
     # at the solver, not only in the hint distill prints (ADR-0011).
-    if not args.candidate_endpoint and all(not i.candidate for i in items):
-        raise ValueError(
-            f"{args.evalset}: every candidate answer is blank and no "
-            "--candidate-endpoint was given, so there is nothing to grade. "
-            "Pass --candidate-endpoint <url> to collect the candidate's "
-            "replies, or fill the `candidate` field in the file yourself. "
-            "Grading it as-is would report 0% and read as a verdict."
-        )
+    _refuse_ungraded(items, endpoint=args.candidate_endpoint, source=args.evalset)
 
     asked = len(items)
     items, collections = _collect_replies(items, args)

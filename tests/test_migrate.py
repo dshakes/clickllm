@@ -285,6 +285,36 @@ def test_uncovered_clusters_are_named_in_the_run_record():
         assert "says nothing about that traffic" in migrate.render(st, run, decision)
 
 
+def test_an_interval_longer_than_a_day_is_not_silently_made_daily():
+    """cron's hour field only steps within a day, so `*/48` is not a thing.
+
+    Everything from 24 upward collapsed to `0 3 * * *`: asking for weekly got
+    you daily, seven times more often than requested, and the printed fragment
+    looked exactly like an answer.
+    """
+    assert migrate.install_schedule(interval_hours=48)[0].startswith("0 3 */2 * *")
+    assert migrate.install_schedule(interval_hours=168)[0].startswith("0 3 */7 * *")
+    assert migrate.install_schedule(interval_hours=24)[0].startswith("0 3 * * *")
+    assert migrate.install_schedule(interval_hours=6)[0].startswith("0 */6 * * *")
+
+
+@pytest.mark.parametrize(
+    "hours, why",
+    [
+        (5, "does not divide a day"),
+        (7, "does not divide a day"),
+        (30, "neither a factor of 24"),
+        (720, "more than 28 days"),
+        (0, "must be >= 1"),
+    ],
+)
+def test_an_interval_cron_cannot_express_is_refused_rather_than_rounded(hours, why):
+    """Rounding silently is how "every 5 hours" becomes an uneven gap across
+    midnight that nobody notices for a month."""
+    with pytest.raises(ValueError, match=why):
+        migrate.install_schedule(interval_hours=hours)
+
+
 def test_the_schedule_is_printed_and_not_installed():
     """Same rule as `watch`: a recurring job that reads your captured traffic is
     your decision."""
@@ -300,3 +330,22 @@ def test_the_cli_exposes_the_loop_and_no_way_to_apply_its_proposal():
     assert block, "the migrate parser moved"
     for verb in ("--apply", "--advance", "--promote", "--percent", "--cutover"):
         assert verb not in block.group(0), f"migrate must not expose {verb}"
+
+
+def test_migrate_will_not_grade_answers_nobody_gave():
+    """The guard `cmd_prove` already had, which `migrate` reached around.
+
+    Its inline prover called the same grader stack without it, so a run with no
+    `--candidate-endpoint` scored every item against a blank string and recorded
+    the result in the state history as a real run. A verdict over answers nobody
+    gave is worse than no verdict: it is one, and it looks like the others.
+    """
+    import re as _re
+
+    src = (ROOT / "src" / "clickllm" / "cli.py").read_text()
+    # One implementation, both callers — the point of the fix. Two copies would
+    # be this defect again, waiting for the next divergence.
+    assert src.count("def _refuse_ungraded(") == 1
+    assert len(_re.findall(r"_refuse_ungraded\(", src)) == 3, (
+        "expected the definition plus a call from prove and from migrate"
+    )

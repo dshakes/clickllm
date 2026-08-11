@@ -277,7 +277,41 @@ def install_schedule(*, interval_hours: int = 24, state: str = "") -> tuple[str,
     """
     where = "your crontab (`crontab -e`)"
     arg = f" --state {state}" if state else ""
-    every = f"0 */{interval_hours} * * *" if interval_hours < 24 else "0 3 * * *"
+
+    # cron's hour field only steps within a day, so `*/48` is not a thing. The
+    # first version quietly collapsed everything from 24 upward to "0 3 * * *" —
+    # asking for weekly got you daily, seven times more often than requested,
+    # with the printed fragment looking exactly like an answer. Intervals above
+    # a day step the day-of-month field instead, and one that cannot be
+    # expressed is refused rather than rounded.
+    if interval_hours < 1:
+        raise ValueError(f"interval_hours must be >= 1, got {interval_hours}")
+    if interval_hours < 24:
+        if 24 % interval_hours:
+            raise ValueError(
+                f"an interval of {interval_hours}h does not divide a day evenly, so "
+                "cron would run it at an uneven gap across midnight. Use a factor "
+                "of 24 (1, 2, 3, 4, 6, 8, 12), or a whole number of days."
+            )
+        every = f"0 */{interval_hours} * * *"
+    elif interval_hours == 24:
+        every = "0 3 * * *"
+    elif interval_hours % 24 == 0:
+        days = interval_hours // 24
+        if days > 28:
+            raise ValueError(
+                f"{interval_hours}h is more than 28 days; cron cannot express that "
+                "as a day-of-month step, and a proof left unchecked for a month is "
+                "not being guarded. Schedule it weekly and let `guard` tell you it "
+                "is aged."
+            )
+        every = f"0 3 */{days} * *"
+    else:
+        raise ValueError(
+            f"{interval_hours}h is neither a factor of 24 nor a whole number of "
+            "days, and cron cannot express it. Round to one yourself rather than "
+            "letting this pick for you."
+        )
     fragment = f"{every} clickllm migrate --step{arg} >> ~/.clickllm/migrate.log 2>&1\n"
     return fragment, where
 
