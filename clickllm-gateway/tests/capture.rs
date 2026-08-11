@@ -264,6 +264,161 @@ async fn many_concurrent_requests_all_land_without_corrupting_each_other() {
     assert_eq!(ids.len(), 25, "every request is present exactly once");
 }
 
+// --- the shape fields the distiller clusters on ---------------------------------
+
+/// A response that calls a tool instead of answering — the case that was
+/// recorded as an ordinary empty answer.
+async fn tool_upstream() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        r#"{"choices":[{"message":{"role":"assistant","content":null,
+            "tool_calls":[{"id":"c1","type":"function",
+                "function":{"name":"refund","arguments":"{\"order\":\"ada@example.com\"}"}}]}}],
+            "usage":{"prompt_tokens":9,"completion_tokens":3}}"#,
+    )
+}
+
+/// The same, streamed: the name arrives in the opening fragment and the
+/// arguments dribble in after it.
+async fn tool_stream_upstream() -> impl IntoResponse {
+    let frames = vec![
+        r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"refund","arguments":""}}]}}]}"#.to_string(),
+        r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"order\":"}}]}}]}"#.to_string(),
+        r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ada@example.com\"}"}}]}}]}"#.to_string(),
+        "data: [DONE]".to_string(),
+    ];
+    let s = futures_util::stream::iter(frames)
+        .map(|f| Ok::<_, std::io::Error>(axum::body::Bytes::from(format!("{f}\n\n"))));
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+        axum::body::Body::from_stream(s),
+    )
+}
+
+fn tool_body(stream: bool) -> serde_json::Value {
+    serde_json::json!({
+        "model": "gpt-5",
+        "stream": stream,
+        "messages": [{"role": "user", "content": "refund my order"}],
+        "tools": [{"type": "function", "function": {"name": "refund", "description": "issue a refund"}}],
+        "response_format": {"type": "json_object"},
+    })
+}
+
+#[tokio::test]
+async fn a_tool_using_exchange_records_the_three_fields_it_clusters_on() {
+    // Before this, `tools`, `tool_calls` and `response_format` were never
+    // recorded, so `extract_shape` clustered every tool-using workload as
+    // toolless — a well-formed clustering, blind along three of its six
+    // dimensions, with nothing to say so.
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("captures");
+    let (addr, _state) = gateway(&log, post(tool_upstream)).await;
+
+    reqwest::Client::new()
+        .post(format!("http://{addr}/v1/chat/completions"))
+        .json(&tool_body(false))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let store = CaptureStore::open(&log, &[3u8; 32]).unwrap();
+    let c = wait_for(&store, 1).await.remove(0);
+
+    assert_eq!(c.tool_calls, vec!["refund".to_string()]);
+    assert_eq!(c.response_format.as_deref(), Some("json_object"));
+    assert_eq!(
+        c.tools.pointer("/0/function/name").and_then(|v| v.as_str()),
+        Some("refund"),
+        "the offered schema is what names the cluster"
+    );
+}
+
+#[tokio::test]
+async fn a_streamed_tool_call_is_recorded_once_from_its_opening_fragment() {
+    // The name appears in one fragment and the arguments in the rest. Counting
+    // fragments would report three calls to a tool that was called once.
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("captures");
+    let (addr, _state) = gateway(&log, post(tool_stream_upstream)).await;
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://{addr}/v1/chat/completions"))
+        .json(&tool_body(true))
+        .send()
+        .await
+        .unwrap();
+    let mut s = resp.bytes_stream();
+    while s.next().await.is_some() {}
+
+    let store = CaptureStore::open(&log, &[3u8; 32]).unwrap();
+    let c = wait_for(&store, 1).await.remove(0);
+    assert_eq!(
+        c.tool_calls,
+        vec!["refund".to_string()],
+        "once, not per fragment"
+    );
+}
+
+#[tokio::test]
+async fn tool_call_arguments_never_reach_the_log() {
+    // Names only, deliberately: `used_tools` is a boolean question and the
+    // arguments are where the user's data lives. This is the stronger property
+    // than redaction — the field is not stored at all.
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("captures");
+    let (addr, _state) = gateway(&log, post(tool_upstream)).await;
+
+    reqwest::Client::new()
+        .post(format!("http://{addr}/v1/chat/completions"))
+        .json(&tool_body(false))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let store = CaptureStore::open(&log, &[3u8; 32]).unwrap();
+    let c = wait_for(&store, 1).await.remove(0);
+    let all = format!("{c:?}");
+    assert!(
+        !all.contains("ada@example.com"),
+        "argument payload in the record: {all}"
+    );
+    assert!(
+        !all.contains("\"order\""),
+        "argument payload in the record: {all}"
+    );
+}
+
+#[tokio::test]
+async fn a_request_offering_no_tools_records_none_rather_than_guessing() {
+    // The control for all three: a plain request must not acquire a tool shape.
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("captures");
+    let (addr, _state) = gateway(&log, post(json_upstream)).await;
+
+    reqwest::Client::new()
+        .post(format!("http://{addr}/v1/chat/completions"))
+        .json(&body(false))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let store = CaptureStore::open(&log, &[3u8; 32]).unwrap();
+    let c = wait_for(&store, 1).await.remove(0);
+    assert!(c.tool_calls.is_empty());
+    assert!(c.response_format.is_none());
+    assert!(c.tools.is_null());
+}
 #[test]
 fn ready_fails_on_a_log_path_that_cannot_be_written() {
     // `open` builds a cipher and touches no filesystem; `append` opens lazily,

@@ -25,6 +25,9 @@ fn main() {
         prompt_tokens: Some(11),
         completion_tokens: Some(4),
         duration_ms: 42,
+        tools: serde_json::Value::Null,
+        tool_calls: Vec::new(),
+        response_format: None,
         redacted: clickllm_gateway::capture::Report::default(),
     })
     .expect("append a");
@@ -40,6 +43,9 @@ fn main() {
         prompt_tokens: None,
         completion_tokens: None,
         duration_ms: 7,
+        tools: serde_json::Value::Null,
+        tool_calls: Vec::new(),
+        response_format: None,
         redacted: clickllm_gateway::capture::Report::default(),
     })
     .expect("append b");

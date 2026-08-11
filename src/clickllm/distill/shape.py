@@ -96,6 +96,51 @@ def _sha(*parts: str) -> str:
     return h.hexdigest()[:16]
 
 
+def from_capture_row(row: dict[str, Any]) -> Capture:
+    """Build a `Capture` from one row of `core.read_captures`.
+
+    This is the seam. The gateway writes a Rust struct, the bridge turns it into
+    a dict, and this dataclass consumes it — three definitions of one shape, in
+    two languages, that nothing forced to agree. They did not: the recorder
+    called it `duration_ms` and the reader `latency_ms`, and the recorder never
+    wrote `tools`, `tool_calls` or `response_format` at all, so every
+    tool-using workload clustered as toolless and no error was raised on the
+    way. `Capture(**row)` would have raised on the extra `backend` and
+    `redacted` keys — the one part that would have been loud.
+
+    So: convert explicitly, ignore the provenance keys this type has no field
+    for, and let `tests/test_capture_seam.py` assert the two ends still match.
+    """
+    if not isinstance(row, dict):
+        raise TypeError(f"capture row must be a dict, got {type(row).__name__}")
+    missing = [f for f in ("request_id", "model", "messages", "response") if f not in row]
+    if missing:
+        raise ValueError(f"capture row is missing {missing}; is this a capture log?")
+
+    def _dicts(v: object) -> tuple[dict[str, Any], ...]:
+        # `tools` is JSON as the client sent it: a list normally, `None` when
+        # absent, and anything at all when a client sent something odd. None of
+        # those should raise here — a malformed tools block is a workload that
+        # still has a shape.
+        return tuple(x for x in v if isinstance(x, dict)) if isinstance(v, list) else ()
+
+    return Capture(
+        request_id=str(row["request_id"]),
+        model=str(row["model"]),
+        messages=_dicts(row["messages"]),
+        response=str(row["response"]),
+        prompt_tokens=row.get("prompt_tokens"),
+        completion_tokens=row.get("completion_tokens"),
+        tools=_dicts(row.get("tools")),
+        # Names, as the gateway records them — see `store::delta_tool_call` for
+        # why the arguments are not carried. `extract_shape` asks only whether
+        # this is empty.
+        tool_calls=tuple({"name": n} for n in row.get("tool_calls") or () if isinstance(n, str)),
+        response_format=row.get("response_format"),
+        latency_ms=row.get("latency_ms"),
+    )
+
+
 def context_bucket(tokens: int) -> str:
     """Label the order of magnitude of a context length."""
     for b in CONTEXT_BUCKETS:

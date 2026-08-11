@@ -141,7 +141,14 @@ fn capture_to_dict(py: Python<'_>, c: &Capture) -> PyResult<Py<PyDict>> {
     // zero here would read as "this request was free".
     d.set_item("prompt_tokens", c.prompt_tokens)?;
     d.set_item("completion_tokens", c.completion_tokens)?;
-    d.set_item("duration_ms", c.duration_ms)?;
+    // `latency_ms`, not `duration_ms`. The Rust struct and the Python
+    // dataclass named the same measurement differently, and `Capture(**row)`
+    // raises on the mismatch — so the bridge is where the two names meet, and
+    // the seam test asserts the keys here are exactly the fields there.
+    d.set_item("latency_ms", c.duration_ms)?;
+    d.set_item("tools", json_to_py(py, &c.tools)?)?;
+    d.set_item("tool_calls", c.tool_calls.clone())?;
+    d.set_item("response_format", c.response_format.clone())?;
     let redacted = PyDict::new(py);
     for (kind, n) in &c.redacted.counts {
         redacted.set_item(kind_name(*kind), n)?;
