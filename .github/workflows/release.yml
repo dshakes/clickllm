@@ -160,89 +160,6 @@ jobs:
           name: pypi-dist
           path: dist-pypi/
 
-      - name: Open the Homebrew formula-bump PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.ver.outputs.version }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # Optional + generic: only repos that ship a Homebrew tap formula get this PR.
-          formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
-          [ -n "$formula" ] || { echo "no Homebrew formula in this repo — skipping formula PR"; exit 0; }
-          url="https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz"
-          sha="$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)"
-          [ -n "$sha" ] || { echo "could not compute tarball sha"; exit 1; }
-          tmp="$(mktemp)"
-          sed -E -e "s#archive/refs/tags/v[0-9.]+\.tar\.gz#archive/refs/tags/$VERSION.tar.gz#" \
-                 -e "s/^([[:space:]]*sha256 )\"[a-f0-9]*\"/\1\"$sha\"/" "$formula" >"$tmp" && mv "$tmp" "$formula"
-          if git diff --quiet -- "$formula"; then echo "formula already at $VERSION — no PR needed"; exit 0; fi
-          branch="release/formula-$VERSION"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git commit -aqm "chore(release): pin $VERSION + tarball sha in the Homebrew formula"
-          git push -f origin "$branch"
-          # `|| ... || true` used to swallow every outcome here. It swallowed ten
-          # of them: v0.1.0 through v0.1.9 each pushed a `release/formula-*`
-          # branch and opened NO pull request, while the release job stayed
-          # green. The formula on main sat at v0.1.0 with a placeholder
-          # `sha256 000…0`, so `brew install` had never once worked — under a
-          # comment promising it "never lags a release".
-          #
-          # A push with no PR is the failure this step exists to prevent, so it
-          # is now fatal. If a PR already exists for this branch, that is the
-          # only tolerated non-creation, and it is checked for rather than
-          # assumed.
-          if ! gh pr create --base main --head "$branch" \
-                --title "chore(release): Homebrew formula -> $VERSION" \
-                --body "Automated formula bump for **$VERSION** (url + tarball \`sha256 $sha\`). Auto-merges once checks pass, so \`brew install\` never lags a release."; then
-            existing="$(gh pr list --head "$branch" --state open --json number --jq 'length')"
-            if [ "$existing" = "0" ]; then
-              echo "::error::pushed $branch but could not open a PR, and none exists. The formula bump for $VERSION is stranded on a branch — brew will stay on the previous release. This was silent for ten releases; it is fatal now."
-              exit 1
-            fi
-            gh pr edit "$branch" --body "Automated formula bump for $VERSION (sha256 $sha)."
-          fi
-          # Close the loop: land the bump automatically once required checks pass, so a
-          # forgotten manual merge can't leave brew on a stale release. Tolerant — if the
-          # repo hasn't enabled auto-merge, the CI drift guard on main still flags it.
-          # NOTE: if branch protection requires the `ci` check, that check must be able
-          # to run on this bot-authored PR — pushes made with the default GITHUB_TOKEN
-          # don't trigger `on: pull_request`, so use a PAT (secrets.RELEASE_PAT) for the
-          # push above if auto-merge stalls waiting on checks.
-          gh pr merge --auto --squash "$branch" \
-            || echo "::warning::could not enable auto-merge — enable 'Allow auto-merge' in repo settings (+ required checks), or merge the formula PR by hand"
-
-      - name: Sync formula into the shared tap (dshakes/homebrew-tap)
-        env:
-          TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          # Users install via `brew install dshakes/tap/clickllm`, which reads the shared
-          # tap repo — so each release must push the bumped formula there too. Cross-repo
-          # write needs a PAT (the default GITHUB_TOKEN is scoped to this repo only).
-          formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
-          [ -n "$formula" ] || exit 0
-          if [ -z "${TAP_PAT:-}" ]; then
-            echo "::warning::HOMEBREW_TAP_PAT not set — skipping tap sync. Add a fine-grained PAT with contents:write on dshakes/homebrew-tap so the tap tracks releases automatically."
-            exit 0
-          fi
-          tmp="$(mktemp -d)"
-          git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
-          mkdir -p "$tmp/tap/Formula"
-          # Copy under THIS project's formula name. The tap is shared with other projects,
-          # so a hardcoded name carried over from whichever repo this workflow was copied
-          # from would overwrite a different tool's formula on every clickllm release.
-          cp "$formula" "$tmp/tap/Formula/$(basename "$formula")"
-          cd "$tmp/tap"
-          if git diff --quiet; then echo "tap already current for $VERSION"; exit 0; fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -aqm "clickllm $VERSION"
-          git push
-          echo "synced clickllm $VERSION into dshakes/homebrew-tap"
 
   # Split out so `id-token: write` — the credential that can publish to PyPI as us — is
   # held by a job that does nothing but download an artifact and upload it. `build` never
@@ -402,3 +319,114 @@ jobs:
             printf '`NPM_TOKEN` is not set, so `npx clickllm` still resolves nothing.\n'
             printf 'PyPI is unaffected: `pip install clickllm-cli` works.\n'
           } >>"$GITHUB_STEP_SUMMARY"
+
+  # The Homebrew bump runs AFTER the package is actually published, in its own
+  # job, and both of those are deliberate.
+  #
+  # It used to be the last step of `build`, and it was made fatal for a good
+  # reason: it had failed silently for ten releases, pushing a `release/formula-*`
+  # branch and opening no PR while the job stayed green, so `brew install` had
+  # never once worked. Fatal was right. Fatal *inside `build`* was not — with
+  # `publish-pypi` gated on `needs: build`, a formula bump that could not open a
+  # PR stopped clickllm 1.0.0 reaching PyPI at all, while the GitHub Release,
+  # the README and every install pin already said 1.0.0. A broken `brew install`
+  # became a broken `uvx --from clickllm-cli==1.0.0`, which is strictly worse.
+  #
+  # Ordering it after the publish is also just correct: a formula pointing at a
+  # release whose artifacts are not on PyPI yet is premature.
+  homebrew:
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Resolve version
+        id: ver
+        run: echo "version=${{ needs.build.outputs.version }}" >> "$GITHUB_OUTPUT"
+      - name: Open the Homebrew formula-bump PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Optional + generic: only repos that ship a Homebrew tap formula get this PR.
+          formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
+          [ -n "$formula" ] || { echo "no Homebrew formula in this repo — skipping formula PR"; exit 0; }
+          url="https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz"
+          sha="$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)"
+          [ -n "$sha" ] || { echo "could not compute tarball sha"; exit 1; }
+          tmp="$(mktemp)"
+          sed -E -e "s#archive/refs/tags/v[0-9.]+\.tar\.gz#archive/refs/tags/$VERSION.tar.gz#" \
+                 -e "s/^([[:space:]]*sha256 )\"[a-f0-9]*\"/\1\"$sha\"/" "$formula" >"$tmp" && mv "$tmp" "$formula"
+          if git diff --quiet -- "$formula"; then echo "formula already at $VERSION — no PR needed"; exit 0; fi
+          branch="release/formula-$VERSION"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -aqm "chore(release): pin $VERSION + tarball sha in the Homebrew formula"
+          git push -f origin "$branch"
+          # `|| ... || true` used to swallow every outcome here. It swallowed ten
+          # of them: v0.1.0 through v0.1.9 each pushed a `release/formula-*`
+          # branch and opened NO pull request, while the release job stayed
+          # green. The formula on main sat at v0.1.0 with a placeholder
+          # `sha256 000…0`, so `brew install` had never once worked — under a
+          # comment promising it "never lags a release".
+          #
+          # A push with no PR is the failure this step exists to prevent, so it
+          # is now fatal. If a PR already exists for this branch, that is the
+          # only tolerated non-creation, and it is checked for rather than
+          # assumed.
+          if ! gh pr create --base main --head "$branch" \
+                --title "chore(release): Homebrew formula -> $VERSION" \
+                --body "Automated formula bump for **$VERSION** (url + tarball \`sha256 $sha\`). Auto-merges once checks pass, so \`brew install\` never lags a release."; then
+            existing="$(gh pr list --head "$branch" --state open --json number --jq 'length')"
+            if [ "$existing" = "0" ]; then
+              echo "::error::pushed $branch but could not open a PR, and none exists. The formula bump for $VERSION is stranded on a branch — brew will stay on the previous release. This was silent for ten releases; it is fatal now."
+              exit 1
+            fi
+            gh pr edit "$branch" --body "Automated formula bump for $VERSION (sha256 $sha)."
+          fi
+          # Close the loop: land the bump automatically once required checks pass, so a
+          # forgotten manual merge can't leave brew on a stale release. Tolerant — if the
+          # repo hasn't enabled auto-merge, the CI drift guard on main still flags it.
+          # NOTE: if branch protection requires the `ci` check, that check must be able
+          # to run on this bot-authored PR — pushes made with the default GITHUB_TOKEN
+          # don't trigger `on: pull_request`, so use a PAT (secrets.RELEASE_PAT) for the
+          # push above if auto-merge stalls waiting on checks.
+          gh pr merge --auto --squash "$branch" \
+            || echo "::warning::could not enable auto-merge — enable 'Allow auto-merge' in repo settings (+ required checks), or merge the formula PR by hand"
+
+      - name: Sync formula into the shared tap (dshakes/homebrew-tap)
+        env:
+          TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Users install via `brew install dshakes/tap/clickllm`, which reads the shared
+          # tap repo — so each release must push the bumped formula there too. Cross-repo
+          # write needs a PAT (the default GITHUB_TOKEN is scoped to this repo only).
+          formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
+          [ -n "$formula" ] || exit 0
+          if [ -z "${TAP_PAT:-}" ]; then
+            echo "::warning::HOMEBREW_TAP_PAT not set — skipping tap sync. Add a fine-grained PAT with contents:write on dshakes/homebrew-tap so the tap tracks releases automatically."
+            exit 0
+          fi
+          tmp="$(mktemp -d)"
+          git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
+          mkdir -p "$tmp/tap/Formula"
+          # Copy under THIS project's formula name. The tap is shared with other projects,
+          # so a hardcoded name carried over from whichever repo this workflow was copied
+          # from would overwrite a different tool's formula on every clickllm release.
+          cp "$formula" "$tmp/tap/Formula/$(basename "$formula")"
+          cd "$tmp/tap"
+          if git diff --quiet; then echo "tap already current for $VERSION"; exit 0; fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -aqm "clickllm $VERSION"
+          git push
+          echo "synced clickllm $VERSION into dshakes/homebrew-tap"
