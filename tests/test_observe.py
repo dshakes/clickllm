@@ -311,16 +311,24 @@ def test_the_whole_chain_runs_on_one_machine(tmp_path):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    try:
-        deadline = time.time() + 20
+
+    def wait_for(port: int, what: str) -> None:
+        deadline = time.time() + 30
         while time.time() < deadline:
             try:
-                with socket.create_connection(("127.0.0.1", gw_port), timeout=0.2):
-                    break
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    return
             except OSError:
                 time.sleep(0.1)
-        else:
-            pytest.fail("gateway never accepted a connection")
+        pytest.fail(f"{what} never accepted a connection on {port}")
+
+    try:
+        # Both, not just the gateway. Waiting only on the gateway passed on a
+        # laptop where the upstream had been running for minutes and 502'd in
+        # CI, where it is spawned fresh: the gateway binds immediately and
+        # forwards to a socket nobody is listening on yet.
+        wait_for(up_port, "upstream")
+        wait_for(gw_port, "gateway")
 
         import urllib.request
 

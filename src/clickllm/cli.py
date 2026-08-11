@@ -1107,6 +1107,25 @@ def cmd_prove(args: argparse.Namespace) -> int:
     # nothing, not several hundred round trips followed by a usage error.
     judge, judge_model, agreement = _judge_from(args)
 
+    # A file where nothing was ever collected is not a proof of anything, and
+    # it does not read as one: every candidate answer is empty, every grader
+    # fails it, and the verdict comes back 0% — "keep the incumbent", stated
+    # with the same confidence as a real result. It fails closed, so nobody
+    # ships a bad model on it; they abandon a good one instead, which is the
+    # same defect pointing the other way.
+    #
+    # `clickllm distill` writes exactly this file, deliberately: the candidate
+    # column is for `--candidate-endpoint` to fill. So the refusal belongs here,
+    # at the solver, not only in the hint distill prints (ADR-0011).
+    if not args.candidate_endpoint and all(not i.candidate for i in items):
+        raise ValueError(
+            f"{args.evalset}: every candidate answer is blank and no "
+            "--candidate-endpoint was given, so there is nothing to grade. "
+            "Pass --candidate-endpoint <url> to collect the candidate's "
+            "replies, or fill the `candidate` field in the file yourself. "
+            "Grading it as-is would report 0% and read as a verdict."
+        )
+
     asked = len(items)
     items, collections = _collect_replies(items, args)
     if collections and not items:
