@@ -134,7 +134,7 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 
 | ID | Requirement |
 |---|---|
-| NFR-1 | Proxy overhead **< 15 ms p95** added latency (LiteLLM's baseline is 10–20 ms; we must not double it) |
+| NFR-1 | Proxy overhead **< 15 ms p95** added latency (LiteLLM's baseline is 10–20 ms; we must not double it). **Measured: +0.07 ms p95** with capture on, release build, 200 interleaved requests per arm — `clickllm-gateway/tests/latency.rs`. Loopback, so a lower bound. |
 | NFR-2 | **Local-first.** No traffic, prompt, or eval leaves the machine unless explicitly exported. Default: zero telemetry. |
 | NFR-3 | Captured traffic encrypted at rest; redaction runs before persistence, never after |
 | NFR-4 | Generated artifacts are readable, idiomatic, and runnable **without clickllm installed** — a receipt, not an interface. Reading or editing it is never a prerequisite. |
