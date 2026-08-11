@@ -204,7 +204,14 @@ import json, os, time, socketserver
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 RATE = float(os.environ["RATE_TOK_S"])
-JITTER = float(os.environ.get("JITTER", "0"))
+# Milliseconds of *extra* per-token delay on alternate requests. Absolute, not
+# proportional: the harness measures wall-clock per token, which is this sleep
+# plus the server's own write and flush cost. On a slow host that overhead
+# dominates — a macOS runner spent ~99 ms per token — so scaling the sleep by
+# +/-30% moved the observed rate by 13% and the spread landed under the limit.
+# A fixed extra delay survives any overhead, because it adds to both arms
+# equally and only one arm gets it.
+EXTRA_MS = float(os.environ.get("EXTRA_MS", "0"))
 N = 0
 
 class Server(HTTPServer):
@@ -221,7 +228,7 @@ class H(BaseHTTPRequestHandler):
         global N
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         want = int(body.get("max_tokens") or 32)
-        rate = RATE * (1 + JITTER if N % 2 else 1 - JITTER)
+        extra = (EXTRA_MS / 1000.0) if N % 2 else 0.0
         N += 1
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -232,7 +239,7 @@ class H(BaseHTTPRequestHandler):
         time.sleep(0.05)
         for i in range(want):
             frame({"choices":[{"delta":{"content":"t%d " % i}}]})
-            time.sleep(1.0 / rate)
+            time.sleep(1.0 / RATE + extra)
         self.wfile.write(b"data: [DONE]\\n\\n"); self.wfile.flush()
 
 HTTPServer.allow_reuse_address = True
@@ -253,12 +260,12 @@ def _free_ports(n: int) -> list[int]:
             s.close()
 
 
-def _serve(tmp_path: Path, port: int, rate: float, jitter: float = 0.0):
+def _serve(tmp_path: Path, port: int, rate: float, extra_ms: float = 0.0):
     src = tmp_path / f"server_{port}.py"
     src.write_text(SERVER)
     proc = subprocess.Popen(
         [sys.executable, str(src)],
-        env={**os.environ, "RATE_TOK_S": str(rate), "JITTER": str(jitter), "PORT": str(port)},
+        env={**os.environ, "RATE_TOK_S": str(rate), "EXTRA_MS": str(extra_ms), "PORT": str(port)},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -348,7 +355,7 @@ def test_a_faster_server_measures_faster(tmp_path):
 def test_a_jittery_server_is_refused_end_to_end(tmp_path):
     """The whole point, against a real socket rather than injected samples."""
     port = _free_ports(1)[0]
-    proc = _serve(tmp_path, port, 50.0, jitter=0.30)
+    proc = _serve(tmp_path, port, 50.0, extra_ms=120.0)
     try:
         # Real server, injected load. This test is about the *spread* rule, and
         # on a busy runner the contention rule fires too — so `not m.usable`
@@ -360,7 +367,10 @@ def test_a_jittery_server_is_refused_end_to_end(tmp_path):
             "f",
             cores=4,
             samples=4,
-            max_tokens=40,
+            # Few tokens on purpose: the spread comes from the per-token delta,
+            # not from the count, so a bigger delay over fewer tokens is both
+            # more robust and faster than the reverse.
+            max_tokens=12,
             load_reader=_quiet,
         )
     finally:
@@ -572,7 +582,7 @@ def test_measure_exits_nonzero_when_it_refuses(tmp_path):
     """So a script that wanted a number knows it did not get one. Not an error:
     "the machine was too busy" is a legitimate outcome and the report says so."""
     port = _free_ports(1)[0]
-    proc = _serve(tmp_path, port, 50.0, jitter=0.30)
+    proc = _serve(tmp_path, port, 50.0, extra_ms=120.0)
     try:
         out = subprocess.run(
             [
