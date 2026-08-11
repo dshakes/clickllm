@@ -838,3 +838,51 @@ def test_requirement_values_are_coerced_at_the_funnel_not_at_the_surface():
     # silent pass-through of the string.
     with pytest.raises(ValueError, match="concurrency must be int"):
         Session()._apply_fields(concurrency="lots")
+
+
+def test_a_bool_requirement_refuses_a_string_rather_than_reading_it_as_yes():
+    """`structured_output="false"` used to turn structured output ON.
+
+    `bool` was left out of the coercion map on purpose — `bool("false")` is
+    True — and the comment saying so claimed the omission made a string "a
+    refusal rather than a silent yes". It did not. A field with no entry in the
+    map fell through the loop untouched, so the string was *stored*, and a
+    string is truthy: `plan.py:287` and `plan.py:618` both read `"false"` as
+    yes. The omission removed the coercion and never added the refusal.
+    """
+    from clickllm.session import Session
+
+    for value in ("false", "true", "yes", "0", 1, 0, None):
+        with pytest.raises(ValueError, match="structured_output must be a bool"):
+            Session()._apply_fields(structured_output=value)
+
+    # The control: real booleans still work, both ways, and are stored as
+    # themselves rather than as anything clever.
+    for value in (True, False):
+        s = Session()
+        s._apply_fields(structured_output=value)
+        assert s.requirements.structured_output is value
+
+
+def test_the_refusal_reaches_the_agent_surface_that_would_send_a_string():
+    """JSON-RPC clients send whatever they serialise. The guard is at the funnel
+    both the CLI and MCP converge on, so this asserts the far end sees it."""
+    from clickllm import mcp
+
+    reply = mcp.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "clickllm_build",
+                "arguments": {"description": "x", "structured_output": "false"},
+            },
+        }
+    )
+    text = reply["result"]["content"][0]["text"]
+    assert reply["result"]["isError"] is True
+    assert "must be a bool" in text
+    # The message has to say why coercion is not the fix, or the next reader
+    # "helpfully" adds it back.
+    assert "would be the bug" in text
