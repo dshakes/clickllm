@@ -64,7 +64,7 @@ def _judge(comparison):
     return Reply(winner="tie", reason="identical")
 
 
-def _prover(*, matching: bool = True, judged: bool = False):
+def _prover(*, matching: bool = True, judged: bool = False, bar: float = 0.9):
     """A candidate that answers exactly like the incumbent, or does not."""
 
     def prove(doc: dict):
@@ -87,6 +87,7 @@ def _prover(*, matching: bool = True, judged: bool = False):
             issued="2026-08-11",
             judge=_judge if judged else None,
             judge_model="test-judge" if judged else "",
+            bar=bar,
         )
 
     return prove
@@ -154,6 +155,32 @@ def test_a_judged_suite_is_refused_rather_than_mismodelled():
     st = migrate.State(candidate="cand", started="2026-08-11")
     with pytest.raises(ValueError, match="judged suite"):
         migrate.step(st, rows=_rows(), prove=_prover(judged=True), today=date(2026, 8, 11))
+
+
+def test_the_decision_is_made_against_the_bar_the_receipt_records():
+    """`--bar` reached `suite()` and not `decide()`.
+
+    An operator asking for 0.99 got a receipt recording 0.99 and a decision
+    computed at the 0.90 default — which proposed ADVANCE, with the reason
+    "proven at or above the 90% bar". A stricter setting produced a looser
+    answer, and the sentence explaining it named a number nobody chose.
+    """
+    lenient_st = migrate.State(candidate="cand", started="2026-08-11")
+    lenient_st, _, lenient = migrate.step(
+        lenient_st, rows=_rows(), prove=_prover(bar=0.90), today=date(2026, 8, 11)
+    )
+    strict_st = migrate.State(candidate="cand", started="2026-08-11")
+    strict_st, _, strict = migrate.step(
+        strict_st, rows=_rows(), prove=_prover(bar=0.99), today=date(2026, 8, 11)
+    )
+
+    assert lenient.action.value == "advance", "the fixture no longer clears the low bar"
+    assert strict.action.value != "advance", (
+        "a 0.99 bar advanced on evidence that only clears 0.90 — the decision "
+        "is not reading the receipt's bar"
+    )
+    assert "90% bar" in lenient.reason
+    assert "90% bar" not in strict.reason, f"the reason cites a bar nobody set: {strict.reason}"
 
 
 # --- resuming --------------------------------------------------------------------

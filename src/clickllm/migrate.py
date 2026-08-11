@@ -202,7 +202,17 @@ def step(
     if scored is None:
         raise ValueError("the suite scored no candidate; there is nothing to decide")
     readings = [Reading(score=c, judge_only=False) for c in scored.clusters]
-    decision = decide(readings, state.stage())
+
+    # The bar comes from the receipt rather than from a parameter of our own.
+    # `--bar` reached `suite()` and not `decide()`, so an operator who asked for
+    # 0.99 got a receipt recording 0.99 and a decision computed at the 0.90
+    # default — which then proposed ADVANCE with the reason "proven at or above
+    # the 90% bar". A stricter setting produced a looser answer, and the line
+    # explaining the answer named a number the operator never chose.
+    #
+    # Reading it off the receipt means the two cannot disagree: whatever the
+    # proof was measured against is what the decision is made against.
+    decision = decide(readings, state.stage(), bar=result.receipt.bar)
 
     run = Run(
         when=(today or date.today()).isoformat(),

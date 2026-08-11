@@ -319,9 +319,7 @@ def test_fail_on_any_fails_a_release_gate_on_a_non_voiding_finding(tmp_path, cap
     from clickllm.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
-    code = main(
-        ["guard", rp, "--available", "qwen-4", "--today", "2026-07-27", "--fail-on", "any"]
-    )
+    code = main(["guard", rp, "--available", "qwen-4", "--today", "2026-07-27", "--fail-on", "any"])
     out = capsys.readouterr().out
     assert code == 1
     assert "receipt still holds" in out, out
@@ -336,9 +334,7 @@ def test_fail_on_any_does_not_contradict_a_void_receipt(tmp_path, capsys):
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     fp = _write(tmp_path, "fp.json", {"gpt-5": "9" * 64})
-    code = main(
-        ["guard", rp, "--fingerprints", fp, "--today", "2026-07-27", "--fail-on", "any"]
-    )
+    code = main(["guard", rp, "--fingerprints", fp, "--today", "2026-07-27", "--fail-on", "any"])
     out = capsys.readouterr().out
     assert code == 1
     assert "RECEIPT VOID" in out, out
