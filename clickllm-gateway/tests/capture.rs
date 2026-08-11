@@ -7,7 +7,12 @@
 //! dispatching a request. A capture path that is wired but never invoked would
 //! fail in exactly the same shape.
 
-#![allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -257,4 +262,39 @@ async fn many_concurrent_requests_all_land_without_corrupting_each_other() {
     ids.sort();
     ids.dedup();
     assert_eq!(ids.len(), 25, "every request is present exactly once");
+}
+
+#[test]
+fn ready_fails_on_a_log_path_that_cannot_be_written() {
+    // `open` builds a cipher and touches no filesystem; `append` opens lazily,
+    // from a spawned task whose errors are logged and dropped. So a caller that
+    // checked only `open` got a gateway which started, served traffic, and
+    // recorded nothing — indistinguishable from one that was working.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let occupied = dir.path().join("log-is-a-directory");
+    std::fs::create_dir(&occupied).expect("mkdir");
+
+    let store = CaptureStore::open(&occupied, &[3u8; 32]).expect("open must still succeed");
+    assert!(
+        store.ready().is_err(),
+        "a directory is not an appendable log"
+    );
+}
+
+#[test]
+fn ready_succeeds_and_does_not_write_a_record() {
+    // The control: a readiness probe that appended something would corrupt the
+    // corpus it is checking, and one that always failed would be useless.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let log = dir.path().join("captures.log");
+
+    let store = CaptureStore::open(&log, &[4u8; 32]).expect("open");
+    store.ready().expect("a fresh path must be writable");
+
+    assert!(log.exists(), "ready opens the log");
+    assert_eq!(
+        store.read_all().expect("read").len(),
+        0,
+        "ready must not record anything"
+    );
 }

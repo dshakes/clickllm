@@ -51,6 +51,14 @@ SPLIT_SURFACES: tuple[tuple[str, str, str], ...] = (
     # which makes a wrong number there the most expensive one in the repo.
     ("CLAUDE.md", "rust", r"(# Rust gate \()(\d+)( tests\))"),
     ("CLAUDE.md", "python", r"(# Python gate \()(\d+)( tests\))"),
+    # The README says the split a second time, in prose, three lines under the
+    # gate block: "**1874 tests.** 1632 Python, 234 Rust." Nothing matched it,
+    # so `--write` printed `rust count ok` while a stale 234 sat immediately
+    # below the 242 it had just written. The comment above said five numbers
+    # move together; there were seven, and the two nobody listed were the two
+    # a reader meets first.
+    ("README.md", "python", r"( tests\.\*\* )(\d[\d,]*)( Python, )"),
+    ("README.md", "rust", r"( Python, )(\d[\d,]*)( Rust\.)"),
 )
 
 
@@ -117,19 +125,23 @@ def python_tests() -> int:
     raise RuntimeError("could not read a collected count:\n  " + "\n  ".join(attempts))
 
 
-def published_split() -> dict[tuple[str, str], int]:
-    """What each per-runner comment currently claims, per file.
+def published_split() -> dict[tuple[str, str, str], int]:
+    """What each per-runner comment currently claims, per site.
 
-    Keyed by `(file, runner)`, not by runner alone. Keyed by runner, a second
-    file publishing the same two numbers would overwrite the first's entry and
-    be checked only by accident — the drift would move rather than be caught.
+    Keyed by the whole site — file, runner *and* pattern — because each weaker
+    key has already lost a number. Keyed by runner alone, a second file would
+    overwrite the first. Keyed by `(file, runner)`, which is what this was, the
+    README's prose sentence collided with the README's gate block: same file,
+    same runner, different line. The surviving entry was checked and the other
+    drifted, which is how a stale 234 sat three lines under a freshly written
+    242 while the report said `ok`.
     """
     out = {}
     for rel, which, pattern in SPLIT_SURFACES:
         m = re.search(pattern, (ROOT / rel).read_text())
         if not m:
             raise RuntimeError(f"{rel}: no {which} count matched {pattern!r}")
-        out[rel, which] = int(m.group(2).replace(",", ""))
+        out[rel, which, pattern] = int(m.group(2).replace(",", ""))
     return out
 
 
@@ -191,9 +203,14 @@ def main() -> int:
 
     split = published_split()
     want = {k: (rust if k[1] == "rust" else py) for k in split}
-    for (rel, which), n in split.items():
-        mark = "ok" if n == want[rel, which] else f"STALE (says {n}, is {want[rel, which]})"
-        print(f"  {rel}:{which + ' count':<{52 - len(rel) - 1}} {mark}")
+    seen: dict[tuple[str, str], int] = {}
+    for key, n in split.items():
+        rel, which, _ = key
+        seen[rel, which] = seen.get((rel, which), 0) + 1
+        nth = f" #{seen[rel, which]}" if seen[rel, which] > 1 else ""
+        label = f"{which} count{nth}"
+        mark = "ok" if n == want[key] else f"STALE (says {n}, is {want[key]})"
+        print(f"  {rel}:{label:<{52 - len(rel) - 1}} {mark}")
 
     if all(n == total for n in current.values()) and split == want:
         return 0
