@@ -300,7 +300,7 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
             '        """Called once at startup, awaited before any request is served.\n\n'
             "        vLLM's endpoint plugin lifecycle awaits this hook, so a `def` here\n"
             "        satisfies the method-exists check but not the protocol: called\n"
-            '        without a coroutine to await, it does nothing.\n'
+            "        without a coroutine to await, it does nothing.\n"
             '        """\n\n\n'
             "def register() -> MyEndpointPlugin:\n"
             '    """Zero-argument factory. The loader calls this, then reads\n'
