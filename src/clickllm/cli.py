@@ -932,7 +932,10 @@ def cmd_measure(args: argparse.Namespace) -> int:
         from .atomicio import atomic_write
 
         atomic_write(pathlib.Path(args.out), result.to_json())
-        print(f"  wrote {args.out}\n")
+        # In `--json` this goes to stderr so stdout stays parseable — the
+        # status line would otherwise trail the JSON object and break a
+        # script piping stdout straight into a JSON parser.
+        print(f"  wrote {args.out}\n", file=sys.stderr if args.json else sys.stdout)
 
     # Nonzero when the samples are not usable as a measurement, so a script that
     # wanted a number knows it did not get one. This is not an error — "the

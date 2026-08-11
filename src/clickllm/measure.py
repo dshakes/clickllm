@@ -112,7 +112,13 @@ class Load:
     def render(self) -> str:
         if self.one_minute is None:
             return "load unknown on this platform"
-        out = f"load {self.one_minute:.2f} over {self.cores} cores ({self.per_core:.2f}/core)"
+        if self.per_core is None:
+            # `cores < 1`: the host's CPU count could not be read. Still show
+            # the raw load rather than crash formatting a per-core figure that
+            # does not exist — `per_core` already refuses to divide by it.
+            out = f"load {self.one_minute:.2f} (core count unknown)"
+        else:
+            out = f"load {self.one_minute:.2f} over {self.cores} cores ({self.per_core:.2f}/core)"
         if self.top:
             out += " · busiest: " + ", ".join(self.top)
         return out
@@ -273,6 +279,13 @@ def _decode_once(
         {
             "model": model,
             "stream": True,
+            # Ask for a trailing usage frame. Streaming only promises text
+            # *deltas*, not one SSE frame per token — an endpoint that
+            # coalesces several tokens into one content delta would otherwise
+            # be undercounted as chunks-per-second dressed up as tok/s.
+            # completion_tokens, when the endpoint sends it, overrides the
+            # frame count below.
+            "stream_options": {"include_usage": True},
             "max_tokens": max_tokens,
             # Greedy: sampling adds variance that is not the machine's, and this
             # is measuring the machine.
@@ -291,6 +304,7 @@ def _decode_once(
     first: float | None = None
     last = started
     tokens = 0
+    usage_tokens: int | None = None
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
@@ -303,6 +317,12 @@ def _decode_once(
                 event = json.loads(data)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(event, dict):
+                # A compliant server sends an object; do not assume it.
+                continue
+            usage = event.get("usage")
+            if isinstance(usage, dict) and isinstance(usage.get("completion_tokens"), int):
+                usage_tokens = usage["completion_tokens"]
             choices = event.get("choices") or [{}]
             delta = (choices[0] or {}).get("delta") or {}
             if not delta.get("content"):
@@ -315,6 +335,13 @@ def _decode_once(
             else:
                 tokens += 1
             last = now
+
+    if usage_tokens is not None:
+        # Authoritative when the endpoint reports it: the frame count above is
+        # a lower bound, not the true token count, whenever frames and tokens
+        # are not 1:1. Same "exclude the first token" convention as the frame
+        # count, so it lines up with `decode_seconds` (first token to last).
+        tokens = max(usage_tokens - 1, 0)
 
     if first is None or tokens < 1:
         raise ValueError(
