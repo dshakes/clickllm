@@ -307,6 +307,108 @@ def _prove(
     }
 
 
+def _where(model: str, context: str = "32k", concurrency: int = 1) -> dict[str, Any]:
+    """The inverse of `fit`: what would it take to run this model?
+
+    Read-only and hardware-independent — it answers about machines the caller
+    does not have, which is the question an agent asks the moment `fit` says
+    "nothing here runs it". Without this the agent's only move is to guess a
+    box, and a guessed box is how people buy the wrong GPU.
+    """
+    from .cli import _parse_size
+
+    spec = catalog.get(model)
+    ctx = _parse_size(context)
+    placements = fit.where(spec, ctx, concurrency)
+    return {
+        "model": spec.id,
+        "context": ctx,
+        "concurrency": concurrency,
+        # Invariant 6. Every throughput number below is arithmetic, not a
+        # measurement, and an agent quoting it to a human must be able to say so.
+        "estimates_are_roofline_not_measured": True,
+        "placements": [
+            {
+                "profile": pl.profile_id,
+                "name": pl.profile_name,
+                "fits": pl.fit is not None,
+                "quant": pl.fit.quant if pl.fit else None,
+                "total_gb": round(pl.fit.total_bytes / GB, 1) if pl.fit else None,
+                "tokens_per_sec_estimate": (
+                    round(pl.fit.tokens_per_sec) if pl.fit and pl.fit.tokens_per_sec else None
+                ),
+                "hourly_usd": pl.hourly_usd,
+                "reason": pl.reason,
+            }
+            for pl in placements
+        ],
+    }
+
+
+def _receipt(path: str) -> dict[str, Any]:
+    """Read a receipt and return what it claims, refusing one that does not hold together.
+
+    Confined to the eval root for the same reason `clickllm_prove` is: the path
+    comes from the caller, the contents land in the agent's context, and the
+    caller may itself have been steered by captured traffic (invariant 7).
+    See ADR-0014.
+    """
+    from .prove import Receipt
+
+    r = Receipt.from_json(_within_eval_root(path).read_text())
+    return {
+        "incumbent": r.incumbent,
+        "candidate": r.candidate,
+        "issued": r.issued,
+        "bar": r.bar,
+        "eval_set_digest": r.eval_set,
+        # Regret first, then unproven, then proven — the same order the rendered
+        # receipt uses, and for the same reason: an agent summarising this to a
+        # human should hit the bad news before it has a chance to lead with a
+        # headline number.
+        "keep_on_incumbent": [c.cluster for c in r.regret],
+        "not_proven_either_way": [c.cluster for c in r.unproven],
+        "proven_above_bar": [c.cluster for c in r.proven],
+        "judge_model": r.judge_model,
+        "judge_human_agreement": r.judge_agreement,
+        "rendered": r.render(),
+    }
+
+
+def _guard(path: str, today: str = "", available: list[str] | None = None) -> dict[str, Any]:
+    """Whether a receipt still holds, and if not, which of three ways it stopped.
+
+    The distinction every other tool collapses into one "stale" flag: the model
+    changed behind its name (the proof is void), the traffic moved (the eval set
+    answers questions nobody asks now), or something new was released (the proof
+    is still true). Only the first two mean you no longer know whether
+    production is adequate.
+    """
+    from datetime import date
+
+    from . import guard as guard_mod
+    from .prove import Receipt
+
+    r = Receipt.from_json(_within_eval_root(path).read_text())
+    when = date.fromisoformat(today) if today else date.today()
+    proposal = guard_mod.check(r, today=when, available=frozenset(available or ()))
+    return {
+        "receipt_digest": proposal.receipt_digest,
+        "still_holds": proposal.valid,
+        "action": proposal.action,
+        "findings": [
+            {
+                "kind": f.kind.value,
+                "subject": f.subject,
+                "detail": f.detail,
+                "voids_the_receipt": f.invalidates,
+            }
+            for f in proposal.findings
+        ],
+        "rendered": proposal.render(),
+    }
+
+
 def _catalog() -> dict[str, Any]:
     """The model catalogue with licences and architecture-verification flags."""
     return {
@@ -485,6 +587,69 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                     },
                 },
                 "required": ["eval_set"],
+            },
+        },
+    ),
+    "clickllm_where": (
+        _where,
+        {
+            "description": (
+                "The inverse of fit: which hardware would run this model, at what "
+                "quantisation, and roughly how fast. Answers about machines the "
+                "caller does not have — ask this when clickllm_fit found nothing "
+                "local. Throughput figures are roofline arithmetic, not measured, "
+                "and the reply says so."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "description": "catalogue model id"},
+                    "context": {"type": "string", "description": "e.g. 32k, 128000"},
+                    "concurrency": {"type": "integer", "minimum": 1},
+                },
+                "required": ["model"],
+            },
+        },
+    ),
+    "clickllm_receipt": (
+        _receipt,
+        {
+            "description": (
+                "Read a migration receipt: what is proven above the bar, what must "
+                "stay on the incumbent, and what is not proven either way. Refuses a "
+                "receipt whose fields contradict its own counts. Paths are confined "
+                "to the eval root (ADR-0014)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "receipt JSON, inside the eval root"}
+                },
+                "required": ["path"],
+            },
+        },
+    ),
+    "clickllm_guard": (
+        _guard,
+        {
+            "description": (
+                "Does a receipt still hold? Separates three things: the model changed "
+                "behind its name (proof void), traffic moved (eval set is stale), or "
+                "something new was released (proof still true). Only the first two "
+                "mean you no longer know whether production is adequate."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "receipt JSON, inside the eval root"},
+                    "today": {"type": "string", "description": "ISO date to evaluate against"},
+                    "available": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "candidate models that exist now",
+                    },
+                },
+                "required": ["path"],
             },
         },
     ),

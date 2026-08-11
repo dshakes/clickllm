@@ -1451,3 +1451,41 @@ def test_the_walkthrough_does_not_quote_a_scratchpad_run():
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
     for leak in ("/private/tmp/", "/Users/", "claude-501", "127.0.0.1:87 99"):
         assert leak not in readme, f"{leak!r} is from one machine, not from the tool"
+
+
+def test_the_skill_covers_every_command_and_tool_it_claims_to():
+    """The skill is the fourth surface the README advertises, and it is the one
+    that goes stale invisibly: nothing imports it, nothing runs it, and a model
+    reading it cannot tell that half the product is missing.
+
+    It described only `fit` for the whole of the prove/receipt/guard era.
+    """
+    root = Path(__file__).resolve().parents[1]
+    skill = (root / ".claude" / "skills" / "clickllm" / "SKILL.md").read_text()
+
+    from clickllm import mcp
+
+    missing = [name for name in mcp.TOOLS if name not in skill]
+    assert not missing, f"the skill never mentions {missing}"
+
+    for cmd in ("observe", "distill", "prove", "receipt", "guard", "where", "fit"):
+        assert f"clickllm {cmd}" in skill, f"the skill never shows `clickllm {cmd}`"
+
+
+def test_the_skill_states_the_two_things_a_model_will_otherwise_get_wrong():
+    """Both are ways of reporting a result more confidently than it was meant.
+
+    A model summarising a proof will quote the percentage and drop the interval
+    unless told not to, and will read "move 0%" over perfect scores as a
+    malfunction rather than as the answer.
+    """
+    skill = (
+        Path(__file__).resolve().parents[1] / ".claude" / "skills" / "clickllm" / "SKILL.md"
+    ).read_text()
+    assert "whole confidence interval" in skill
+    assert "not a bug" in skill, "a model must be told that a refusal is an answer"
+    assert "not ground truth" in skill
+    # The datapath boundary: `observe` is the one command with a side effect on
+    # someone's production traffic, and a skill that suggests it without saying
+    # so is the worst thing in this file.
+    assert "request path" in skill and "ADR-0015" in skill
