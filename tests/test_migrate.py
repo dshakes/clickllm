@@ -349,3 +349,39 @@ def test_migrate_will_not_grade_answers_nobody_gave():
     assert len(_re.findall(r"_refuse_ungraded\(", src)) == 3, (
         "expected the definition plus a call from prove and from migrate"
     )
+
+
+def test_migrate_refuses_a_blank_candidate_without_an_endpoint(monkeypatch, tmp_path):
+    """`prove_it` must carry the same refusal `cmd_prove` has: `distill` writes
+    every candidate answer blank, and without `--candidate-endpoint` to fill
+    them, scoring them as-is would report a fabricated 0% verdict — a HOLD
+    recorded and rendered with the same confidence as a real comparison."""
+    from clickllm import cli, core
+
+    log, key = tmp_path / "captures.log", tmp_path / "capture.key"
+    log.write_bytes(b"not read, only checked for existence")
+    key.write_bytes(b"not read, only checked for existence")
+    monkeypatch.setattr(core, "available", lambda: True)
+    monkeypatch.setattr(core, "read_captures", lambda *a, **k: _rows())
+
+    code = cli.main(
+        [
+            "migrate",
+            "--candidate",
+            "cand",
+            "--capture",
+            str(log),
+            "--key",
+            str(key),
+            "--state",
+            str(tmp_path / "migration.json"),
+            "--budget",
+            "50",
+            "--min-per-cluster",
+            "2",
+        ]
+    )
+    assert code == 2
+    assert not (tmp_path / "migration.json").exists(), (
+        "a refused run must not record a state file, or the refusal reads as a run"
+    )
