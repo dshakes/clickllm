@@ -13,7 +13,14 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let log = args.next().expect("usage: read_captures <log> <key>");
     let key_path = args.next().expect("usage: read_captures <log> <key>");
-    let key = CaptureStore::load_or_create_key(std::path::Path::new(&key_path)).expect("key");
+    // Read, never create. `load_or_create_key` would turn a typo in the key
+    // path into a brand-new key file, and then report an empty log — surprising
+    // filesystem mutation from a tool whose entire purpose is to look.
+    let raw = std::fs::read(&key_path).expect("read key file");
+    let key: [u8; 32] = raw
+        .as_slice()
+        .try_into()
+        .expect("key file must be 32 bytes");
     let store = CaptureStore::open(&log, &key).expect("open");
     for c in store.read_all().expect("read") {
         println!("request  {}", c.request_id);

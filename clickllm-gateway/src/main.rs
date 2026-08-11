@@ -111,6 +111,22 @@ fn parse_from(args: impl Iterator<Item = String>) -> Result<Args, String> {
     if a.percent > 0 && a.candidate.is_none() {
         return Err("--percent needs a --candidate to send that share to".into());
     }
+    // Startup may not move traffic. `control.rs` refuses an unconfirmed
+    // candidate-share increase — it records a reason, checks an admin token and
+    // writes a transition — and `--percent 100` at launch reached `Phase::Cut`
+    // with none of that. A launch flag is set by whatever composes the command,
+    // which for a container spec or a systemd unit is config drift, and
+    // "nothing authorises a cutover except shadow mode" has to hold against
+    // config too or it holds against nobody.
+    if a.percent > 0 {
+        return Err(
+            "--percent cannot move traffic at startup: a candidate is scored in shadow \
+             first, and escalation goes through the control surface, which records a \
+             reason and refuses an unconfirmed increase. Start in shadow (omit \
+             --percent) and escalate there."
+                .into(),
+        );
+    }
     Ok(a)
 }
 
@@ -184,13 +200,24 @@ async fn main() {
                 std::process::exit(2);
             }
         };
-        match CaptureStore::open(&log, &key) {
-            Ok(store) => state = state.with_capture(Arc::new(store)),
+        // `open` builds a cipher and touches no filesystem; `append` opens
+        // lazily, from a spawned task whose errors are logged and dropped. So
+        // `open` succeeding proved nothing — a directory as the log path
+        // started, served, and recorded silently nothing. `ready()` performs
+        // the same open `append` will, now, before anything binds.
+        let store = match CaptureStore::open(&log, &key) {
+            Ok(s) => s,
             Err(e) => {
                 eprintln!("error: cannot open the capture log at {log:?}: {e}");
                 std::process::exit(2);
             }
+        };
+        if let Err(e) = store.ready() {
+            eprintln!("error: the capture log at {log:?} is not writable: {e}");
+            eprintln!("       pass --no-capture to run as a plain proxy instead.");
+            std::process::exit(2);
         }
+        state = state.with_capture(Arc::new(store));
         println!(
             "  capture   {} (key: {})",
             log.display(),
@@ -329,6 +356,39 @@ mod tests {
             Phase::Canary { percent: 25 }
         );
         assert_eq!(phase_for(Some("http://y"), 100), Phase::Cut);
+    }
+
+    #[test]
+    fn startup_cannot_move_traffic() {
+        // `control.rs` refuses an unconfirmed candidate-share increase: it
+        // records a reason, checks an admin token, writes a transition. A
+        // launch flag had none of that and reached `Phase::Cut` directly.
+        //
+        // A flag is set by whatever composes the command — a container spec, a
+        // systemd unit, a helm chart — so "nothing authorises a cutover except
+        // shadow mode" has to hold against config drift or it holds against
+        // nobody.
+        for pct in ["1", "5", "50", "100"] {
+            let e = parse(&[
+                "--upstream",
+                "http://x",
+                "--candidate",
+                "http://y",
+                "--percent",
+                pct,
+            ])
+            .expect_err("startup escalation must be refused");
+            assert!(e.contains("control surface"), "{pct}: {e}");
+        }
+    }
+
+    #[test]
+    fn shadow_is_still_allowed_at_startup() {
+        // The control that keeps the refusal honest: scoring a candidate
+        // without serving it is the *point*, and a guard that blocked it would
+        // make the gateway useless for the thing it exists to do.
+        let a = parse(&["--upstream", "http://x", "--candidate", "http://y"]).unwrap();
+        assert_eq!(phase_for(a.candidate.as_deref(), a.percent), Phase::Shadow);
     }
 
     #[test]
