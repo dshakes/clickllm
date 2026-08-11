@@ -54,6 +54,24 @@ pub struct Capture {
     pub completion_tokens: Option<u64>,
     /// Wall-clock duration.
     pub duration_ms: u64,
+    /// Tool schemas the request offered, as sent. Redacted like the messages.
+    ///
+    /// The distiller clusters on the *names* offered, because "summarise" and
+    /// "summarise, and it may call `refund()`" are different workloads that a
+    /// candidate can pass one of and fail the other. Without this every
+    /// tool-using workload clustered as toolless, and nothing said so.
+    #[serde(default)]
+    pub tools: serde_json::Value,
+    /// Names of the tools the response actually called — names only.
+    ///
+    /// The distiller asks one question of this (`used_tools`: were any called),
+    /// so the arguments buy nothing, and arguments are where the user's data
+    /// lives. Names only is both sufficient and the smaller blast radius.
+    #[serde(default)]
+    pub tool_calls: Vec<String>,
+    /// The output format the request demanded, when it demanded one.
+    #[serde(default)]
+    pub response_format: Option<String>,
     /// What redaction removed. Non-empty is the normal case for real traffic.
     pub redacted: Report,
 }
@@ -176,11 +194,18 @@ impl CaptureStore {
     pub fn append(&self, mut c: Capture) -> Result<Report> {
         let (messages, mut report) = redact_json(&c.messages)?;
         let (response, response_report) = redact::redact(&c.response)?;
-        for (k, v) in response_report.counts {
-            *report.counts.entry(k).or_insert(0) += v;
+        // Tool schemas are developer-authored, but they carry descriptions and
+        // enum values that get pasted from real data often enough. Redacting
+        // them costs a walk over a small object and removes the question.
+        let (tools, tools_report) = redact_json(&c.tools)?;
+        for r in [response_report, tools_report] {
+            for (k, v) in r.counts {
+                *report.counts.entry(k).or_insert(0) += v;
+            }
         }
         c.messages = messages;
         c.response = response;
+        c.tools = tools;
         c.redacted = report.clone();
 
         let plaintext =
@@ -290,6 +315,61 @@ impl CaptureStore {
     }
 }
 
+/// Names of the tools a complete, non-streamed response called.
+///
+/// Empty when it called none, which is the common case and the one the
+/// distiller reads as "tools offered, unused".
+#[must_use]
+pub fn body_tool_calls(body: &[u8]) -> Vec<String> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let calls = v
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("tool_calls"))
+        .and_then(serde_json::Value::as_array);
+    calls
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| tool_call_name(c).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A tool name carried by one streamed event, if it announces one.
+///
+/// Streamed tool calls arrive as fragments: the first carries the name, the
+/// rest carry slices of the JSON arguments. Only the first is of interest —
+/// `used_tools` is a boolean question, and the arguments are the part that
+/// holds the user's data.
+#[must_use]
+pub fn delta_tool_call(event: &crate::sse::Event) -> Option<String> {
+    let crate::sse::Event::Data(payload) = event else {
+        return None;
+    };
+    let v: serde_json::Value = serde_json::from_str(payload).ok()?;
+    let calls = v
+        .get("choices")?
+        .get(0)?
+        .get("delta")?
+        .get("tool_calls")?
+        .as_array()?;
+    calls
+        .iter()
+        .find_map(|c| tool_call_name(c).map(str::to_owned))
+}
+
+/// The name inside one tool-call object, streamed or complete.
+fn tool_call_name(call: &serde_json::Value) -> Option<&str> {
+    call.get("function")?
+        .get("name")?
+        .as_str()
+        .filter(|s| !s.is_empty())
+}
+
 /// Assistant text carried by one streamed event.
 ///
 /// Returns `None` for anything that is not generated content — the `[DONE]`
@@ -375,7 +455,12 @@ fn restrict(path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -394,8 +479,27 @@ mod tests {
             prompt_tokens: Some(10),
             completion_tokens: Some(20),
             duration_ms: 42,
+            tools: serde_json::Value::Null,
+            tool_calls: Vec::new(),
+            response_format: None,
             redacted: Report::default(),
         }
+    }
+
+    #[test]
+    fn a_record_written_before_the_shape_fields_existed_still_reads() {
+        // Customers have logs on disk from before `tools`, `tool_calls` and
+        // `response_format` existed. Adding a field to a serialised type is a
+        // format change, and the failure mode is a decrypt that "fails" — which
+        // this crate reports as a wrong key, sending the reader looking in
+        // entirely the wrong place.
+        let legacy = r#"{"request_id":"r1","model":"gpt-5","backend":"incumbent",
+            "messages":[{"role":"user","content":"hi"}],"response":"yo",
+            "prompt_tokens":10,"completion_tokens":20,"duration_ms":42,
+            "redacted":{"counts":{}}}"#;
+        let c: Capture = serde_json::from_str(legacy).expect("legacy record must still parse");
+        assert_eq!(c.request_id, "r1");
+        assert!(c.tools.is_null() && c.tool_calls.is_empty() && c.response_format.is_none());
     }
 
     #[test]

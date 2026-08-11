@@ -524,6 +524,19 @@ async fn chat_completions(
         prompt_tokens: None,
         completion_tokens: None,
         duration_ms: 0,
+        tools: parsed
+            .get("tools")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        tool_calls: Vec::new(),
+        // `{"type": "json_schema", ...}` and `{"type": "json_object"}` are the
+        // shapes in the wild; the type is what distinguishes the workload, and
+        // the schema itself belongs to the prompt, not to the format.
+        response_format: parsed
+            .get("response_format")
+            .and_then(|f| f.get("type").or(Some(f)))
+            .and_then(|t| t.as_str())
+            .map(ToOwned::to_owned),
         redacted: crate::capture::Report::default(),
     });
 
@@ -549,6 +562,7 @@ async fn chat_completions(
         let metered = meter.finish();
         if let Some(mut c) = pending_capture {
             c.response = store::body_text(&bytes);
+            c.tool_calls = store::body_tool_calls(&bytes);
             c.duration_ms = elapsed_ms(started);
             (c.prompt_tokens, c.completion_tokens) = tokens(&metered);
             st.capture(c);
@@ -573,7 +587,7 @@ async fn chat_completions(
     // pay. `None` here means the deltas are observed for metering and discarded.
     let transcript = pending_capture
         .is_some()
-        .then(|| Arc::new(Mutex::new(String::new())));
+        .then(|| Arc::new(Mutex::new(Transcript::default())));
     let transcript_for_stream = transcript.clone();
     let mut decoder = Decoder::new();
     let stream = upstream.bytes_stream().map(move |chunk| match chunk {
@@ -588,7 +602,13 @@ async fn chat_completions(
                     let mut t = t.lock();
                     for ev in &events {
                         if let Some(s) = store::delta_text(ev) {
-                            t.push_str(&s);
+                            t.text.push_str(&s);
+                        }
+                        // A name arrives once per call, in its opening
+                        // fragment; the argument fragments that follow carry
+                        // none and are deliberately not reassembled.
+                        if let Some(name) = store::delta_tool_call(ev) {
+                            t.calls.push(name);
                         }
                     }
                 }
@@ -636,7 +656,20 @@ struct FinishOnDrop {
     meter: Arc<Mutex<Meter>>,
     started: Instant,
     capture: Mutex<Option<Capture>>,
-    transcript: Option<Arc<Mutex<String>>>,
+    transcript: Option<Arc<Mutex<Transcript>>>,
+}
+
+/// What the stream closure accumulates for a capture, when capture is on.
+///
+/// One struct rather than two parallel `Option<Arc<..>>`: they are allocated
+/// together, locked together and read together, and two of them is two chances
+/// for one to be wired and the other forgotten.
+#[derive(Default)]
+struct Transcript {
+    /// Assistant text, reassembled from the content deltas.
+    text: String,
+    /// Names of the tools called, in the order announced.
+    calls: Vec<String>,
 }
 
 impl Drop for FinishOnDrop {
@@ -649,7 +682,9 @@ impl Drop for FinishOnDrop {
         }
         if let Some(mut c) = self.capture.lock().take() {
             if let Some(t) = &self.transcript {
-                c.response = t.lock().clone();
+                let t = t.lock();
+                c.response = t.text.clone();
+                c.tool_calls = t.calls.clone();
             }
             c.duration_ms = elapsed_ms(self.started);
             (c.prompt_tokens, c.completion_tokens) = tokens(&metered);
