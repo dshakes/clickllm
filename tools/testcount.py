@@ -74,19 +74,47 @@ def rust_tests() -> int:
     return sum(totals)
 
 
+#: How to collect, in order of preference. The direct invocation first, because
+#: it is fastest when pytest is installed — then the command CLAUDE.md actually
+#: documents, because in this repo it usually is not.
+#:
+#: Without the fallback this script cannot run in the environment the repo tells
+#: you to use, so keeping the counts honest went back to being three careful
+#: edits — which is exactly the thing it exists to replace, and they drifted
+#: again within a day.
+_COLLECTORS: tuple[tuple[str, ...], ...] = (
+    (sys.executable, "-m", "pytest", "-q", "--collect-only", "tests"),
+    (
+        "uv",
+        "run",
+        "--with",
+        "pytest",
+        "--with",
+        "pyyaml",
+        "--python",
+        "3.13",
+        "pytest",
+        "-q",
+        "--collect-only",
+        "tests",
+    ),
+)
+
+
 def python_tests() -> int:
     """Python tests, by collection — skips included, since they still exist."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--collect-only", "tests"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=1800,
-    )
-    m = re.search(r"^(\d+) tests? collected", proc.stdout, re.M)
-    if not m:
-        raise RuntimeError(f"could not read a collected count:\n{proc.stdout[-400:]}")
-    return int(m.group(1))
+    attempts = []
+    for cmd in _COLLECTORS:
+        try:
+            proc = subprocess.run(list(cmd), cwd=ROOT, capture_output=True, text=True, timeout=1800)
+        except FileNotFoundError:
+            attempts.append(f"{cmd[0]}: not on PATH")
+            continue
+        m = re.search(r"^(\d+) tests? collected", proc.stdout, re.M)
+        if m:
+            return int(m.group(1))
+        attempts.append(f"{cmd[0]}: {(proc.stdout or proc.stderr)[-160:].strip()}")
+    raise RuntimeError("could not read a collected count:\n  " + "\n  ".join(attempts))
 
 
 def published_split() -> dict[tuple[str, str], int]:

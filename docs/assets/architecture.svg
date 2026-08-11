@@ -90,7 +90,7 @@
   <rect x="784" y="378" width="168" height="24" rx="6" fill="#13211a" stroke="#2a4a34"/>
   <circle cx="796" cy="390" r="3.5" fill="#46a758"/><text class="url m" x="806" y="394">/v1 · qwen3-coder</text>
   <rect x="960" y="378" width="176" height="24" rx="6" fill="#1a1f28" stroke="#2c3442"/>
-  <circle cx="972" cy="390" r="3.5" fill="#6e7681"/><text class="url m" x="982" y="394" fill="#7d8590">/v1 · phi-4 (idle)</text>
+  <circle cx="972" cy="390" r="3.5" fill="#6e7681"/><text class="url m" x="982" y="394" style="fill:#7d8590">/v1 · phi-4 (idle)</text>
 </g>
 <text class="t cap" x="1136" y="348" text-anchor="end">vLLM · SGLang · llm-d · MLX · llama.cpp · Ollama</text>
 
@@ -107,12 +107,12 @@
   <text class="ttl" x="64" y="486">② Distill</text>
   <text class="cap" x="64" y="506">cluster traffic by task</text>
   <text class="cap" x="64" y="522">sample representatively</text>
-  <text class="cap" x="64" y="538" fill="#c9a6f5">→ your private eval set</text>
+  <text class="cap" x="64" y="538" style="fill:#c9a6f5">→ your private eval set</text>
 
   <text class="ttl" x="288" y="486">④ Prove</text>
   <text class="cap" x="288" y="506">assertions → graders</text>
   <text class="cap" x="288" y="522">→ position-swapped judge</text>
-  <text class="cap" x="288" y="538" fill="#c9a6f5">→ equivalence + regret</text>
+  <text class="cap" x="288" y="538" style="fill:#c9a6f5">→ equivalence + regret</text>
 
   <text class="ttl" x="512" y="486">③ Fit · ⑤ Pack</text>
   <text class="cap" x="512" y="506">hardware probe + solver</text>
@@ -122,12 +122,12 @@
   <text class="ttl" x="736" y="486">⑥ Cut over</text>
   <text class="cap" x="736" y="506">shadow → canary → cut</text>
   <text class="cap" x="736" y="522">rollback &lt;10s on quality</text>
-  <text class="cap" x="736" y="538" fill="#c9a6f5">→ then exit the datapath</text>
+  <text class="cap" x="736" y="538" style="fill:#c9a6f5">→ then exit the datapath</text>
 
   <text class="ttl" x="960" y="486">⑦ Guard</text>
   <text class="cap" x="960" y="506">watch model releases</text>
   <text class="cap" x="960" y="522">re-prove on your traffic</text>
-  <text class="cap" x="960" y="538" fill="#c9a6f5">→ promotion proposals</text>
+  <text class="cap" x="960" y="538" style="fill:#c9a6f5">→ promotion proposals</text>
 </g>
 
 <!-- ══ storage layer ══ -->

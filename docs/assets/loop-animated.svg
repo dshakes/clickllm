@@ -170,23 +170,23 @@
 <g class="t">
   <rect x="532" y="164" width="52" height="15" rx="7.5" fill="#22d3ee"/>
   <text class="tag" x="558" y="175" text-anchor="middle" fill="#04060c">PROVE</text>
-  <text class="ttl" x="532" y="198" fill="#fff">Equivalence</text>
+  <text class="ttl" x="532" y="198" style="fill:#fff">Equivalence</text>
   <text class="cap" x="532" y="212">vs. your incumbent</text>
   <g>
     <rect class="cell c1" x="532" y="221" width="17" height="8" rx="2" fill="#34d399"/>
     <rect class="cell c2" x="552" y="221" width="17" height="8" rx="2" fill="#34d399"/>
     <rect class="cell c3" x="572" y="221" width="17" height="8" rx="2" fill="#fbbf24"/>
-    <text class="cell c3 cap m" x="598" y="229" fill="#34d399">96%</text>
+    <text class="cell c3 cap m" x="598" y="229" style="fill:#34d399">96%</text>
 
     <rect class="cell c4" x="532" y="233" width="17" height="8" rx="2" fill="#34d399"/>
     <rect class="cell c5" x="552" y="233" width="17" height="8" rx="2" fill="#34d399"/>
     <rect class="cell c6" x="572" y="233" width="17" height="8" rx="2" fill="#34d399"/>
-    <text class="cell c6 cap m" x="598" y="241" fill="#34d399">98%</text>
+    <text class="cell c6 cap m" x="598" y="241" style="fill:#34d399">98%</text>
 
     <rect class="cell c7" x="532" y="245" width="17" height="8" rx="2" fill="#fbbf24"/>
     <rect class="cell c8" x="552" y="245" width="17" height="8" rx="2" fill="#fb7185"/>
     <rect class="cell c9" x="572" y="245" width="17" height="8" rx="2" fill="#fbbf24"/>
-    <text class="cell c9 cap m" x="598" y="253" fill="#fbbf24">62%</text>
+    <text class="cell c9 cap m" x="598" y="253" style="fill:#fbbf24">62%</text>
   </g>
 </g>
 

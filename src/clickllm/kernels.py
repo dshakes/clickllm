@@ -251,9 +251,16 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
             "    vLLM instantiates one per engine and calls `record` on every\n"
             "    iteration, so anything slow here is in the serving loop.\n"
             '    """\n\n'
-            "    def record(self, scheduler_stats, iteration_stats, engine_idx=0):\n"
+            "    def __init__(self, vllm_config, engine_idx=0):\n"
+            "        self.vllm_config = vllm_config\n"
+            "        self.engine_idx = engine_idx\n\n"
+            "    def record(self, scheduler_stats, iteration_stats, mm_cache_stats=None, "
+            "engine_idx=0):\n"
             "        raise NotImplementedError\n\n"
             "    def log(self):\n"
+            "        raise NotImplementedError\n\n"
+            "    def log_engine_initialized(self):\n"
+            '        """Called once, after engine startup — before any `record` call."""\n'
             "        raise NotImplementedError\n"
         )
     elif plugin.kind is PluginKind.IO_PROCESSOR:
@@ -272,18 +279,36 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
         module = (
             f'"""{plugin.name} — a {plugin.kind.value} plugin."""\n\n'
             "from __future__ import annotations\n\n"
-            "from fastapi import APIRouter\n\n"
-            "router = APIRouter()\n\n\n"
-            '@router.get("/my-endpoint")\n'
-            "async def my_endpoint():\n"
-            '    return {"ok": True}\n\n\n'
-            "def register():\n"
-            '    """Return the routes to add.\n\n'
+            "from fastapi import APIRouter, FastAPI\n\n\n"
+            "class MyEndpointPlugin:\n"
+            '    """Implements vLLM\'s `EndpointPlugin` protocol.\n\n'
             "    This group is NOT loaded by default — vLLM must be started with\n"
             "    the endpoint plugin explicitly enabled, so a scaffold that works\n"
             "    and appears to do nothing is usually this and not your code.\n"
+            '    """\n\n'
+            '    name = "my-endpoint"\n\n'
+            "    #: Tasks the engine must support for this endpoint to attach.\n"
+            "    #: The loader reads this before calling `attach_router`.\n"
+            '    required_tasks = frozenset({"generate"})\n\n'
+            "    def attach_router(self, app: FastAPI) -> None:\n"
+            "        router = APIRouter()\n\n"
+            '        @router.get("/my-endpoint")\n'
+            "        async def my_endpoint():\n"
+            '            return {"ok": True}\n\n'
+            "        app.include_router(router)\n\n"
+            "    async def init_state(self, engine_client, state, args) -> None:\n"
+            '        """Called once at startup, awaited before any request is served.\n\n'
+            "        vLLM's endpoint plugin lifecycle awaits this hook, so a `def` here\n"
+            "        satisfies the method-exists check but not the protocol: called\n"
+            "        without a coroutine to await, it does nothing.\n"
+            '        """\n\n\n'
+            "def register() -> MyEndpointPlugin:\n"
+            '    """Zero-argument factory. The loader calls this, then reads\n'
+            "    `required_tasks` and calls `attach_router` on what it returns —\n"
+            "    an `APIRouter` here would resolve to a value the loader cannot\n"
+            "    read `required_tasks` from at all.\n"
             '    """\n'
-            "    return router\n"
+            "    return MyEndpointPlugin()\n"
         )
     elif plugin.kind is PluginKind.PLATFORM:
         module = (
@@ -319,6 +344,21 @@ def scaffold(plugin: Plugin, claim: KernelClaim | None = None) -> dict[str, str]
         )
 
     files[f"{pkg}/__init__.py"] = module
+
+    if plugin.kind is PluginKind.IO_PROCESSOR:
+        # `register()` above returns this FQN as a string; vLLM imports it by
+        # name, so the class it names must actually exist in the package.
+        files[f"{pkg}/processor.py"] = (
+            f'"""{plugin.name} — the class `register()`\'s FQN points at."""\n\n'
+            "from __future__ import annotations\n\n"
+            "from vllm.plugins.io_processors.interface import IOProcessor\n\n\n"
+            "class MyIOProcessor(IOProcessor):\n"
+            '    """The IOProcessor `register()` names by fully-qualified name."""\n\n'
+            "    def pre_process(self, prompt, request_id=None, **kwargs):\n"
+            "        raise NotImplementedError\n\n"
+            "    def post_process(self, model_output, request_id=None, **kwargs):\n"
+            "        raise NotImplementedError\n"
+        )
 
     steps = verification_plan(claim) if claim else []
     files["PROVING.md"] = (

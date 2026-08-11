@@ -418,6 +418,34 @@ def test_every_generated_svg_is_intrinsically_proportional():
     assert not bad, "intrinsically distorted: " + "; ".join(bad)
 
 
+def test_every_diagram_is_embedded_somewhere():
+    """A diagram nobody references is a file, not a figure.
+
+    Two new diagrams were built specifically to replace text-only claims in
+    README.md and landed in `docs/assets/` — correct, well-formed, and never
+    added to any page. The PR that built them shipped everything except the
+    one line that makes them do their job.
+    """
+    root = Path(__file__).resolve().parents[1]
+    assets = sorted((root / "docs" / "assets").glob("*.svg"))
+    assert assets, "no diagrams found"
+
+    pages_text = "".join(
+        p.read_text()
+        for p in (
+            [root / "README.md"]
+            + sorted((root / "site").rglob("*.html"))
+            + sorted((root / "docs").rglob("*.md"))
+        )
+        if p.exists()
+    )
+
+    orphans = [f.name for f in assets if f.name not in pages_text]
+    assert not orphans, (
+        f"built but never referenced from README.md, site/**/*.html or docs/**/*.md: {orphans}"
+    )
+
+
 # --- published claims ------------------------------------------------------
 # The test count appears on three surfaces that drifted apart unnoticed: the
 # site said 478, the README badge said 668, and the suite was actually 675.
@@ -1264,3 +1292,87 @@ def test_the_homebrew_formula_is_not_still_a_placeholder():
 
     url = re.search(r"archive/refs/tags/(v[0-9.]+)\.tar\.gz", text)
     assert url, "formula URL does not point at a release tag"
+
+
+def test_no_diagram_sets_a_presentation_attribute_its_own_stylesheet_overrides():
+    """The same trap as above, widened to every diagram including hand-authored
+    ones — which the generated-only check deliberately skips.
+
+    That exemption was right when it was written: `gap-map.svg` defines a `.t`
+    carrying nothing but a font-family, so its `fill` attributes are honoured
+    and flagging them would be a false alarm. It stopped being right the moment
+    a hand-authored diagram defined a class that *does* set `fill`. Two new ones
+    did, and six labels rendered grey instead of the red/amber/green that
+    carried the entire point of the figure.
+
+    So this reads each file's own `<style>` rather than assuming: a class is
+    only a trap in the file where it sets the property. No exemption list, and
+    none needed.
+    """
+    import re
+
+    assets = sorted((Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg"))
+    assert assets, "no diagrams found"
+
+    offenders = []
+    for f in assets:
+        text = f.read_text()
+        # Every `<style>` block, not just the first — a second one silently
+        # went unchecked otherwise.
+        setters = {prop: set() for prop in ("fill", "font-size")}
+        for block in re.finditer(r"<style[^>]*>(.*?)</style>", text, re.S):
+            css = block.group(1)
+            # Per rule, not per class token: a selector's class list may be
+            # compound (`.t.cap`), grouped (`.cap,.warn`), or hyphenated
+            # (`.bad-label`) — `[\w-]+` after each `.` catches all of those,
+            # and matching whole `selector { body }` rules (rather than
+            # scanning class-then-brace) means a property set anywhere in the
+            # rule body is attributed to every class the selector names.
+            for rule in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+                selector, body = rule.group(1), rule.group(2)
+                classes = re.findall(r"\.([\w-]+)", selector)
+                for prop, owners in setters.items():
+                    if re.search(rf"\b{prop}\s*:", body):
+                        owners.update(classes)
+        for tag in re.finditer(r"<text[^>]*>", text):
+            t = tag.group(0)
+            classes = re.search(r"""class=["']([^"']+)["']""", t)
+            if not classes:
+                continue
+            named = set(classes.group(1).split())
+            for prop, owners in setters.items():
+                if named & owners and re.search(rf'\s{prop}="', t):
+                    offenders.append(f"{f.name}: {prop} on {t[:74]}")
+
+    assert not offenders, (
+        "a CSS rule beats a presentation attribute — use style= instead:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_no_diagram_declares_a_css_length_without_a_unit():
+    """`style="font-size:14"` is invalid CSS and silently ignored; the
+    presentation attribute `font-size="14"` it replaced was valid.
+
+    The two are not interchangeable, and converting one to the other is exactly
+    what the fix for the override trap does — so a mechanical rewrite that gets
+    the colours right can get the sizes wrong in the same pass, and nothing
+    errors. The text simply renders at whatever the class said, which is the
+    quiet failure the override trap was about in the first place.
+    """
+    import re
+
+    assets = sorted((Path(__file__).resolve().parents[1] / "docs" / "assets").glob("*.svg"))
+    lengths = ("font-size", "stroke-width", "letter-spacing")
+    offenders = []
+    for f in assets:
+        for m in re.finditer(r'style="([^"]*)"', f.read_text()):
+            for decl in m.group(1).split(";"):
+                prop, _, value = decl.partition(":")
+                v = value.strip()
+                if prop.strip() in lengths and re.fullmatch(r"[0-9.]+", v):
+                    offenders.append(f"{f.name}: {prop.strip()}:{v} has no unit")
+
+    assert not offenders, "unitless CSS lengths are ignored by the renderer:\n  " + "\n  ".join(
+        offenders
+    )
