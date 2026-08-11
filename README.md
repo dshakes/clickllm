@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1877-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1894-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -102,7 +102,7 @@ Naming this is faster than a feature matrix.
 | **Not an inference engine.** | vLLM, SGLang and MLX exist and are excellent. clickllm chooses among them and configures them; it never competes with them. |
 | **Not an eval platform.** | Braintrust and LangSmith watch production after you ship. clickllm answers one question before you ship, then gets out of the way. Promptfoo is the closest thing to this and it is good software — it was also acquired by OpenAI in March 2026. clickllm is independent and Apache-2.0, and has no model to sell you. |
 | **Not hosted inference.** | Nothing runs on our machines. There is no account, no telemetry, and no egress you did not ask for. |
-| **Not a router or a proxy.** | Nothing sits in your request path. clickllm sizes, configures, launches and measures; where the traffic goes afterwards is your call and your infrastructure. A proxy that must be up for your app to work is a liability you did not have before. |
+| **Not a load balancer.** | clickllm is in your request path *only while a migration is in flight*, and leaving is the terminal state rather than an afterthought — at 100% cut over there is nothing left to compare, and balancing is handed to GAIE/llm-d. While it is there it does three things no balancer does: mirrors traffic to a candidate that is **scored but never served**, splits deterministically so a retry lands the same way, and applies per-cluster policy so the tasks where the open model loses keep going to the incumbent. `fit`, `where`, `prove` and the receipt path never touch the datapath at all. [ADR-0015](docs/adr/0015-in-the-path-only-while-migrating.md). |
 
 The join between those categories is the product: **your traffic → which model →
 will it fit → what it costs → is it good enough → deploy → roll back.** Nothing
@@ -560,12 +560,12 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ## Verification
 
 ```bash
-cargo test --all                                   # 232 Rust
+cargo test --all                                   # 247 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1645 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1647 Python
 ```
 
-**1877 tests.** 1632 Python, 227 Rust. Eighteen of the Python tests skip on a
+**1894 tests.** 1647 Python, 247 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
