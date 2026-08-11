@@ -876,6 +876,70 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Mirrored from `clickllm.measure` so building the parser does not import it.
+#: A drift here is caught by a test rather than by a user getting a different
+#: default from `--help` than the module applies.
+M_DEFAULT_SAMPLES = 5
+M_DEFAULT_MAX_TOKENS = 128
+
+
+def cmd_measure(args: argparse.Namespace) -> int:
+    """Measure decode throughput against a running endpoint, or refuse to.
+
+    The one command that can turn a roofline estimate into an observation, and
+    the one most able to make this product *less* trustworthy if it is careless:
+    a measured number carries more authority than an estimate and outlives the
+    conditions that produced it. See issue #80 and `clickllm.measure`.
+    """
+    from . import measure as M
+
+    hw = hardware.detect()
+    roofline = None
+    if args.model:
+        try:
+            spec = catalog.get(args.model)
+        except KeyError:
+            spec = None
+        if spec is not None:
+            fit_result = fit.best_quant(spec, hw, _parse_size(args.context), args.concurrency)
+            if fit_result is not None:
+                # The like-for-like comparison: single-stream decode against a
+                # single-stream roofline. `aggregate_tokens_per_sec` is the batch
+                # figure and would flatter the measurement at concurrency > 1.
+                roofline = fit_result.tokens_per_sec
+
+    result = M.measure(
+        args.endpoint,
+        args.served_model or args.model,
+        cores=hw.cores,
+        samples=args.samples,
+        max_tokens=args.max_tokens,
+        roofline=roofline,
+        api_key=os.environ.get("CLICKLLM_API_KEY", ""),
+    )
+
+    if args.json:
+        print(result.to_json())
+    else:
+        print(result.render())
+        if roofline is None and args.model:
+            print(
+                f"  No roofline to compare against: {args.model!r} is not in the\n"
+                "  catalogue, or nothing fits on this machine at that context.\n"
+            )
+
+    if args.out:
+        from .atomicio import atomic_write
+
+        atomic_write(pathlib.Path(args.out), result.to_json())
+        print(f"  wrote {args.out}\n")
+
+    # Nonzero when the samples are not usable as a measurement, so a script that
+    # wanted a number knows it did not get one. This is not an error — "the
+    # machine was too busy" is a legitimate outcome, and the report says so.
+    return 0 if result.usable else 1
+
+
 def cmd_catalog_sources(args: argparse.Namespace) -> int:
     """Where the catalogue's models came from."""
     models = catalog.load()
@@ -1756,6 +1820,23 @@ def main(argv: list[str] | None = None) -> int:
     mg.add_argument("--install", action="store_true", help="print a crontab fragment")
     mg.add_argument("--every-hours", type=int, default=24, dest="every_hours")
     mg.set_defaults(fn=cmd_migrate)
+
+    ms = sub.add_parser("measure", help="measure real decode throughput, or refuse to")
+    ms.add_argument("--endpoint", required=True, help="an OpenAI-compatible base URL")
+    ms.add_argument("--model", default="", help="catalogue id, for the roofline comparison")
+    ms.add_argument(
+        "--served-model",
+        dest="served_model",
+        default="",
+        help="the name the endpoint knows it by, when it differs from the catalogue id",
+    )
+    ms.add_argument("--samples", type=int, default=M_DEFAULT_SAMPLES)
+    ms.add_argument("--max-tokens", type=int, default=M_DEFAULT_MAX_TOKENS, dest="max_tokens")
+    ms.add_argument("--context", default="32k", help="context for the roofline comparison")
+    ms.add_argument("--concurrency", type=int, default=1)
+    ms.add_argument("--out", help="write the measurement as JSON")
+    ms.add_argument("--json", action="store_true")
+    ms.set_defaults(fn=cmd_measure)
 
     g = sub.add_parser("guard", help="check whether a receipt still holds")
     g.add_argument("receipt", help="path to a receipt JSON file")
