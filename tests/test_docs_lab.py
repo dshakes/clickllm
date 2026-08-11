@@ -1570,3 +1570,28 @@ def test_every_command_the_readme_names_is_a_command_that_exists():
     listed = set(re.findall(r"[{,]([a-z][a-z-]*)", out.stdout))
     missing = named - listed
     assert not missing, f"the README names commands the CLI does not have: {sorted(missing)}"
+
+
+def test_the_adr_count_the_readme_publishes_is_the_number_of_adrs():
+    """It said eight for a while; there were fifteen. A count in prose is a fact
+    with no owner — nothing recomputes it, and it is wrong the first time anyone
+    adds a decision."""
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    actual = len(list((root / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.md")))
+    m = re.search(r"\[ADRs\]\(docs/adr/\) \| (\d+) decisions", readme)
+    assert m, "the ADR row no longer publishes a count; update or drop this check"
+    assert int(m.group(1)) == actual, f"README says {m.group(1)} ADRs, there are {actual}"
+
+
+def test_every_numbered_doc_is_linked_from_the_readme():
+    """A doc nobody links is a doc nobody reads. `90-ci-gating.md` was written
+    and unlinked, which is the same failure as a capability with no command."""
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    missing = [
+        f.name
+        for f in sorted((root / "docs").glob("[0-9][0-9]-*.md"))
+        if f"docs/{f.name}" not in readme
+    ]
+    assert not missing, f"written but unlinked: {missing}"

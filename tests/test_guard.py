@@ -313,6 +313,34 @@ def test_a_new_release_alone_does_not_fail_the_cron_job(tmp_path):
     assert main(["guard", rp, "--available", "qwen-4", "--today", "2026-07-27"]) == 0
 
 
+def test_fail_on_any_fails_a_release_gate_on_a_non_voiding_finding(tmp_path, capsys):
+    # The whole point of `--fail-on any`: a receipt that still `valid`ates can
+    # still fail a release gate that refuses to deploy on an unreviewed proof.
+    from clickllm.cli import main
+
+    rp = _write(tmp_path, "r.json", receipt().to_json())
+    code = main(["guard", rp, "--available", "qwen-4", "--today", "2026-07-27", "--fail-on", "any"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "receipt still holds" in out, out
+    assert "none of which voids the receipt on its own" in out, out
+
+
+def test_fail_on_any_does_not_contradict_a_void_receipt(tmp_path, capsys):
+    # A `model_changed` finding already prints RECEIPT VOID above this message —
+    # claiming "none of which voids the receipt" underneath it was a lie the
+    # exit code did not agree with.
+    from clickllm.cli import main
+
+    rp = _write(tmp_path, "r.json", receipt().to_json())
+    fp = _write(tmp_path, "fp.json", {"gpt-5": "9" * 64})
+    code = main(["guard", rp, "--fingerprints", fp, "--today", "2026-07-27", "--fail-on", "any"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "RECEIPT VOID" in out, out
+    assert "none of which voids the receipt" not in out, out
+
+
 def test_an_altered_receipt_is_a_sentence_not_a_traceback(tmp_path, capsys):
     """The alteration has to be one only the digest can catch.
 

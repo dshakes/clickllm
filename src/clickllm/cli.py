@@ -777,6 +777,105 @@ def cmd_distill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Walk the chain, record what the evidence permits, and stop at the gate.
+
+    The only command that runs the whole loop, and the one most worth being
+    clear about what it does not do: it never moves traffic. `gate.decide`
+    returns `ADVANCE` as a proposal, this prints it, and a human applies it
+    through the gateway's control surface — which records a reason and refuses
+    an unconfirmed increase (invariant 8).
+    """
+    from datetime import date
+
+    from . import core, migrate, observe
+
+    path = migrate.state_path(args.state)
+
+    if args.status:
+        if not path.exists():
+            print(f"\n  No migration in progress ({path} does not exist).\n")
+            return 2
+        st = migrate.load_state(path)
+        print(f"\n  migration to {st.candidate}, started {st.started}")
+        print(f"  currently {st.stage().render()}  ·  {len(st.runs)} runs recorded\n")
+        for r in st.runs[-5:]:
+            print(f"  {r.when}  {r.action:<9} {r.items:>4} items  {r.reason[:60]}")
+        print()
+        return 0
+
+    if args.install:
+        fragment, where = migrate.install_schedule(
+            interval_hours=args.every_hours, state=args.state or ""
+        )
+        print(f"\n  Save this in {where}\n")
+        print(f"  {fragment}")
+        print(
+            "  Not installed for you: a recurring job that reads your captured\n"
+            "  traffic is your decision.\n"
+        )
+        return 0
+
+    if not args.candidate:
+        raise ValueError("--candidate is required: name the model being evaluated")
+    if not core.available():
+        print(f"\n  {core.why_unavailable()}\n")
+        return 2
+
+    home = observe.state_dir()
+    log = pathlib.Path(args.capture) if args.capture else home / "captures.log"
+    key = pathlib.Path(args.key) if args.key else home / "capture.key"
+    if not log.exists() or not key.exists():
+        print(f"\n  No captures at {log}. Run `clickllm observe` first.\n")
+        return 2
+
+    rows = core.read_captures(str(log), key.read_bytes())
+    st = migrate.load_state(path, args.candidate)
+
+    def prove_it(doc: dict) -> object:
+        from .prove import EvalItem, suite
+
+        items = [
+            EvalItem(
+                item_id=str(r["item_id"]),
+                cluster=str(r["cluster"]),
+                prompt=str(r["prompt"]),
+                baseline=str(r["baseline"]),
+                candidate=str(r.get("candidate") or ""),
+                baseline_tool_calls=tuple(r.get("baseline_tool_calls") or ()),
+                response_format=r.get("response_format"),
+            )
+            for r in doc["items"]
+        ]
+        _refuse_ungraded(items, endpoint=args.candidate_endpoint, source="the distilled eval set")
+        items, _ = _collect_replies(items, args)
+        if not items:
+            raise ValueError(
+                "no candidate replies were collected, so there is nothing to "
+                "grade. Check --candidate-endpoint."
+            )
+        return suite(
+            items,
+            shares=doc["shares"],
+            names=doc["names"],
+            candidate=args.candidate,
+            incumbent=args.incumbent,
+            issued=date.today().isoformat(),
+            bar=args.bar,
+        )
+
+    st, run, decision = migrate.step(
+        st, rows=rows, prove=prove_it, budget=args.budget, min_per_cluster=args.min_per_cluster
+    )
+    migrate.save_state(st, path)
+    print(migrate.render(st, run, decision))
+    print(f"  state: {path}\n")
+    # Zero when the loop ran, whatever it decided. A scheduled job that exits
+    # nonzero because the answer was "hold" would page someone nightly for the
+    # normal case.
+    return 0
+
+
 def cmd_catalog_sources(args: argparse.Namespace) -> int:
     """Where the catalogue's models came from."""
     models = catalog.load()
@@ -925,6 +1024,24 @@ def cmd_guard(args: argparse.Namespace) -> int:
 
     # Nonzero when the receipt no longer describes production, so this is usable
     # as a cron job or a CI step without parsing the output.
+    #
+    # `--fail-on any` exists because the default is a *judgement*, not a fact:
+    # an aged proof and a newly released model both leave `valid` true, and
+    # whether that should stop a deploy is the deploying team's policy rather
+    # than ours. Making them pick it is better than picking for them and being
+    # quietly wrong for half of them — and the strict mode is the one a release
+    # gate usually wants, since "nothing observed has changed, but nobody has
+    # checked in eleven months" is not a thing to deploy on silently.
+    if args.fail_on == "any" and proposal.findings:
+        if not args.json:
+            if proposal.valid:
+                print(
+                    f"  --fail-on any: {len(proposal.findings)} finding(s), none of which "
+                    "voids the receipt on its own.\n"
+                )
+            else:
+                print(f"  --fail-on any: failing on {len(proposal.findings)} finding(s).\n")
+        return 1
     return 0 if proposal.valid else 1
 
 
@@ -987,6 +1104,57 @@ def cmd_advise(args: argparse.Namespace) -> int:
 
     # Nonzero only when production has diverged, so this is usable as a probe.
     return 1 if drift else 0
+
+
+def _refuse_ungraded(items: list, *, endpoint: str | None, source: str) -> None:
+    """Refuse to grade a set where nothing was ever collected.
+
+    Every candidate answer empty means every grader fails, and the verdict comes
+    back 0% — "keep the incumbent", stated with exactly the confidence of a real
+    result. It fails closed, so nobody ships a bad model on it; they abandon a
+    good one instead, which is the same defect pointing the other way.
+
+    `clickllm distill` writes precisely this file, deliberately: the candidate
+    column is for `--candidate-endpoint` to fill. So the refusal belongs at the
+    solver rather than in the hint distill prints (ADR-0011) — and in *one*
+    place, because it was written for `clickllm prove` and `clickllm migrate`
+    then reached the same grader through its own prover without it, scoring a
+    verdict over answers nobody gave and recording it as a real run.
+    """
+    if endpoint or any(i.candidate for i in items):
+        return
+    raise ValueError(
+        f"{source}: every candidate answer is blank and no --candidate-endpoint "
+        "was given, so there is nothing to grade. Pass --candidate-endpoint <url> "
+        "to collect the candidate's replies, or fill the `candidate` field in the "
+        "file yourself. Grading it as-is would report 0% and read as a verdict."
+    )
+
+
+def _add_collection_flags(parser: argparse.ArgumentParser) -> None:
+    """Declare the flags `_collect_replies` reads.
+
+    One definition, every parser that collects. `prove` had them and `migrate`
+    did not, so the loop reached `_collect_replies` and died on
+    `AttributeError: 'Namespace' object has no attribute 'collect_workers'` —
+    a missing flag surfacing as a crash inside the collector rather than as a
+    usage error at the boundary. Two copies would have fixed today and drifted
+    by the next flag.
+    """
+    parser.add_argument(
+        "--collect-workers",
+        dest="collect_workers",
+        type=int,
+        default=8,
+        help="parallel requests while collecting",
+    )
+    parser.add_argument(
+        "--collect-timeout",
+        dest="collect_timeout",
+        type=float,
+        default=120.0,
+        help="seconds to wait for one reply",
+    )
 
 
 def _collect_replies(
@@ -1068,6 +1236,22 @@ def _judge_from(args: argparse.Namespace) -> tuple[JudgeFn | None, str, Agreemen
     return judge, model, Agreement(agreed=args.judge_agreed, total=args.judge_samples, model=model)
 
 
+def _fingerprints_from(path: str | None) -> dict[str, str]:
+    """Read a `{model: fingerprint}` file, or return nothing if none was given.
+
+    Values are stringified rather than trusted: a JSON number here would be
+    compared against a string later and always differ, reporting a model change
+    that never happened — the one false alarm guaranteed to make someone stop
+    believing the alert.
+    """
+    if not path:
+        return {}
+    raw = json.loads(pathlib.Path(path).read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: expected an object mapping model name to fingerprint")
+    return {str(k): str(v) for k, v in raw.items()}
+
+
 def cmd_prove(args: argparse.Namespace) -> int:
     """Run the eval suite over an eval set and print the verdict.
 
@@ -1108,6 +1292,11 @@ def cmd_prove(args: argparse.Namespace) -> int:
     # nothing, not several hundred round trips followed by a usage error.
     judge, judge_model, agreement = _judge_from(args)
 
+    # Parsed here too, for the same reason: a missing or malformed
+    # --fingerprints file should fail before collection spends anything, not
+    # after `_collect_replies()` has already paid for every round trip.
+    fingerprints = _fingerprints_from(args.prove_fingerprints)
+
     # A file where nothing was ever collected is not a proof of anything, and
     # it does not read as one: every candidate answer is empty, every grader
     # fails it, and the verdict comes back 0% — "keep the incumbent", stated
@@ -1118,14 +1307,7 @@ def cmd_prove(args: argparse.Namespace) -> int:
     # `clickllm distill` writes exactly this file, deliberately: the candidate
     # column is for `--candidate-endpoint` to fill. So the refusal belongs here,
     # at the solver, not only in the hint distill prints (ADR-0011).
-    if not args.candidate_endpoint and all(not i.candidate for i in items):
-        raise ValueError(
-            f"{args.evalset}: every candidate answer is blank and no "
-            "--candidate-endpoint was given, so there is nothing to grade. "
-            "Pass --candidate-endpoint <url> to collect the candidate's "
-            "replies, or fill the `candidate` field in the file yourself. "
-            "Grading it as-is would report 0% and read as a verdict."
-        )
+    _refuse_ungraded(items, endpoint=args.candidate_endpoint, source=args.evalset)
 
     asked = len(items)
     items, collections = _collect_replies(items, args)
@@ -1164,6 +1346,10 @@ def cmd_prove(args: argparse.Namespace) -> int:
         # quietly presenting the smaller number as the whole thing.
         traffic_captures=asked,
         tool_version=SERVER_INFO["version"],
+        # What the receipt was issued against, so `clickllm guard` can later
+        # tell whether the model behind the name is still that model. Absent,
+        # that check has nothing to compare and silently does not run.
+        fingerprints=fingerprints,
     )
 
     # Collection failures are reported apart from eval failures, and never in
@@ -1551,6 +1737,26 @@ def main(argv: list[str] | None = None) -> int:
     di.add_argument("--json", action="store_true")
     di.set_defaults(fn=cmd_distill)
 
+    mg = sub.add_parser("migrate", help="walk the loop: distill, prove, and what the gate permits")
+    mg.add_argument("--candidate", help="the model being evaluated")
+    mg.add_argument("--incumbent", default="incumbent")
+    mg.add_argument("--candidate-endpoint", dest="candidate_endpoint")
+    mg.add_argument("--candidate-model", dest="candidate_model")
+    mg.add_argument("--incumbent-endpoint", dest="incumbent_endpoint")
+    mg.add_argument("--incumbent-model", dest="incumbent_model")
+    mg.add_argument("--capture", help="capture log (default: ~/.clickllm/captures.log)")
+    mg.add_argument("--key", help="capture key (default: ~/.clickllm/capture.key)")
+    mg.add_argument("--state", help="migration state file (default: ~/.clickllm/migration.json)")
+    mg.add_argument("--budget", type=int, default=200)
+    mg.add_argument("--min-per-cluster", type=int, default=3, dest="min_per_cluster")
+    mg.add_argument("--bar", type=float, default=0.9)
+    _add_collection_flags(mg)
+    mg.add_argument("--status", action="store_true", help="where the migration is; runs nothing")
+    mg.add_argument("--step", action="store_true", help="run one pass (the default)")
+    mg.add_argument("--install", action="store_true", help="print a crontab fragment")
+    mg.add_argument("--every-hours", type=int, default=24, dest="every_hours")
+    mg.set_defaults(fn=cmd_migrate)
+
     g = sub.add_parser("guard", help="check whether a receipt still holds")
     g.add_argument("receipt", help="path to a receipt JSON file")
     g.add_argument("--traffic", help="JSON file of current cluster shares")
@@ -1559,6 +1765,18 @@ def main(argv: list[str] | None = None) -> int:
         "--available", action="append", help="a candidate model that exists now (repeatable)"
     )
     g.add_argument("--today", help="ISO date to evaluate against (default: today)")
+    g.add_argument(
+        "--fail-on",
+        dest="fail_on",
+        choices=("invalidating", "any"),
+        default="invalidating",
+        help=(
+            "which findings exit nonzero. 'invalidating' (default): only what "
+            "voids the proof — the model changed, or traffic moved outside the "
+            "eval set. 'any': also age and new releases, for a release gate "
+            "that should not deploy on an unreviewed proof."
+        ),
+    )
     g.add_argument("--json", action="store_true")
     g.set_defaults(fn=cmd_guard)
 
@@ -1648,19 +1866,16 @@ def main(argv: list[str] | None = None) -> int:
         "UNMEASURED, which the report says out loud and the gate refuses to "
         "advance on",
     )
+    _add_collection_flags(pv)
     pv.add_argument(
-        "--collect-workers",
-        dest="collect_workers",
-        type=int,
-        default=8,
-        help="parallel requests while collecting",
-    )
-    pv.add_argument(
-        "--collect-timeout",
-        dest="collect_timeout",
-        type=float,
-        default=120.0,
-        help="seconds to wait for one reply",
+        "--fingerprints",
+        dest="prove_fingerprints",
+        help=(
+            "JSON file mapping model name to whatever identifies the weights you "
+            "served — a digest, a revision, a build id. Recorded in the receipt so "
+            "`clickllm guard` can later detect a silent provider-side swap. Without "
+            "it that check has nothing to compare against and cannot run."
+        ),
     )
     pv.set_defaults(fn=cmd_prove)
 

@@ -89,10 +89,18 @@ class Drift(StrEnum):
     AGED = "aged"
     #: A new candidate model exists. The receipt is still true.
     NEW_CANDIDATE = "new_candidate"
+    #: The most important check could not run: the caller supplied current
+    #: fingerprints and the receipt records none to compare them against.
+    UNCHECKABLE = "uncheckable"
 
 
 #: Which drifts mean "you no longer know whether production is adequate".
 #: A set rather than a method, so adding a kind forces a decision about it.
+#:
+#: `UNCHECKABLE` is deliberately not here. "I could not tell whether the model
+#: changed" is not evidence that it did, and voiding a receipt on it would make
+#: every pre-existing receipt read as broken. It is a finding, so it prints and
+#: `--fail-on any` catches it — which is what a release gate should use.
 _INVALIDATING = frozenset({Drift.MODEL_CHANGED, Drift.TRAFFIC_UNCOVERED, Drift.TRAFFIC_MOVED})
 
 
@@ -161,6 +169,14 @@ class Proposal:
             return "re-sample and re-prove: real traffic has moved outside the eval set"
         if any(f.kind is Drift.TRAFFIC_MOVED for f in self.findings):
             return "re-sample and re-prove: the eval set no longer matches the workload"
+        # Above AGED and NEW_CANDIDATE: "the check did not run" is a more
+        # actionable thing to be told than "there is a newer model", and a
+        # reader who sees only the last line should not be reassured by it.
+        if any(f.kind is Drift.UNCHECKABLE for f in self.findings):
+            return (
+                "re-issue the receipt with --fingerprints: nothing here checked "
+                "whether the model changed"
+            )
         if any(f.kind is Drift.AGED for f in self.findings):
             return "re-prove when convenient: nothing visibly moved, but the proof is old"
         return "evaluate when convenient: a new candidate is available"
@@ -224,6 +240,26 @@ def check(
 
     # 1. Did the ground move? The most urgent, because nothing else in the
     #    receipt means anything if the model is not the model.
+    # The caller went to the trouble of collecting current fingerprints and the
+    # receipt has nothing to compare them against, so the loop below iterates
+    # zero times and the receipt is reported as holding. That is the whole
+    # check — the one this module's own docstring calls the most urgent —
+    # passing by doing nothing.
+    #
+    # Reachable by default rather than in some corner: `clickllm prove` had no
+    # `--fingerprints` flag, so *every* receipt the CLI produced recorded none.
+    if fingerprints and not receipt.fingerprints:
+        found.append(
+            Finding(
+                Drift.UNCHECKABLE,
+                "fingerprints",
+                f"you supplied {len(fingerprints)} current fingerprint(s) and this "
+                f"receipt records none, so nothing was compared. Re-issue it with "
+                f"`clickllm prove --fingerprints` to make the model-change check "
+                f"real; until then a silent provider-side swap reads as 'still holds'",
+            )
+        )
+
     for name, was in (receipt.fingerprints or {}).items():
         now = (fingerprints or {}).get(name)
         if now is not None and now != was:
