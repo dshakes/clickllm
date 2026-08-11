@@ -350,12 +350,24 @@ def test_a_jittery_server_is_refused_end_to_end(tmp_path):
     port = _free_ports(1)[0]
     proc = _serve(tmp_path, port, 50.0, jitter=0.30)
     try:
-        m = M.measure(f"http://127.0.0.1:{port}/v1", "f", cores=4, samples=4, max_tokens=40)
+        # Real server, injected load. This test is about the *spread* rule, and
+        # on a busy runner the contention rule fires too — so `not m.usable`
+        # passed while the reason assertion failed, because the machine was
+        # refused before the samples were. Pinning the load leaves exactly one
+        # rule able to trigger, which is what the test claims to check.
+        m = M.measure(
+            f"http://127.0.0.1:{port}/v1",
+            "f",
+            cores=4,
+            samples=4,
+            max_tokens=40,
+            load_reader=_quiet,
+        )
     finally:
         proc.kill()
         proc.wait(timeout=5)
     assert not m.usable, f"a ±30% server was accepted: spread {m.spread}"
-    assert any("disagree" in r for r in m.refused)
+    assert any("disagree" in r for r in m.refused), m.refused
 
 
 SERVER_COALESCED = """
