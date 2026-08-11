@@ -721,15 +721,16 @@ def cmd_observe(args: argparse.Namespace) -> int:
         key=home / "capture.key",
         no_capture=args.no_capture,
     )
-    print()
-    print(f"  clickllm is now in your request path, on port {args.port}.")
-    print(f"  Point your client's base URL there; it forwards to {args.upstream}.")
-    if args.no_capture:
-        print("  Recording nothing (--no-capture): a plain proxy.")
-    else:
-        print(f"  Prompts land, redacted and encrypted, in {capture}")
-        print("  Nothing leaves this machine. Ctrl-C ends it and leaves the path.")
-    print()
+    # One line, and only what the binary does not already print — it announces
+    # the capture path, the upstream and the bound address itself, and saying
+    # them twice reads as two different things happening.
+    #
+    # Flushed explicitly: Python's stdout is block-buffered when it is not a
+    # terminal, and `run_gateway` hands the same fd to a child that writes
+    # immediately. Without this the banner arrives after the gateway's, or —
+    # when the process is killed rather than exiting — not at all, which is
+    # exactly how it behaved the first time it was piped to a file.
+    print("\n  In your request path from now until Ctrl-C, and not after (ADR-0015).", flush=True)
     return observe.run_gateway(argv)
 
 

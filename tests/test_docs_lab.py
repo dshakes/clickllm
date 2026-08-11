@@ -1417,3 +1417,37 @@ def test_the_datapath_boundary_is_stated_where_a_reader_will_look():
     assert "Not a load balancer" in readme
     assert "0015-in-the-path-only-while-migrating" in readme, "link the reasoning"
     assert (root / "docs" / "adr" / "0015-in-the-path-only-while-migrating.md").exists()
+
+
+def test_the_readme_quotes_output_the_code_actually_prints():
+    """The walkthrough says "the output they printed", so it has to be.
+
+    Its `observe` block is the only place in the README quoting two programs at
+    once — one line from `cli.py` and four from the Rust binary — and the first
+    draft quoted a Python banner that had already been replaced, plus a port and
+    paths from a scratchpad run. Nothing would have caught that; the block is
+    prose to every other check here.
+    """
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    cli = (root / "src" / "clickllm" / "cli.py").read_text()
+    main_rs = (root / "clickllm-gateway" / "src" / "main.rs").read_text()
+
+    assert "In your request path from now until Ctrl-C" in readme
+    assert "In your request path from now until Ctrl-C" in cli, (
+        "the README quotes a banner cli.py no longer prints"
+    )
+    for line in ("  capture   ", "  upstream  ", "  listening http://"):
+        assert line in readme, f"the README dropped {line!r} from the observe banner"
+        assert line.strip() in main_rs, f"the gateway no longer prints {line!r}"
+    assert "point your base_url here and nothing else changes." in readme
+    assert "point your base_url here and nothing else changes." in main_rs
+
+
+def test_the_walkthrough_does_not_quote_a_scratchpad_run():
+    """Real output, from a real run — but a *reader's* run. Absolute paths from
+    the machine it happened on are the tell that a block was pasted rather than
+    reproduced, and they are not something anyone else can get."""
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    for leak in ("/private/tmp/", "/Users/", "claude-501", "127.0.0.1:87 99"):
+        assert leak not in readme, f"{leak!r} is from one machine, not from the tool"
