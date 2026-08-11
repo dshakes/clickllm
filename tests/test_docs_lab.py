@@ -1376,3 +1376,44 @@ def test_no_diagram_declares_a_css_length_without_a_unit():
     assert not offenders, "unitless CSS lengths are ignored by the renderer:\n  " + "\n  ".join(
         offenders
     )
+
+
+def test_the_readme_does_not_deny_a_datapath_the_workspace_ships():
+    """ADR-0015. The README's *What it is not* table said "Nothing sits in your
+    request path" while `clickllm-gateway` — a proxy, a router, a token meter and
+    an SSE inspector, 26 tests including real-TCP ones — sat in the workspace.
+
+    It was survivable only because nothing ran the gateway: no `[[bin]]`, no CLI
+    command. The claim became false the moment `clickllm observe` shipped, and
+    the failure mode of a wrong row in that table is a reader putting this in
+    front of production traffic on the strength of it.
+
+    The honest statement is bounded, not absent: in the path only while a
+    migration is in flight, with leaving as the terminal state.
+    """
+    root = Path(__file__).resolve().parents[1]
+    gateway = root / "clickllm-gateway" / "src" / "proxy.rs"
+    if not gateway.exists():
+        pytest.skip("no datapath crate in this workspace; the denial would be true")
+
+    readme = (root / "README.md").read_text()
+    denials = (
+        "Nothing sits in your request path",
+        "Not a router or a proxy",
+    )
+    found = [d for d in denials if d in readme]
+    assert not found, (
+        f"README denies a datapath this workspace ships ({gateway.relative_to(root)}): "
+        f"{found}. See docs/adr/0015-in-the-path-only-while-migrating.md."
+    )
+
+
+def test_the_datapath_boundary_is_stated_where_a_reader_will_look():
+    """The other half: removing the false claim is not the same as making the
+    true one. A reader scanning *What it is not* has to come away knowing both
+    that clickllm enters the path and that it leaves."""
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    assert "Not a load balancer" in readme
+    assert "0015-in-the-path-only-while-migrating" in readme, "link the reasoning"
+    assert (root / "docs" / "adr" / "0015-in-the-path-only-while-migrating.md").exists()
