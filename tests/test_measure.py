@@ -39,11 +39,29 @@ def _take(samples: list[M.Sample]):
     return lambda: next(it)
 
 
+def _quiet():
+    """A load reader that reports an idle 16-core host.
+
+    Injected everywhere a test asserts on usability, because reading the real
+    load makes the assertion depend on the CI machine's mood rather than on the
+    code: a runner at 1.33/core refused correctly and failed a test that assumed
+    it would not.
+    """
+    return M.Load(one_minute=1.0, cores=16)
+
+
 # --- what makes a measurement ----------------------------------------------------
 
 
 def test_steady_samples_are_a_measurement():
-    m = M.measure("http://x/v1", "m", cores=16, samples=3, sampler=_take(_samples(50, 50.5, 49.5)))
+    m = M.measure(
+        "http://x/v1",
+        "m",
+        cores=16,
+        samples=3,
+        sampler=_take(_samples(50, 50.5, 49.5)),
+        load_reader=_quiet,
+    )
     assert m.usable, m.refused
     assert m.median is not None and 49 < m.median < 51
 
@@ -54,7 +72,14 @@ def test_the_number_80_actually_saw_is_refused():
     Tested with the figures that motivated the constraint rather than invented
     ones, so a future change to the limit has to argue with the real case.
     """
-    m = M.measure("http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(46.93, 33.69)))
+    m = M.measure(
+        "http://x/v1",
+        "m",
+        cores=16,
+        samples=2,
+        sampler=_take(_samples(46.93, 33.69)),
+        load_reader=_quiet,
+    )
     assert not m.usable
     assert any("disagree" in r for r in m.refused), m.refused
     assert "NOT A MEASUREMENT" in m.render()
@@ -62,7 +87,14 @@ def test_the_number_80_actually_saw_is_refused():
 
 def test_a_wide_spread_is_reported_as_the_finding_not_hidden_behind_a_median():
     """Rule 3: the spread *is* the finding. A median alone would look fine."""
-    m = M.measure("http://x/v1", "m", cores=16, samples=3, sampler=_take(_samples(60, 45, 30)))
+    m = M.measure(
+        "http://x/v1",
+        "m",
+        cores=16,
+        samples=3,
+        sampler=_take(_samples(60, 45, 30)),
+        load_reader=_quiet,
+    )
     assert m.median == 45, "the median is unremarkable; that is the point"
     assert not m.usable
     assert m.spread is not None and m.spread > M.SPREAD_LIMIT
@@ -71,7 +103,9 @@ def test_a_wide_spread_is_reported_as_the_finding_not_hidden_behind_a_median():
 def test_a_busy_machine_is_refused_even_when_the_samples_agree():
     """Rule 2. Steady numbers under load can mean everything was equally slow,
     which is a stable measurement of the wrong thing."""
-    m = M.measure("http://x/v1", "m", cores=4, samples=2, sampler=_take(_samples(20, 20)))
+    m = M.measure(
+        "http://x/v1", "m", cores=4, samples=2, sampler=_take(_samples(20, 20)), load_reader=_quiet
+    )
     contended = M.Measurement(
         model=m.model,
         endpoint=m.endpoint,
@@ -86,7 +120,9 @@ def test_a_busy_machine_is_refused_even_when_the_samples_agree():
 
 def test_load_is_recorded_with_every_measurement_even_a_good_one():
     """Rule 1. The conditions travel with the number, not just with refusals."""
-    m = M.measure("http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)))
+    m = M.measure(
+        "http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)), load_reader=_quiet
+    )
     text = m.render()
     assert "before:" in text and "after:" in text
     assert "load" in text
@@ -118,7 +154,9 @@ def test_an_unreadable_core_count_does_not_crash_render():
 
 def test_one_sample_is_refused_because_it_has_no_spread():
     with pytest.raises(ValueError, match="spread"):
-        M.measure("http://x/v1", "m", cores=8, samples=1, sampler=_take(_samples(50)))
+        M.measure(
+            "http://x/v1", "m", cores=8, samples=1, sampler=_take(_samples(50)), load_reader=_quiet
+        )
 
 
 # --- rule 4: measured must not beat estimated on authority alone -----------------
@@ -147,8 +185,12 @@ def test_the_json_says_whether_it_counts():
     """Whatever consumes this downstream must be able to tell without parsing
     prose — a `bench.json` that omitted the distinction is exactly how a
     contended sample ends up trusted."""
-    good = M.measure("http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)))
-    bad = M.measure("http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(60, 30)))
+    good = M.measure(
+        "http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)), load_reader=_quiet
+    )
+    bad = M.measure(
+        "http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(60, 30)), load_reader=_quiet
+    )
     assert json.loads(good.to_json())["measured"] is True
     assert json.loads(bad.to_json())["measured"] is False
     assert json.loads(bad.to_json())["refused"], "a refusal with no reason is not one"
@@ -646,7 +688,18 @@ def test_a_contention_gate_that_could_not_run_says_so():
     busy — but the number must not read as better-checked than it is. Every
     NVIDIA and AMD box had `cores=0`, so this was every one of them.
     """
-    m = M.measure("http://x/v1", "m", cores=0, samples=2, sampler=_take(_samples(50, 50)))
+    # Deliberately *not* `_quiet`: this test is about the reader returning a
+    # load whose core count is unknown, which is what every NVIDIA and AMD box
+    # produced. Injecting the idle 16-core host would remove the condition
+    # under test and leave an assertion that could not fail.
+    m = M.measure(
+        "http://x/v1",
+        "m",
+        cores=0,
+        samples=2,
+        sampler=_take(_samples(50, 50)),
+        load_reader=lambda: M.Load(one_minute=1.0, cores=0),
+    )
     assert m.usable, "an unknown core count is not evidence of contention"
     assert m.caveats, "the gate silently did not run"
     assert "did not run" in m.render()
@@ -655,7 +708,9 @@ def test_a_contention_gate_that_could_not_run_says_so():
 
 def test_a_measurement_with_a_working_gate_carries_no_caveat():
     """The control: a caveat on every run would be noise nobody reads."""
-    m = M.measure("http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)))
+    m = M.measure(
+        "http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)), load_reader=_quiet
+    )
     if m.load_before.per_core is not None:
         assert not m.caveats, m.caveats
         assert "Checked less than usual" not in m.render()

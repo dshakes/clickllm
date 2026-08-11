@@ -399,11 +399,18 @@ def measure(
     roofline: float | None = None,
     api_key: str = "",
     sampler: Any = None,
+    load_reader: Any = None,
 ) -> Measurement:
     """Take `samples` timed decodes and decide whether they are a measurement.
 
     `sampler` exists so the decision logic can be tested without an inference
-    server; the product path leaves it None and uses the real one.
+    server, and `load_reader` for the same reason one level out: a test of the
+    contention rules that reads the *host's* load passes or fails with the CI
+    machine's mood rather than with the code. That is not a hypothetical — the
+    self-check below asserted a clean measurement and failed on a runner sitting
+    at 1.33/core, where refusing was the correct behaviour.
+
+    The product path leaves both None and uses the real ones.
     """
     if samples < 2:
         raise ValueError(
@@ -416,9 +423,10 @@ def measure(
             endpoint, model, prompt, max_tokens=max_tokens, timeout=timeout, api_key=api_key
         )
     )
-    before = read_load(cores)
+    look = load_reader or (lambda: read_load(cores))
+    before = look()
     taken = [take() for _ in range(samples)]
-    after = read_load(cores)
+    after = look()
 
     m = Measurement(
         model=model,
@@ -489,9 +497,16 @@ def measure(
 
 
 def demo() -> None:
-    """Self-check: the refusals, without an inference server."""
+    """Self-check: the refusals, without an inference server *or* a quiet host.
+
+    Every case here injects both the samples and the load, so what is being
+    checked is the decision and not the machine it runs on.
+    """
+    quiet = lambda: Load(one_minute=1.0, cores=16)  # noqa: E731 - one expression
     steady = iter([Sample(100, 2.00, 0.1), Sample(100, 2.02, 0.1), Sample(100, 1.98, 0.1)])
-    m = measure("http://x/v1", "m", cores=16, samples=3, sampler=lambda: next(steady))
+    m = measure(
+        "http://x/v1", "m", cores=16, samples=3, sampler=lambda: next(steady), load_reader=quiet
+    )
     assert m.usable, m.refused
     assert m.median is not None and 49 < m.median < 51, m.median
     assert m.spread is not None and m.spread < 0.05, m.spread
@@ -501,7 +516,9 @@ def demo() -> None:
     # the case the whole module exists for, so it is checked with the figures
     # that motivated it rather than with invented ones.
     wobbly = iter([Sample(100, 100 / 46.93, 0.1), Sample(100, 100 / 33.69, 0.1)])
-    w = measure("http://x/v1", "m", cores=16, samples=2, sampler=lambda: next(wobbly))
+    w = measure(
+        "http://x/v1", "m", cores=16, samples=2, sampler=lambda: next(wobbly), load_reader=quiet
+    )
     assert not w.usable, "a 39% spread was accepted as a measurement"
     # 33%, not the 39% #80 quotes: that issue anchored on the low sample and
     # this anchors on the median. The same observation, a different denominator
@@ -518,6 +535,7 @@ def demo() -> None:
         cores=4,
         samples=2,
         sampler=lambda: next(busy),
+        load_reader=quiet,
     )
     b = Measurement(
         model=b.model,
@@ -534,7 +552,13 @@ def demo() -> None:
     # numbers are shown, with the ratio between them.
     steady2 = iter([Sample(100, 2.0, 0.1), Sample(100, 2.0, 0.1)])
     r = measure(
-        "http://x/v1", "m", cores=16, samples=2, roofline=100.0, sampler=lambda: next(steady2)
+        "http://x/v1",
+        "m",
+        cores=16,
+        samples=2,
+        roofline=100.0,
+        sampler=lambda: next(steady2),
+        load_reader=quiet,
     )
     text = r.render()
     assert "roofline" in text and "estimate" in text
@@ -542,7 +566,14 @@ def demo() -> None:
 
     assert json.loads(r.to_json())["measured"] is True
     try:
-        measure("http://x/v1", "m", cores=1, samples=1, sampler=lambda: Sample(1, 1.0, 0.1))
+        measure(
+            "http://x/v1",
+            "m",
+            cores=1,
+            samples=1,
+            sampler=lambda: Sample(1, 1.0, 0.1),
+            load_reader=quiet,
+        )
     except ValueError as e:
         assert "spread" in str(e)
     else:  # pragma: no cover
