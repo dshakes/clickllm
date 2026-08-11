@@ -260,8 +260,21 @@ def _gateway_binary() -> Path | None:
 
 
 UPSTREAM = """
-import json
+import json, socketserver
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class Server(HTTPServer):
+    # `HTTPServer.server_bind` calls `socket.getfqdn(host)` between `bind()`
+    # and `listen()`. That is a reverse DNS lookup, and on a CI runner with no
+    # PTR record for 127.0.0.1 it blocks — leaving a process that is alive, has
+    # the port bound, and is not accepting. Which is exactly what macOS CI
+    # reported: "upstream never accepted a connection", with the child still
+    # running so nothing else could explain it.
+    allow_reuse_address = True
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_POST(self):
@@ -276,7 +289,7 @@ class H(BaseHTTPRequestHandler):
                           "usage":{"prompt_tokens":9,"completion_tokens":12}}).encode()
         self.send_response(200); self.send_header("Content-Type","application/json")
         self.send_header("Content-Length",str(len(out))); self.end_headers(); self.wfile.write(out)
-HTTPServer(("127.0.0.1", PORT), H).serve_forever()
+Server(("127.0.0.1", PORT), H).serve_forever()
 """
 
 
