@@ -135,6 +135,14 @@ def read_load(cores: int) -> Load:
                 [ps, "-Ao", "%cpu,comm"],
                 capture_output=True,
                 text=True,
+                # A process name is arbitrary bytes. Without this, decoding uses
+                # the locale's codec and raises `UnicodeDecodeError` on the first
+                # one that is not valid in it — and that inherits from
+                # `ValueError`, not `OSError`, so the handler below would not
+                # catch it. Reading the load is best-effort; crashing the
+                # measurement because someone has an emoji in a binary name is
+                # not best-effort.
+                errors="replace",
                 timeout=5,
                 check=False,
             ).stdout
@@ -147,7 +155,10 @@ def read_load(cores: int) -> Load:
                     continue
             rows.sort(reverse=True)
             top = [f"{c} {p:.0f}%" for p, c in rows[:3] if p >= 5.0]
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError, ValueError):
+            # `ValueError` too, and belt-and-braces with `errors="replace"`
+            # above: this whole block is decoration on a number, and no failure
+            # inside it may take the measurement with it.
             top = []
     return Load(one_minute=one, cores=cores, top=tuple(top))
 

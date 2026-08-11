@@ -377,3 +377,43 @@ def test_measure_exits_nonzero_when_it_refuses(tmp_path):
         proc.wait(timeout=5)
     assert out.returncode == 1, out.stdout + out.stderr
     assert "NOT A MEASUREMENT" in out.stdout
+
+
+def test_reading_the_load_cannot_take_the_measurement_with_it(monkeypatch):
+    """`read_load` shells out to `ps`, and a process name is arbitrary bytes.
+
+    Decoding with the locale's codec raises `UnicodeDecodeError` on the first
+    name that is not valid in it — and that inherits from `ValueError`, not
+    `OSError`, so a handler catching `(OSError, SubprocessError)` misses it and
+    the whole command dies. Best-effort decoration must not be able to do that.
+    """
+    import subprocess as sp
+
+    for boom in (
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        OSError("no ps"),
+        sp.SubprocessError("died"),
+        sp.TimeoutExpired(cmd="ps", timeout=5),
+    ):
+
+        def explode(*_a, _b=boom, **_k):
+            raise _b
+
+        monkeypatch.setattr(M.subprocess, "run", explode)
+        load = M.read_load(cores=8)
+        assert load.top == (), f"{type(boom).__name__} leaked a value"
+        assert load.cores == 8, "the part that does not need `ps` must survive"
+
+
+def test_a_process_name_that_is_not_valid_utf8_is_survived(monkeypatch):
+    """The same hazard from the other side: `ps` succeeds and returns bytes the
+    locale cannot decode. `errors="replace"` is what makes that a mangled name
+    rather than an exception."""
+
+    class Result:
+        stdout = "%CPU COMM\n 99.0 we�ird\n 50.0 chrome\n"
+
+    monkeypatch.setattr(M.subprocess, "run", lambda *_a, **_k: Result())
+    load = M.read_load(cores=8)
+    assert len(load.top) == 2, load.top
+    assert any("chrome" in t for t in load.top)
