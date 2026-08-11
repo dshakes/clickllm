@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm import sdk
+from clickllm import mcp, sdk
 from clickllm.mcp import handle
 from clickllm.plan import Workload
 from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
@@ -885,3 +885,123 @@ def test_every_receipt_this_tool_issues_still_carries_a_derivable_price():
                     broken.append(f"bar={bar} {passed}/{total}: {e}")
     assert checked > 200, f"the sweep only covered {checked}"
     assert not broken, f"honest receipts rejected: {broken[:6]}"
+
+
+# --- where / receipt / guard: the three tools an agent needs after "no" ----------
+
+
+def test_where_answers_about_machines_the_caller_does_not_have():
+    """The question an agent asks the moment `fit` says nothing local runs it.
+
+    Without this its only move is to guess a box, and a guessed box is how
+    people buy the wrong GPU.
+    """
+    out = mcp._where("llama-3.1-8b", context="32k")
+    assert out["placements"], "no hardware considered at all"
+    fits = [p for p in out["placements"] if p["fits"]]
+    assert fits, "an 8B model at 32k fits something in a 17-profile catalogue"
+    for p in fits:
+        assert p["quant"] and p["total_gb"] > 0
+    # The important direction: a machine that does not fit must say why. "No"
+    # without a reason is the answer that sends someone shopping blind.
+    for p in out["placements"]:
+        if not p["fits"]:
+            assert p["reason"], f"{p['profile']} refuses without saying why"
+
+
+def test_where_labels_its_throughput_as_arithmetic_rather_than_measurement():
+    """Invariant 6. An agent quoting tokens/sec to a human has to be able to say
+    where the number came from, and every one of these is roofline."""
+    out = mcp._where("llama-3.1-8b")
+    assert out["estimates_are_roofline_not_measured"] is True
+
+
+def test_where_refuses_a_model_it_does_not_know_rather_than_inventing_one():
+    with pytest.raises(KeyError, match="unknown model"):
+        mcp._where("not-a-real-model")
+
+
+def _a_receipt(tmp_path):
+    """A real receipt, produced the way a user produces one."""
+    from clickllm.prove import EvalItem, suite
+
+    items = [
+        EvalItem(item_id=str(i), cluster="c", prompt="p", baseline="x", candidate="x")
+        for i in range(40)
+    ]
+    r = suite(
+        items,
+        candidate="cand",
+        incumbent="inc",
+        issued="2026-08-11",
+        shares={"c": 1.0},
+    ).receipt
+    path = tmp_path / "r.json"
+    path.write_text(r.to_json())
+    return path
+
+
+def test_receipt_leads_with_what_must_stay_on_the_incumbent(tmp_path, monkeypatch):
+    """Same ordering as the rendered receipt, and for the same reason: an agent
+    summarising this to a human should meet the bad news before it has a chance
+    to lead with a headline number."""
+    path = _a_receipt(tmp_path)
+    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    out = mcp._receipt(path.name)
+    keys = list(out)
+    assert keys.index("keep_on_incumbent") < keys.index("proven_above_bar")
+    assert "not_proven_either_way" in out
+    assert out["bar"] == 0.9
+    assert out["eval_set_digest"]
+
+
+def test_receipt_and_guard_are_confined_to_the_eval_root(tmp_path, monkeypatch):
+    """Both take a caller-named path whose contents land in agent context, and
+    the caller may itself have been steered by captured traffic (invariant 7).
+    ADR-0014."""
+    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    for tool in (mcp._receipt, mcp._guard):
+        for outside in ("/etc/hosts", "../../../../etc/hosts"):
+            with pytest.raises(ValueError, match="outside the eval root"):
+                tool(outside)
+
+
+def test_guard_separates_the_three_ways_a_proof_stops_being_true(tmp_path, monkeypatch):
+    """The distinction every other tool collapses into one "stale" flag. Only
+    two of the three mean you no longer know whether production is adequate."""
+    path = _a_receipt(tmp_path)
+    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+
+    fresh = mcp._guard(path.name, today="2026-08-12")
+    assert fresh["still_holds"] is True
+    assert fresh["findings"] == []
+
+    # A new model existing does not make an old proof false. Asserted on the
+    # *conclusion* as well as the per-finding flags: the first draft checked
+    # only the flags, and a control that inverted `Proposal.valid` — making any
+    # finding at all void the receipt — left this test green. The parts were
+    # checked and the answer was not.
+    news = mcp._guard(path.name, today="2026-08-12", available=["some-new-model"])
+    kinds = {f["kind"] for f in news["findings"]}
+    assert kinds == {"new_candidate"}, f"expected exactly the new-release finding: {kinds}"
+    assert news["still_holds"] is True, f"a new release must not void a receipt: {kinds}"
+    assert not any(f["voids_the_receipt"] for f in news["findings"])
+
+    # Age is a nudge, not a void: nothing observed changed.
+    old = mcp._guard(path.name, today="2027-08-12")
+    assert {f["kind"] for f in old["findings"]} == {"aged"}
+    assert old["still_holds"] is True
+    assert not any(f["voids_the_receipt"] for f in old["findings"])
+    assert "re-prove" in old["action"]
+
+
+def test_the_three_new_tools_clear_the_read_only_boundary():
+    """The boundary is checked over the live registry elsewhere; this asserts
+    the new arrivals are in it and none of them took a verb that moves
+    traffic."""
+    for name in ("clickllm_where", "clickllm_receipt", "clickllm_guard"):
+        assert name in mcp.TOOLS
+        func, schema = mcp.TOOLS[name]
+        assert schema["description"] and schema["inputSchema"]["properties"]
+    forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
+    assert not [n for n in mcp.TOOLS for w in forbidden if w in n.lower()]
