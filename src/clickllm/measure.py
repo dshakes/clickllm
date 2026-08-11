@@ -141,6 +141,11 @@ def read_load(cores: int) -> Load:
                 [ps, "-Ao", "%cpu,comm"],
                 capture_output=True,
                 text=True,
+                # A non-UTF-8 process name (rare, but real on developer
+                # machines) must not turn a best-effort load probe into a
+                # crash. Replace rather than raise `UnicodeDecodeError`, which
+                # is a `ValueError` and would slip past the except clause below.
+                errors="replace",
                 timeout=5,
                 check=False,
             ).stdout
@@ -304,6 +309,7 @@ def _decode_once(
     first: float | None = None
     last = started
     tokens = 0
+    content_frames = 0
     usage_tokens: int | None = None
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         for raw in resp:
@@ -330,6 +336,7 @@ def _decode_once(
                 # them would inflate the rate by a couple of free "tokens".
                 continue
             now = time.perf_counter()
+            content_frames += 1
             if first is None:
                 first = now
             else:
@@ -347,6 +354,21 @@ def _decode_once(
         raise ValueError(
             f"{model} at {endpoint} produced no streamed tokens. Is it serving, "
             "and does it support `stream: true`?"
+        )
+    if content_frames < 2:
+        # Everything arrived in one SSE frame: `first` and `last` are the same
+        # instant, so `decode_seconds` would be 0 — not a fast decode, an
+        # unmeasurable one. `usage.completion_tokens` can still say how many
+        # tokens came back, but it says nothing about *when*, and a 0-second
+        # decode_seconds divides away to a `tokens_per_sec` of exactly 0.0,
+        # which `spread()` then can't distinguish from "no spread computed" and
+        # would wave through as a measurement. Refuse instead of measuring a
+        # rate this can't time.
+        raise ValueError(
+            f"{model} at {endpoint} sent the whole completion in a single "
+            "streamed frame. Decode cannot be timed between a first and last "
+            "token that are the same frame — is the server coalescing the "
+            "full response instead of streaming it incrementally?"
         )
     return Sample(tokens=tokens, decode_seconds=last - first, ttft_seconds=first - started)
 

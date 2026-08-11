@@ -339,11 +339,15 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(("data: " + json.dumps(o) + "\\n\\n").encode()); self.wfile.flush()
         frame({"choices":[{"delta":{"role":"assistant"}}]})
         time.sleep(0.02)
-        # The whole completion in ONE content delta -- what an OpenAI-compatible
-        # server that coalesces frames looks like on the wire. Streaming only
-        # promises text deltas, not one SSE frame per token.
-        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(N))}}]})
-        time.sleep(0.05)
+        # Two content deltas, each several tokens coalesced into one chunk --
+        # what an OpenAI-compatible server that batches tokens per frame looks
+        # like on the wire. Streaming only promises text deltas, not one SSE
+        # frame per token, but decode can still be timed first-frame-to-last.
+        half = N // 2
+        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(half))}}]})
+        time.sleep(0.03)
+        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(half, N))}}]})
+        time.sleep(0.02)
         frame({"choices":[],"usage":{"completion_tokens":N,"prompt_tokens":5,"total_tokens":N+5}})
         self.wfile.write(b"data: [DONE]\\n\\n"); self.wfile.flush()
 
@@ -351,13 +355,29 @@ HTTPServer.allow_reuse_address = True
 Server(("127.0.0.1", int(os.environ["PORT"])), H).serve_forever()
 """
 
+SERVER_SINGLE_FRAME = SERVER_COALESCED.replace(
+    """        half = N // 2
+        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(half))}}]})
+        time.sleep(0.03)
+        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(half, N))}}]})
+        time.sleep(0.02)
+""",
+    """        # The WHOLE completion in one content delta: there is no first-to-last
+        # gap to time at all, unlike the multi-frame coalescing case above.
+        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(N))}}]})
+        time.sleep(0.05)
+""",
+)
+
 
 def test_a_server_that_coalesces_tokens_into_one_frame_still_counts_tokens(tmp_path):
     """OpenAI-compatible streaming promises text deltas, not one SSE frame per
-    token. Counting content frames as tokens undercounted a server that sends
-    the whole completion in one delta down to zero and rejected it as "no
-    streamed tokens" — a valid streamed response. `usage.completion_tokens`,
-    when the endpoint reports it, must be trusted over the frame count."""
+    token. Counting content frames as tokens undercounted a server that
+    batches several tokens per delta — `usage.completion_tokens`, when the
+    endpoint reports it, must be trusted over the frame count. Decode is still
+    timeable here because the batching spans more than one frame; the
+    single-frame case (no first-to-last gap at all) is refused instead, see
+    `test_a_server_that_sends_the_whole_completion_in_one_frame_is_refused`."""
     port = _free_ports(1)[0]
     src = tmp_path / "coalesced.py"
     src.write_text(SERVER_COALESCED)
@@ -384,6 +404,38 @@ def test_a_server_that_coalesces_tokens_into_one_frame_still_counts_tokens(tmp_p
     # 39, not 40: the same "exclude the first token" convention the frame
     # count uses, so this lines up with `decode_seconds` (first token to last).
     assert s.tokens == 39, s.tokens
+
+
+def test_a_server_that_sends_the_whole_completion_in_one_frame_is_refused(tmp_path):
+    """A server that streams the entire completion as a single content delta
+    gives `_decode_once` no first-to-last gap to time: `first` and `last` are
+    the same instant. `usage.completion_tokens` still reports a token count,
+    but a `decode_seconds` of exactly 0 divides away to a `tokens_per_sec` of
+    exactly 0.0 -- which `spread()` cannot tell apart from "no spread
+    computed" and would otherwise wave through as a usable measurement of 0
+    tok/s. This must raise, not silently produce that number."""
+    port = _free_ports(1)[0]
+    src = tmp_path / "single_frame.py"
+    src.write_text(SERVER_SINGLE_FRAME)
+    proc = subprocess.Popen(
+        [sys.executable, str(src)],
+        env={**os.environ, "N_TOKENS": "40", "PORT": str(port)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            time.sleep(0.1)
+    try:
+        with pytest.raises(ValueError, match="single streamed frame"):
+            M._decode_once(f"http://127.0.0.1:{port}/v1", "f", "hi", max_tokens=40, timeout=10)
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 def test_a_non_object_sse_frame_is_skipped_not_a_crash(tmp_path):
@@ -532,7 +584,11 @@ def test_json_out_stdout_stays_parseable(tmp_path):
     finally:
         proc.kill()
         proc.wait(timeout=5)
-    json.loads(out.stdout)  # raises if the status line leaked into stdout
+    data = json.loads(out.stdout)  # raises if the status line leaked into stdout
     assert "wrote" in out.stderr
     assert out_path.exists()
-    assert "NOT A MEASUREMENT" in out.stdout
+    # `--json` never renders the prose report -- `NOT A MEASUREMENT` is a
+    # `render()`-only string and can't appear in `to_json()` output. What
+    # matters here is that the JSON object round-trips and carries the same
+    # verdict a human-readable run would, via its own field.
+    assert data["measured"] is True, data
