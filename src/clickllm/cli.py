@@ -777,6 +777,104 @@ def cmd_distill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Walk the chain, record what the evidence permits, and stop at the gate.
+
+    The only command that runs the whole loop, and the one most worth being
+    clear about what it does not do: it never moves traffic. `gate.decide`
+    returns `ADVANCE` as a proposal, this prints it, and a human applies it
+    through the gateway's control surface — which records a reason and refuses
+    an unconfirmed increase (invariant 8).
+    """
+    from datetime import date
+
+    from . import core, migrate, observe
+
+    path = migrate.state_path(args.state)
+
+    if args.status:
+        if not path.exists():
+            print(f"\n  No migration in progress ({path} does not exist).\n")
+            return 2
+        st = migrate.load_state(path)
+        print(f"\n  migration to {st.candidate}, started {st.started}")
+        print(f"  currently {st.stage().render()}  ·  {len(st.runs)} runs recorded\n")
+        for r in st.runs[-5:]:
+            print(f"  {r.when}  {r.action:<9} {r.items:>4} items  {r.reason[:60]}")
+        print()
+        return 0
+
+    if args.install:
+        fragment, where = migrate.install_schedule(
+            interval_hours=args.every_hours, state=args.state or ""
+        )
+        print(f"\n  Save this in {where}\n")
+        print(f"  {fragment}")
+        print(
+            "  Not installed for you: a recurring job that reads your captured\n"
+            "  traffic is your decision.\n"
+        )
+        return 0
+
+    if not args.candidate:
+        raise ValueError("--candidate is required: name the model being evaluated")
+    if not core.available():
+        print(f"\n  {core.why_unavailable()}\n")
+        return 2
+
+    home = observe.state_dir()
+    log = pathlib.Path(args.capture) if args.capture else home / "captures.log"
+    key = pathlib.Path(args.key) if args.key else home / "capture.key"
+    if not log.exists() or not key.exists():
+        print(f"\n  No captures at {log}. Run `clickllm observe` first.\n")
+        return 2
+
+    rows = core.read_captures(str(log), key.read_bytes())
+    st = migrate.load_state(path, args.candidate)
+
+    def prove_it(doc: dict) -> object:
+        from .prove import EvalItem, suite
+
+        items = [
+            EvalItem(
+                item_id=str(r["item_id"]),
+                cluster=str(r["cluster"]),
+                prompt=str(r["prompt"]),
+                baseline=str(r["baseline"]),
+                candidate=str(r.get("candidate") or ""),
+                baseline_tool_calls=tuple(r.get("baseline_tool_calls") or ()),
+                response_format=r.get("response_format"),
+            )
+            for r in doc["items"]
+        ]
+        items, _ = _collect_replies(items, args)
+        if not items:
+            raise ValueError(
+                "no candidate replies were collected, so there is nothing to "
+                "grade. Check --candidate-endpoint."
+            )
+        return suite(
+            items,
+            shares=doc["shares"],
+            names=doc["names"],
+            candidate=args.candidate,
+            incumbent=args.incumbent,
+            issued=date.today().isoformat(),
+            bar=args.bar,
+        )
+
+    st, run, decision = migrate.step(
+        st, rows=rows, prove=prove_it, budget=args.budget, min_per_cluster=args.min_per_cluster
+    )
+    migrate.save_state(st, path)
+    print(migrate.render(st, run, decision))
+    print(f"  state: {path}\n")
+    # Zero when the loop ran, whatever it decided. A scheduled job that exits
+    # nonzero because the answer was "hold" would page someone nightly for the
+    # normal case.
+    return 0
+
+
 def cmd_catalog_sources(args: argparse.Namespace) -> int:
     """Where the catalogue's models came from."""
     models = catalog.load()
@@ -1002,6 +1100,32 @@ def cmd_advise(args: argparse.Namespace) -> int:
 
     # Nonzero only when production has diverged, so this is usable as a probe.
     return 1 if drift else 0
+
+
+def _add_collection_flags(parser: argparse.ArgumentParser) -> None:
+    """Declare the flags `_collect_replies` reads.
+
+    One definition, every parser that collects. `prove` had them and `migrate`
+    did not, so the loop reached `_collect_replies` and died on
+    `AttributeError: 'Namespace' object has no attribute 'collect_workers'` —
+    a missing flag surfacing as a crash inside the collector rather than as a
+    usage error at the boundary. Two copies would have fixed today and drifted
+    by the next flag.
+    """
+    parser.add_argument(
+        "--collect-workers",
+        dest="collect_workers",
+        type=int,
+        default=8,
+        help="parallel requests while collecting",
+    )
+    parser.add_argument(
+        "--collect-timeout",
+        dest="collect_timeout",
+        type=float,
+        default=120.0,
+        help="seconds to wait for one reply",
+    )
 
 
 def _collect_replies(
@@ -1586,6 +1710,26 @@ def main(argv: list[str] | None = None) -> int:
     di.add_argument("--json", action="store_true")
     di.set_defaults(fn=cmd_distill)
 
+    mg = sub.add_parser("migrate", help="walk the loop: distill, prove, and what the gate permits")
+    mg.add_argument("--candidate", help="the model being evaluated")
+    mg.add_argument("--incumbent", default="incumbent")
+    mg.add_argument("--candidate-endpoint", dest="candidate_endpoint")
+    mg.add_argument("--candidate-model", dest="candidate_model")
+    mg.add_argument("--incumbent-endpoint", dest="incumbent_endpoint")
+    mg.add_argument("--incumbent-model", dest="incumbent_model")
+    mg.add_argument("--capture", help="capture log (default: ~/.clickllm/captures.log)")
+    mg.add_argument("--key", help="capture key (default: ~/.clickllm/capture.key)")
+    mg.add_argument("--state", help="migration state file (default: ~/.clickllm/migration.json)")
+    mg.add_argument("--budget", type=int, default=200)
+    mg.add_argument("--min-per-cluster", type=int, default=3, dest="min_per_cluster")
+    mg.add_argument("--bar", type=float, default=0.9)
+    _add_collection_flags(mg)
+    mg.add_argument("--status", action="store_true", help="where the migration is; runs nothing")
+    mg.add_argument("--step", action="store_true", help="run one pass (the default)")
+    mg.add_argument("--install", action="store_true", help="print a crontab fragment")
+    mg.add_argument("--every-hours", type=int, default=24, dest="every_hours")
+    mg.set_defaults(fn=cmd_migrate)
+
     g = sub.add_parser("guard", help="check whether a receipt still holds")
     g.add_argument("receipt", help="path to a receipt JSON file")
     g.add_argument("--traffic", help="JSON file of current cluster shares")
@@ -1695,20 +1839,7 @@ def main(argv: list[str] | None = None) -> int:
         "UNMEASURED, which the report says out loud and the gate refuses to "
         "advance on",
     )
-    pv.add_argument(
-        "--collect-workers",
-        dest="collect_workers",
-        type=int,
-        default=8,
-        help="parallel requests while collecting",
-    )
-    pv.add_argument(
-        "--collect-timeout",
-        dest="collect_timeout",
-        type=float,
-        default=120.0,
-        help="seconds to wait for one reply",
-    )
+    _add_collection_flags(pv)
     pv.add_argument(
         "--fingerprints",
         dest="prove_fingerprints",
