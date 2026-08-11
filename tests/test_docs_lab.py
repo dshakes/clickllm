@@ -1489,3 +1489,84 @@ def test_the_skill_states_the_two_things_a_model_will_otherwise_get_wrong():
     # someone's production traffic, and a skill that suggests it without saying
     # so is the worst thing in this file.
     assert "request path" in skill and "ADR-0015" in skill
+
+
+def test_the_readme_lists_every_mcp_tool_that_exists():
+    """The agent surface is a selling point, so the list is prose someone will
+    read as complete. It was six tools for a while after there were nine — and
+    the omission is invisible: nothing links the block to the registry.
+    """
+    from clickllm import mcp
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    missing = [name for name in mcp.TOOLS if name not in readme]
+    assert not missing, f"the README's tool list omits {missing}"
+
+
+def test_no_document_names_an_mcp_tool_that_does_not_exist():
+    """The README is not the only file with a tool list. `docs/40-ux.md` carried
+    four names that were never implemented — including a `clickllm_cutover_status`
+    that *cannot* exist, since the boundary test rejects the substring. A design
+    doc describing a surface nobody built reads exactly like one describing the
+    surface that shipped.
+    """
+    from clickllm import mcp
+
+    root = Path(__file__).resolve().parents[1]
+    forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
+    for rel in ("README.md", "docs/40-ux.md", ".claude/skills/clickllm/SKILL.md"):
+        text = (root / rel).read_text()
+        named = set(re.findall(r"\bclickllm_[a-z_]+\b", text))
+        # Names carrying a forbidden verb are being cited as things that must
+        # not exist, not advertised. The registry containing one would fail the
+        # read-only boundary test instead.
+        cited = {n for n in named if any(w in n for w in forbidden)}
+        ghosts = named - cited - set(mcp.TOOLS)
+        assert not ghosts, f"{rel} names tools that do not exist: {sorted(ghosts)}"
+
+
+def test_the_readme_does_not_advertise_a_tool_that_was_removed():
+    """The other direction. A tool named in the README and absent from the
+    registry is a promise the build no longer keeps."""
+    from clickllm import mcp
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    advertised = set(re.findall(r"\bclickllm_[a-z_]+\b", readme))
+    assert advertised, "no tools named at all; the check would be vacuous"
+
+    # `clickllm_promote` is named on purpose, as the example of the tool that
+    # must never exist — "someone adding a helpful-looking clickllm_promote and
+    # nothing objecting". Any name carrying a forbidden verb is being cited,
+    # not advertised, and a registry that actually contained one would fail the
+    # read-only boundary test rather than this one.
+    forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
+    cited = {n for n in advertised if any(w in n for w in forbidden)}
+    assert cited & set(mcp.TOOLS) == set(), "a forbidden-verb tool is actually registered"
+
+    ghosts = advertised - cited - set(mcp.TOOLS)
+    assert not ghosts, f"the README advertises tools that do not exist: {sorted(ghosts)}"
+
+
+def test_every_command_the_readme_names_is_a_command_that_exists():
+    """The capability table says ✅ next to a command name, which a reader takes
+    as "this runs". Observe and Distill said ✅ for a while with no subcommand
+    behind them: the capability was real, tested, and unreachable.
+    """
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    named = set(re.findall(r"`clickllm ([a-z][a-z-]*)`", readme))
+    assert named, "no commands named; the check would be vacuous"
+
+    out = subprocess.run(
+        [sys.executable, "-m", "clickllm.cli", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root / "src")},
+    )
+    listed = set(re.findall(r"[{,]([a-z][a-z-]*)", out.stdout))
+    missing = named - listed
+    assert not missing, f"the README names commands the CLI does not have: {sorted(missing)}"
