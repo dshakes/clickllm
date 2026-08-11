@@ -1595,3 +1595,23 @@ def test_every_numbered_doc_is_linked_from_the_readme():
         if f"docs/{f.name}" not in readme
     ]
     assert not missing, f"written but unlinked: {missing}"
+
+
+def test_the_published_latency_figure_matches_the_test_that_measures_it():
+    """A measured number in prose is still prose. This one exists because the
+    budget beside it sat unmeasured for the whole project — so the claim is
+    pinned to the file that produces it, and to that file still asserting the
+    budget rather than merely printing a number.
+    """
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "clickllm-gateway" / "tests" / "latency.rs").read_text()
+    assert "BUDGET_MS: f64 = 15.0" in src, "the budget the docs cite is not the one enforced"
+    assert "added_recording < BUDGET_MS" in src, "the measurement no longer asserts the budget"
+    # The control matters as much as the measurement: without it, a passing
+    # latency test is consistent with a broken stopwatch.
+    assert "the_measurement_can_detect_overhead_that_is_really_there" in src
+
+    for rel in ("README.md", "docs/20-prd.md"):
+        text = (root / rel).read_text()
+        assert "15 ms" in text, f"{rel} no longer states the budget"
+        assert "+0.07 ms" in text, f"{rel} no longer states the measured figure"

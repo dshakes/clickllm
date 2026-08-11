@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1962-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1965-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -575,7 +575,7 @@ getting the three formulas above wrong costs hardware rather than just accuracy.
 
 Purple is the live request. Green is the control loop deciding what it's allowed to hit. **They never cross.**
 
-**Rust** for the datapath — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
+**Rust** for the datapath — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. The budget is 15 ms added p95 (NFR-1); the measured figure is **+0.07 ms** with capture on, and the test that measures it also proves it can detect 25 ms of injected delay, because a latency check that passes by measuring nothing is the most comfortable green there is. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
 
 Weights are **not** on either path. The serving engines fetch them from the Hub
 themselves, so clickllm resolves *which* repo and then gets out of the way —
@@ -655,12 +655,12 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ## Verification
 
 ```bash
-cargo test --all                                   # 247 Rust
+cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1715 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1716 Python
 ```
 
-**1962 tests.** 1715 Python, 247 Rust. Eighteen of the Python tests skip on a
+**1965 tests.** 1716 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
