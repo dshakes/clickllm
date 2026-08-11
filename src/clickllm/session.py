@@ -119,7 +119,17 @@ def _fmt_gb(b: float) -> str:
 #: Requirement field -> the type its value must be. Coercion happens once, in
 #: `Session._apply_fields`, because that is where every entry point converges.
 #: `bool` is excluded deliberately: `bool("false")` is True, so a string there
-#: must be a refusal rather than a silent yes.
+#: must be a refusal rather than a silent yes. Excluding it from this map is
+#: only half of that, and for a while it was the only half: a field with no
+#: entry here fell through the loop below untouched, so `structured_output`
+#: arrived and was *stored* as the string `"false"` — which is truthy, so
+#: `plan.py:287` and `plan.py:618` both read it as yes. Saying "false" turned
+#: the feature on. `_STRICT_TYPES` is the other half.
+#: Fields whose value must ALREADY be the right type, because coercing them is
+#: the defect rather than the fix. Checked before the coercion loop, so a
+#: field listed here can never take the untouched fall-through path.
+_STRICT_TYPES: dict[str, type] = {"structured_output": bool}
+
 _REQUIREMENT_TYPES: dict[str, type] = {
     # `workload` was the one field this map was missing, and the one the error
     # for an unknown key advertises by name: "Known: concurrency, context,
@@ -207,6 +217,17 @@ class Session:
         # one funnel both paths pass through.
         coerced: dict[str, object] = {}
         for key, value in fields.items():
+            strict = _STRICT_TYPES.get(key)
+            # `None` is refused here too, unlike the optional numeric fields.
+            # `structured_output` is not optional, so there is no "unset" for
+            # `None` to mean — storing it would put a `null` in a field the
+            # plan and the receipt both declare as a bool.
+            if strict is not None and not isinstance(value, strict):
+                raise ValueError(
+                    f"{key} must be a {strict.__name__}, got {value!r}. "
+                    f"Coercing it would be the bug: bool({value!r}) is "
+                    f"{bool(value)}, so a value meaning no would read as yes."
+                )
             want = _REQUIREMENT_TYPES.get(key)
             if want is None or value is None or isinstance(value, want):
                 coerced[key] = value

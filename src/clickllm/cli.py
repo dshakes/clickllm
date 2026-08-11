@@ -687,6 +687,96 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_observe(args: argparse.Namespace) -> int:
+    """Put the gateway in front of a provider and record what goes through it.
+
+    This is the one command that enters the request path, so it says so, names
+    where the prompts will land, and never moves traffic — see ADR-0015 and the
+    gateway's own refusal of a startup `--percent`.
+    """
+    from . import observe
+
+    try:
+        binary = observe.find_gateway()
+    except FileNotFoundError as exc:
+        print(f"\n  {exc}\n")
+        return 2
+    if binary is None:
+        print(
+            "\n  No gateway binary found.\n\n"
+            "  Build it:      cargo build --release -p clickllm-gateway\n"
+            "  Or point at one: CLICKLLM_GATEWAY_BIN=/path/to/clickllm-gateway\n\n"
+            "  `clickllm fit` needs none of this — the gateway is only for capture.\n"
+        )
+        return 2
+
+    home = observe.state_dir()
+    capture = pathlib.Path(args.capture) if args.capture else home / "captures.log"
+    argv = observe.gateway_argv(
+        binary,
+        args.upstream,
+        port=args.port,
+        candidate=args.candidate,
+        capture=capture,
+        key=home / "capture.key",
+        no_capture=args.no_capture,
+    )
+    # One line, and only what the binary does not already print — it announces
+    # the capture path, the upstream and the bound address itself, and saying
+    # them twice reads as two different things happening.
+    #
+    # Flushed explicitly: Python's stdout is block-buffered when it is not a
+    # terminal, and `run_gateway` hands the same fd to a child that writes
+    # immediately. Without this the banner arrives after the gateway's, or —
+    # when the process is killed rather than exiting — not at all, which is
+    # exactly how it behaved the first time it was piped to a file.
+    print("\n  In your request path from now until Ctrl-C, and not after (ADR-0015).", flush=True)
+    return observe.run_gateway(argv)
+
+
+def cmd_distill(args: argparse.Namespace) -> int:
+    """Turn a capture log into the eval set `clickllm prove` reads."""
+    from . import core, observe
+
+    if not core.available():
+        print(f"\n  {core.why_unavailable()}\n")
+        return 2
+
+    home = observe.state_dir()
+    log = pathlib.Path(args.capture) if args.capture else home / "captures.log"
+    key_path = pathlib.Path(args.key) if args.key else home / "capture.key"
+    if not log.exists():
+        print(f"\n  No capture log at {log}. Run `clickllm observe` first.\n")
+        return 2
+    if not key_path.exists():
+        # Never `load_or_create_key` here: a fresh key would decrypt nothing and
+        # report an empty log, which reads as "no traffic" rather than "wrong
+        # key" — the most misleading answer available.
+        print(f"\n  No key at {key_path}. It is written when the gateway first records.\n")
+        return 2
+
+    rows = core.read_captures(str(log), key_path.read_bytes())
+    if not rows:
+        print(f"\n  {log} holds no captures yet.\n")
+        return 2
+
+    doc, report = observe.distill(rows, budget=args.budget, min_per_cluster=args.min_per_cluster)
+    out = observe.write_eval_set(doc, pathlib.Path(args.out))
+    if args.json:
+        print(json.dumps(doc, indent=2, sort_keys=True))
+        return 0
+    print()
+    print(report.render())
+    print(f"\n  wrote {out}")
+    print(
+        f"  next: clickllm prove {out} "
+        "--candidate-endpoint <url> --candidate <model>\n"
+        "        (the endpoint is required — without it every candidate answer "
+        "in this file is blank)\n"
+    )
+    return 0
+
+
 def cmd_catalog_sources(args: argparse.Namespace) -> int:
     """Where the catalogue's models came from."""
     models = catalog.load()
@@ -1017,6 +1107,25 @@ def cmd_prove(args: argparse.Namespace) -> int:
     # Built before anything is collected: a misspelled judge endpoint should cost
     # nothing, not several hundred round trips followed by a usage error.
     judge, judge_model, agreement = _judge_from(args)
+
+    # A file where nothing was ever collected is not a proof of anything, and
+    # it does not read as one: every candidate answer is empty, every grader
+    # fails it, and the verdict comes back 0% — "keep the incumbent", stated
+    # with the same confidence as a real result. It fails closed, so nobody
+    # ships a bad model on it; they abandon a good one instead, which is the
+    # same defect pointing the other way.
+    #
+    # `clickllm distill` writes exactly this file, deliberately: the candidate
+    # column is for `--candidate-endpoint` to fill. So the refusal belongs here,
+    # at the solver, not only in the hint distill prints (ADR-0011).
+    if not args.candidate_endpoint and all(not i.candidate for i in items):
+        raise ValueError(
+            f"{args.evalset}: every candidate answer is blank and no "
+            "--candidate-endpoint was given, so there is nothing to grade. "
+            "Pass --candidate-endpoint <url> to collect the candidate's "
+            "replies, or fill the `candidate` field in the file yourself. "
+            "Grading it as-is would report 0% and read as a verdict."
+        )
 
     asked = len(items)
     items, collections = _collect_replies(items, args)
@@ -1424,6 +1533,23 @@ def main(argv: list[str] | None = None) -> int:
 
     m = sub.add_parser("models", help="list the catalog")
     m.set_defaults(fn=cmd_models)
+
+    ob = sub.add_parser("observe", help="record real traffic through a capture gateway")
+    ob.add_argument("--upstream", required=True, help="the provider you use today")
+    ob.add_argument("--port", type=int, default=8787)
+    ob.add_argument("--candidate", help="a second backend to shadow against")
+    ob.add_argument("--capture", help="where the log goes (default: ~/.clickllm/captures.log)")
+    ob.add_argument("--no-capture", action="store_true", dest="no_capture")
+    ob.set_defaults(fn=cmd_observe)
+
+    di = sub.add_parser("distill", help="turn a capture log into an eval set")
+    di.add_argument("--capture", help="the log to read (default: ~/.clickllm/captures.log)")
+    di.add_argument("--key", help="the capture key (default: ~/.clickllm/capture.key)")
+    di.add_argument("--out", default="evalset.json")
+    di.add_argument("--budget", type=int, default=200, help="total eval items to sample")
+    di.add_argument("--min-per-cluster", type=int, default=3, dest="min_per_cluster")
+    di.add_argument("--json", action="store_true")
+    di.set_defaults(fn=cmd_distill)
 
     g = sub.add_parser("guard", help="check whether a receipt still holds")
     g.add_argument("receipt", help="path to a receipt JSON file")

@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1894-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1913-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -445,6 +445,81 @@ you no longer know whether production is adequate.
 
 ---
 
+## The whole loop, on your own traffic
+
+Everything above is one chain, and it runs on one machine. This is a real run —
+the commands, and the output they printed.
+
+<img src="docs/assets/chain-real-run.svg" alt="One real run of the whole chain on a single laptop. Fifteen requests pass through the capture gateway to an upstream provider; the log on disk holds no readable prompt text; the distiller finds two task shapes and writes fifteen eval items with the traffic shares eighty and twenty percent; and the prover, with every single item matching the incumbent exactly, still returns move zero percent — because fifteen items cannot clear a ninety percent bar. The verdict refusing to promote a perfect score is the system working, not failing." width="100%">
+
+**① Point your client at clickllm instead of your provider.** One line changes:
+`base_url`. Nothing else about your app moves.
+
+```bash
+clickllm observe --upstream https://api.openai.com/v1
+
+  In your request path from now until Ctrl-C, and not after (ADR-0015).
+  capture   ~/.clickllm/captures.log (key: ~/.clickllm/capture.key)
+  upstream  https://api.openai.com/v1
+  listening http://127.0.0.1:8787
+  point your base_url here and nothing else changes.
+```
+
+Redaction runs *inside* the write path, so there is no code path that appends a
+record which skipped it — and a redaction failure drops the capture rather than
+storing it. After 15 requests through the proxy, the log on disk contained zero
+readable prompt bytes.
+
+**② Turn what it saw into an eval set.** No prompt engineering, no fixture
+writing — the questions are the ones your users actually asked.
+
+```bash
+clickllm distill
+
+  15 captures  →  2 task shapes  →  15 eval items
+
+  free text · <=1k context                    12 sampled   80.0% of traffic
+  tool-calling (1 tool) · empty response ·      3 sampled   20.0% of traffic
+```
+
+Those two shapes were **found, not configured**. A request that offers tools is
+a different workload from one that does not, and a candidate can pass one and
+fail the other — so they are never averaged together. The share is share of
+*traffic*, not of the sample, so a small cluster sampled up to the floor cannot
+claim a bigger slice of the verdict than it holds of your workload.
+
+**③ Score a candidate against the incumbent, per cluster.**
+
+```bash
+clickllm prove evalset.json --candidate-endpoint http://localhost:8000/v1 --candidate qwen3-30b-a3b
+```
+
+**④ Read the verdict — including when it refuses.** In this run every single
+item matched the incumbent exactly, and the answer was still *no*:
+
+```
+weighted verdict 100% [81–100]
+  multiplicity: 2 clusters scored against the same 90% bar; the intervals
+  above are UNADJUSTED. Under Bonferroni (α=0.05/2, z=2.24), none of them
+  clears it even unadjusted.
+
+Move 0% of traffic to candidate.
+  Not yet proven: tool-calling (1 tool) · empty response, free text
+    → needs 35 graded items to clear the 90% bar at its observed 100%
+      (has 3, 32 to go)
+```
+
+**A perfect score that refuses to promote itself is the entire point.** 100%
+over 15 items and 100% over 400 are the same number and completely different
+decisions. A cluster counts as proven only when its *whole* interval clears the
+bar — and the report tells you how many more items would settle it, rather than
+leaving you to guess. It also volunteers that two clusters against one bar means
+the intervals are unadjusted, which is not a thing a tool trying to look good
+would mention.
+
+Then `clickllm receipt` makes it a file someone else can re-check, and
+`clickllm guard` tells you when it stops being true.
+
 ## Three things everyone gets wrong
 
 The docs teach the whole inference stack from first principles — [start here](https://dshakes.github.io/clickllm/docs/#edu-why) if you've never sized a KV cache. The short version:
@@ -562,10 +637,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 247 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1647 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1666 Python
 ```
 
-**1894 tests.** 1647 Python, 247 Rust. Eighteen of the Python tests skip on a
+**1913 tests.** 1666 Python, 247 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'

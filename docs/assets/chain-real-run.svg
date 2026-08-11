@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" role="img" aria-label="One real run of the whole chain on a single laptop. Fifteen requests pass through the capture gateway to an upstream provider; the log on disk holds no readable prompt text; the distiller finds two task shapes and writes fifteen eval items with the traffic shares eighty and twenty percent; and the prover, with every single item matching the incumbent exactly, still returns move zero percent — because fifteen items cannot clear a ninety percent bar. The verdict refusing to promote a perfect score is the system working, not failing.">
+<defs>
+  <linearGradient id="canvas2" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0b0f16"/><stop offset=".55" stop-color="#0d1117"/><stop offset="1" stop-color="#12161f"/>
+  </linearGradient>
+  <filter id="lift2" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity=".55"/>
+  </filter>
+  <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#484f58"/>
+  </marker>
+  <style>
+    .t    { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif; }
+    .m    { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; fill:#8b949e; }
+    .kick { font-size:11.5px; fill:#6e7681; letter-spacing:.20em; font-weight:700; }
+    .h1   { font-size:31px; font-weight:800; fill:#f0f6fc; letter-spacing:-.015em; }
+    .lede { font-size:13.5px; fill:#8b949e; }
+    .step { font-size:11px; font-weight:800; letter-spacing:.10em; fill:#6e7681; }
+    .cmd  { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; font-weight:700; fill:#58a6ff; }
+    .big  { font-size:27px; font-weight:800; fill:#f0f6fc; }
+    .unit { font-size:11.5px; fill:#7d8590; }
+    .ok   { fill:#3fb950; }
+    .warn { fill:#d29922; }
+    .why  { font-size:11px; fill:#7d8590; }
+    .note { font-size:12px; font-weight:700; fill:#e6edf3; }
+  </style>
+</defs>
+
+<rect width="1200" height="640" fill="url(#canvas2)"/>
+
+<text class="t kick" x="64" y="52">ONE MACHINE · ONE RUN · REAL OUTPUT</text>
+<text class="t h1"   x="64" y="88">Your traffic in. A number you can defend out.</text>
+<text class="t lede" x="64" y="114">Four commands. Nothing left this laptop, and nothing readable was written to disk.</text>
+
+<!-- ============ the four stages ============ -->
+<g filter="url(#lift2)">
+  <rect x="64"  y="152" width="252" height="196" rx="12" fill="#0d1117" stroke="#30363d"/>
+  <rect x="340" y="152" width="252" height="196" rx="12" fill="#0d1117" stroke="#30363d"/>
+  <rect x="616" y="152" width="252" height="196" rx="12" fill="#0d1117" stroke="#30363d"/>
+  <rect x="892" y="152" width="244" height="196" rx="12" fill="#0d1117" stroke="#30363d"/>
+</g>
+
+<!-- 1 observe -->
+<text class="t step" x="88"  y="182">① OBSERVE</text>
+<text class="cmd"    x="88"  y="206">clickllm observe</text>
+<text class="t big"  x="88"  y="252">15</text>
+<text class="t unit" x="88"  y="272">requests through the proxy</text>
+<text class="t big ok" x="88" y="310">0</text>
+<text class="t unit" x="88"  y="330">bytes of readable prompt on disk</text>
+
+<!-- 2 distill -->
+<text class="t step" x="364" y="182">② DISTILL</text>
+<text class="cmd"    x="364" y="206">clickllm distill</text>
+<text class="t big"  x="364" y="252">2</text>
+<text class="t unit" x="364" y="272">task shapes, found not guessed</text>
+<text class="t big"  x="364" y="310">15</text>
+<text class="t unit" x="364" y="330">eval items · 80% / 20% of traffic</text>
+
+<!-- 3 prove -->
+<text class="t step" x="640" y="182">③ PROVE</text>
+<text class="cmd"    x="640" y="206">clickllm prove</text>
+<text class="t big"  x="640" y="252">100%</text>
+<text class="t unit" x="640" y="272">of items matched the incumbent</text>
+<text class="t big warn" x="640" y="310">[81–100]</text>
+<text class="t unit" x="640" y="330">and the interval is what decides</text>
+
+<!-- 4 verdict -->
+<text class="t step" x="916" y="182">④ VERDICT</text>
+<text class="cmd"    x="916" y="206">move 0%</text>
+<text class="t big warn" x="916" y="252">not yet</text>
+<text class="t unit" x="916" y="272">15 items cannot clear a 90% bar</text>
+<text class="t big"  x="916" y="310">35</text>
+<text class="t unit" x="916" y="330">items needed, and it says so</text>
+
+<!-- arrows -->
+<path d="M320 250 H336" stroke="#484f58" stroke-width="2" marker-end="url(#arw)" fill="none"/>
+<path d="M596 250 H612" stroke="#484f58" stroke-width="2" marker-end="url(#arw)" fill="none"/>
+<path d="M872 250 H888" stroke="#484f58" stroke-width="2" marker-end="url(#arw)" fill="none"/>
+
+<!-- ============ the point ============ -->
+<g filter="url(#lift2)">
+  <rect x="64" y="392" width="1072" height="182" rx="12" fill="#0d1117" stroke="#30363d"/>
+</g>
+<rect x="64" y="392" width="6" height="182" rx="3" fill="#d29922"/>
+
+<text class="t note" x="100" y="428">Every item matched perfectly, and the answer is still “do not move traffic”.</text>
+<text class="t why"  x="100" y="454">That is the whole design. A perfect score over 15 items and a perfect score over 400 are the same percentage and</text>
+<text class="t why"  x="100" y="474">completely different decisions. A cluster is proven only when its <tspan font-weight="700" fill="#e6edf3">whole interval</tspan> clears the bar, so a small sample cannot</text>
+<text class="t why"  x="100" y="494">promote itself by getting lucky — and the report says exactly how many more items would settle it.</text>
+
+<text class="t why"  x="100" y="528">Two clusters were scored against one bar, so the report also states that the intervals are unadjusted for multiplicity,</text>
+<text class="t why"  x="100" y="548">and that under Bonferroni neither clears it either. A tool that wanted to look good would not have mentioned it.</text>
+
+<text class="t m" x="64" y="608">observe → distill → prove → receipt → guard  ·  no account, no telemetry, no egress you did not ask for  ·  the same four commands an agent calls over MCP</text>
+</svg>

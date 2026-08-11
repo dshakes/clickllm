@@ -74,8 +74,11 @@ class EvalItem:
     prompt: str
     baseline: str
     candidate: str
-    baseline_tool_calls: tuple[dict[str, Any], ...] = ()
-    candidate_tool_calls: tuple[dict[str, Any], ...] = ()
+    #: Each call is either the OpenAI request shape (a dict) or a bare tool
+    #: name (a string) — see `_call_names`. Same unvalidated-file caveat as
+    #: `response_format`.
+    baseline_tool_calls: tuple[dict[str, Any] | str, ...] = ()
+    candidate_tool_calls: tuple[dict[str, Any] | str, ...] = ()
     #: Either a bare name ("enum", "json_schema") or the OpenAI request shape
     #: `{"type": "json_object"}` — the CLI reads this straight out of an eval-set
     #: file, so whatever a user wrote arrives here unvalidated.
@@ -173,10 +176,25 @@ class JsonShape:
         return Score(self.name, self.tier, Outcome.PASS)
 
 
-def _call_names(calls: tuple[dict[str, Any], ...]) -> list[str]:
+def _call_names(calls: tuple[object, ...]) -> list[str]:
+    """Tool names, from any of the three shapes a call arrives in.
+
+    An eval set is a file. It comes from `clickllm distill`, from a hand edit,
+    or from another tool entirely, and invariant 7 applies to it as much as to
+    the corpus: it is data, not a contract. A bare `"refund"` is an obvious way
+    to write a tool call by hand, and raising `AttributeError` from four frames
+    inside a grader is the wrong answer to it — the whole run dies over one
+    malformed row.
+    """
     out = []
     for c in calls:
-        n = c.get("name") or (c.get("function") or {}).get("name")
+        if isinstance(c, str):
+            n: object = c
+        elif isinstance(c, dict):
+            fn = c.get("function")
+            n = c.get("name") or (fn.get("name") if isinstance(fn, dict) else None)
+        else:
+            continue
         if n:
             out.append(str(n))
     return out
@@ -229,7 +247,11 @@ class ToolArgs:
         return Score(self.name, self.tier, Outcome.PASS)
 
 
-def _args(call: dict[str, Any]) -> dict[str, Any]:
+def _args(call: object) -> dict[str, Any]:
+    if not isinstance(call, dict):
+        # A bare name like "refund" — the same shape `_call_names` accepts.
+        # No arguments to compare, so there is nothing to report missing.
+        return {}
     raw = call.get("arguments") or (call.get("function") or {}).get("arguments") or {}
     if isinstance(raw, str):
         parsed = _parse_json(raw)
