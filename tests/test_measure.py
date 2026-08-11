@@ -102,6 +102,20 @@ def test_an_unknown_load_is_reported_as_unknown_rather_than_zero():
     assert "unknown" in unknown.render()
 
 
+def test_an_unreadable_core_count_does_not_crash_render():
+    """`hardware.detect()` used to hardcode `cores=0` for every NVIDIA/AMD box
+    — this tool's primary target — and `render()` unconditionally formatted
+    `per_core` with `:.2f`, a `TypeError` since `per_core` is `None` whenever
+    `cores < 1`. Fixed at the source in `hardware.py`, but `render()` must not
+    crash on `cores < 1` regardless of who calls it that way."""
+    unknown_cores = M.Load(one_minute=1.23, cores=0)
+    assert unknown_cores.per_core is None
+    assert not unknown_cores.contended, "an unreadable core count is not contention"
+    text = unknown_cores.render()
+    assert "unknown" in text
+    assert "1.23" in text
+
+
 def test_one_sample_is_refused_because_it_has_no_spread():
     with pytest.raises(ValueError, match="spread"):
         M.measure("http://x/v1", "m", cores=8, samples=1, sampler=_take(_samples(50)))
@@ -302,6 +316,108 @@ def test_a_jittery_server_is_refused_end_to_end(tmp_path):
     assert any("disagree" in r for r in m.refused)
 
 
+SERVER_COALESCED = """
+import json, os, time, socketserver
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+N = int(os.environ["N_TOKENS"])
+
+class Server(HTTPServer):
+    allow_reuse_address = True
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+class H(BaseHTTPRequestHandler):
+    log_message = lambda *a: None
+    def do_POST(self):
+        json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        def frame(o):
+            self.wfile.write(("data: " + json.dumps(o) + "\\n\\n").encode()); self.wfile.flush()
+        frame({"choices":[{"delta":{"role":"assistant"}}]})
+        time.sleep(0.02)
+        # The whole completion in ONE content delta -- what an OpenAI-compatible
+        # server that coalesces frames looks like on the wire. Streaming only
+        # promises text deltas, not one SSE frame per token.
+        frame({"choices":[{"delta":{"content":" ".join("t%d" % i for i in range(N))}}]})
+        time.sleep(0.05)
+        frame({"choices":[],"usage":{"completion_tokens":N,"prompt_tokens":5,"total_tokens":N+5}})
+        self.wfile.write(b"data: [DONE]\\n\\n"); self.wfile.flush()
+
+HTTPServer.allow_reuse_address = True
+Server(("127.0.0.1", int(os.environ["PORT"])), H).serve_forever()
+"""
+
+
+def test_a_server_that_coalesces_tokens_into_one_frame_still_counts_tokens(tmp_path):
+    """OpenAI-compatible streaming promises text deltas, not one SSE frame per
+    token. Counting content frames as tokens undercounted a server that sends
+    the whole completion in one delta down to zero and rejected it as "no
+    streamed tokens" — a valid streamed response. `usage.completion_tokens`,
+    when the endpoint reports it, must be trusted over the frame count."""
+    port = _free_ports(1)[0]
+    src = tmp_path / "coalesced.py"
+    src.write_text(SERVER_COALESCED)
+    proc = subprocess.Popen(
+        [sys.executable, str(src)],
+        env={**os.environ, "N_TOKENS": "40", "PORT": str(port)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            time.sleep(0.1)
+    try:
+        s = M._decode_once(f"http://127.0.0.1:{port}/v1", "f", "hi", max_tokens=40, timeout=10)
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
+    # 39, not 40: the same "exclude the first token" convention the frame
+    # count uses, so this lines up with `decode_seconds` (first token to last).
+    assert s.tokens == 39, s.tokens
+
+
+def test_a_non_object_sse_frame_is_skipped_not_a_crash(tmp_path):
+    """Some OpenAI-compatible servers are not fully compliant. A `data:` line
+    that decodes to a JSON list or primitive must be skipped, not raise
+    `AttributeError` from calling `.get()` on it."""
+    port = _free_ports(1)[0]
+    src = tmp_path / "malformed.py"
+    src.write_text(
+        SERVER.replace(
+            'frame({"choices":[{"delta":{"role":"assistant"}}]})',
+            'frame({"choices":[{"delta":{"role":"assistant"}}]})\n'
+            '        frame(["not", "a", "dict"])',
+        )
+    )
+    proc = subprocess.Popen(
+        [sys.executable, str(src)],
+        env={**os.environ, "RATE_TOK_S": "50", "PORT": str(port)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            time.sleep(0.1)
+    try:
+        s = M._decode_once(f"http://127.0.0.1:{port}/v1", "f", "hi", max_tokens=20, timeout=10)
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
+    assert s.tokens > 0
+
+
 def test_an_endpoint_that_streams_nothing_is_an_error_not_a_zero(tmp_path):
     """Zero tokens per second would be a number, and a wrong one. A server that
     answered without streaming is a setup problem, and it says so."""
@@ -376,7 +492,57 @@ def test_measure_exits_nonzero_when_it_refuses(tmp_path):
         proc.kill()
         proc.wait(timeout=5)
     assert out.returncode == 1, out.stdout + out.stderr
-    assert "NOT A MEASUREMENT" in out.stdout
+
+
+def test_json_out_stdout_stays_parseable(tmp_path):
+    """`--json --out FILE` used to print `wrote FILE` to stdout after the JSON
+    object, so a script piping stdout into a JSON parser broke. The status
+    line belongs on stderr in `--json` mode, same as the other CLI commands."""
+    port = _free_ports(1)[0]
+    proc = _serve(tmp_path, port, 50.0)
+    out_path = tmp_path / "bench.json"
+    try:
+        out = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "clickllm.cli",
+                "measure",
+                "--endpoint",
+                f"http://127.0.0.1:{port}/v1",
+                "--served-model",
+                "fake",
+                "--samples",
+                "2",
+                "--max-tokens",
+                "40",
+                "--json",
+                "--out",
+                str(out_path),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        )
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
+    parsed = json.loads(out.stdout)  # raises if the status line leaked into stdout
+    assert "wrote" in out.stderr
+    assert out_path.exists()
+    # Not `"NOT A MEASUREMENT" in out.stdout`, which is what this asserted at
+    # first: that string is the *rendered* refusal, and `--json` prints JSON
+    # instead of the render — so the assertion contradicted the parse two lines
+    # above it, and only passed while the server happened to refuse.
+    #
+    # The machine-readable equivalent is the `measured` key, and a consumer must
+    # be able to reach it without parsing prose.
+    assert "measured" in parsed
+    assert parsed["measured"] is (not parsed["refused"])
+    assert json.loads(out_path.read_text())["measured"] == parsed["measured"], (
+        "the file and stdout disagree about whether this counts"
+    )
 
 
 def test_reading_the_load_cannot_take_the_measurement_with_it(monkeypatch):
@@ -417,3 +583,39 @@ def test_a_process_name_that_is_not_valid_utf8_is_survived(monkeypatch):
     load = M.read_load(cores=8)
     assert len(load.top) == 2, load.top
     assert any("chrome" in t for t in load.top)
+
+
+def test_a_contention_gate_that_could_not_run_says_so():
+    """The same mistake as `guard`'s fingerprint check, which iterated an empty
+    dict and reported "still holds": a check that did not run is not a check
+    that passed.
+
+    Not a refusal — an unreadable load average is no evidence the machine was
+    busy — but the number must not read as better-checked than it is. Every
+    NVIDIA and AMD box had `cores=0`, so this was every one of them.
+    """
+    m = M.measure("http://x/v1", "m", cores=0, samples=2, sampler=_take(_samples(50, 50)))
+    assert m.usable, "an unknown core count is not evidence of contention"
+    assert m.caveats, "the gate silently did not run"
+    assert "did not run" in m.render()
+    assert any("did not run" in c for c in json.loads(m.to_json())["caveats"])
+
+
+def test_a_measurement_with_a_working_gate_carries_no_caveat():
+    """The control: a caveat on every run would be noise nobody reads."""
+    m = M.measure("http://x/v1", "m", cores=16, samples=2, sampler=_take(_samples(50, 50)))
+    if m.load_before.per_core is not None:
+        assert not m.caveats, m.caveats
+        assert "Checked less than usual" not in m.render()
+
+
+def test_every_hardware_detector_reports_host_cpu_cores():
+    """`Hardware.cores` is the denominator for load-per-core, and load average
+    is a host-CPU metric. NVIDIA and AMD hardcoded 0 — which is not "unknown"
+    to a reader, it is a number, and it disabled the gate on every such box
+    while looking like a populated field.
+    """
+    src = (ROOT / "src" / "clickllm" / "hardware.py").read_text()
+    assert "cores=0," not in src, (
+        "a detector reports zero cores; use os.cpu_count() so load-per-core has a real denominator"
+    )

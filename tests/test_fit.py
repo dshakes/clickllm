@@ -1080,6 +1080,17 @@ def test_a_heterogeneous_rig_is_summed_not_extrapolated_from_gpu_zero():
     assert _nvidia_smi(["NVIDIA L4, 23034"]).devices == 1
 
 
+def test_an_nvidia_box_reports_host_cpu_cores_not_zero():
+    """`cores` is the host's CPU count, for `measure.py`'s load-per-core gate —
+    not a GPU figure. A hardcoded 0 read as "0 cores" rather than "not
+    tracked", which crashed `Load.render()` and silently disabled the
+    contention gate on every NVIDIA box, this tool's primary target."""
+    import os
+
+    hw = _nvidia_smi(["NVIDIA L4, 23034"])
+    assert hw.cores == os.cpu_count()
+
+
 # --- a shortfall never renders as nothing ---------------------------------------
 
 
