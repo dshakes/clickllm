@@ -183,6 +183,50 @@ impl CaptureStore {
         Ok(key)
     }
 
+    /// Open the log for appending, if it is not already open.
+    ///
+    /// Split out of `append` so `ready` can perform exactly the same open. A
+    /// readiness check that opened the file *differently* would be a check of
+    /// something other than the thing it is checking.
+    fn open_writer(&self, guard: &mut Option<std::fs::File>) -> Result<()> {
+        if guard.is_some() {
+            return Ok(());
+        }
+        if let Some(parent) = self.path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| StoreError::io("create capture dir", parent, e))?;
+        }
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| StoreError::io("open capture log", &self.path, e))?;
+        restrict(&self.path)?;
+        *guard = Some(f);
+        Ok(())
+    }
+
+    /// Open the log now, so a caller can fail before serving rather than after.
+    ///
+    /// `open` builds a cipher and touches no filesystem, and `append` opens
+    /// lazily — from a spawned task whose errors are logged and dropped, because
+    /// a slow disk must never become a slow response. Those two facts together
+    /// mean an unwritable log path produces a gateway that starts, serves, and
+    /// records nothing, which looks identical to one that is working.
+    ///
+    /// Anything that promises to fail closed on capture has to call this.
+    ///
+    /// # Errors
+    /// [`StoreError::Io`] when the log cannot be created or opened for append —
+    /// the same error `append` would have hit later, from a place where it can
+    /// still stop the process.
+    pub fn ready(&self) -> Result<()> {
+        let mut guard = self.writer.lock();
+        self.open_writer(&mut guard)
+    }
+
     /// Redact, encrypt, and append.
     ///
     /// Redaction happens here rather than in the caller so it cannot be skipped:
@@ -227,21 +271,7 @@ impl CaptureStore {
         frame.extend_from_slice(&ct);
 
         let mut guard = self.writer.lock();
-        if guard.is_none() {
-            if let Some(parent) = self.path.parent()
-                && !parent.as_os_str().is_empty()
-            {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| StoreError::io("create capture dir", parent, e))?;
-            }
-            let f = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&self.path)
-                .map_err(|e| StoreError::io("open capture log", &self.path, e))?;
-            restrict(&self.path)?;
-            *guard = Some(f);
-        }
+        self.open_writer(&mut guard)?;
         let Some(f) = guard.as_mut() else {
             return Err(StoreError::Crypto { op: "open" });
         };
