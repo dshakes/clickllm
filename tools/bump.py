@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Set the release version everywhere it is published, in one command.
 
-The version lives in fourteen places across six files: two manifests, four
+The version lives in eighteen places across eight files: two manifests, four
 install-pin examples on three doc surfaces, and one "currently X" line. Cutting
 a release by hand means six careful edits, and this repo has already proved what
 that costs — `CLAUDE.md` advertised 61 tests against a real 227 because the one
@@ -42,6 +42,28 @@ SURFACES: tuple[tuple[str, str, str], ...] = (
     # two frozen numbers agreeing by accident. The moment anyone bumped one, the
     # compiled extension would refuse to load against its own package.
     ("Cargo.toml", "rust workspace", rf'(^version = ")({_V})(")'),
+    # Intra-workspace dependency pins. These were NOT here either, and the
+    # omission was invisible for the whole 0.1.x line: a pin of `0.1.0` is a
+    # caret requirement, `>=0.1.0, <0.2.0`, so it matched every release this
+    # project ever cut. It cannot match 1.0.0. The first version bump that
+    # crossed a major boundary broke `cargo build` on a repo whose tests were
+    # all green — which is to say, this project could never have released a
+    # 1.0.0 without discovering it the hard way.
+    (
+        "clickllm-gateway/Cargo.toml",
+        "core dep pin",
+        rf'(clickllm-core = \{{ path = "\.\./clickllm-core", version = ")({_V})(")',
+    ),
+    (
+        "clickllm-py/Cargo.toml",
+        "core dep pin",
+        rf'(clickllm-core = \{{ path = "\.\./clickllm-core", version = ")({_V})(")',
+    ),
+    (
+        "clickllm-py/Cargo.toml",
+        "gateway dep pin",
+        rf'(clickllm-gateway = \{{ path = "\.\./clickllm-gateway", version = ")({_V})(")',
+    ),
     # Install pins — examples a reader copies. These must name the new release.
     ("README.md", "uvx pin", rf"(uvx --from clickllm-cli==)({_V})( clickllm fit)"),
     ("README.md", "npx pin", rf"(npx clickllm@)({_V})( fit)"),
