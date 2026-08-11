@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1922-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1926-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -255,11 +255,26 @@ is calling the same code.
 // clickllm-mcp — JSON-RPC over stdio, zero dependencies
 clickllm_fit       // what runs on this machine, at this context and concurrency
 clickllm_explain   // the full arithmetic behind one verdict — weights, KV, headroom
-clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
+clickllm_where     // the inverse: which hardware would run this, and at what cost
+clickllm_catalog   // parameters, MoE split, context, licence
 clickllm_advise    // what to change unprompted, and where production diverged
 clickllm_build     // the whole flow, multi-turn: pass state back to continue
-clickllm_catalog   // parameters, MoE split, context, licence
+clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
+clickllm_receipt   // read a proof: what is proven, what must stay, what is unknown
+clickllm_guard     // does that proof still hold — and if not, which of three ways
 ```
+
+`clickllm_where` exists because of what an agent does next after a *no*. When
+`clickllm_fit` says nothing on this machine runs it, an agent without this tool
+has one move left: guess a box. A guessed box is how people buy the wrong GPU.
+
+`clickllm_prove`, `clickllm_receipt` and `clickllm_guard` take a path from the
+caller, and the file's contents land in the agent's context — while the agent
+may itself have been steered by captured traffic. So they are confined to an
+eval root the *operator* sets, via an environment variable rather than a tool
+argument or a flag: for an MCP server started by an agent harness, whoever
+composes the command may be the agent, and a boundary the confined party can
+widen is not a boundary. [ADR-0014](docs/adr/0014-an-eval-root-for-agent-named-paths.md).
 
 **The read-only boundary is a test, not a promise.** The suite asserts that no
 exposed tool name contains `cutover`, `apply`, `promote`, `advance`, `rollout`,
@@ -387,8 +402,8 @@ And two the suite enforces underneath:
 
 | | Capability | |
 |---|---|---|
-| ① | **Observe** — capture, redaction that fails closed, encrypted store | ✅ |
-| ② | **Distill** — structural clustering, representative sampling | ✅ |
+| ① | **Observe** — `clickllm observe`: capture, redaction that fails closed, encrypted store | ✅ |
+| ② | **Distill** — `clickllm distill`: structural clustering, representative sampling, eval set out | ✅ |
 | ③ | **Fit** — MoE/GQA/MLA-correct sizing, 17 hardware classes, `--explain` | ✅ |
 | — | **Plan** — engine *and* flags derived from what the deployment is for | ✅ |
 | — | **Advise** — `clickllm advise`: what to change unprompted, and drift against real telemetry | ✅ |
@@ -411,6 +426,11 @@ And two the suite enforces underneath:
 | — | **Silicon** — NVIDIA · AMD · Apple · **TPU v5e/v6e/v5p**, sized per host | ✅ |
 | — | **Host stats** — foreign GPU memory the engine cannot see | ✅ |
 | — | **Kernel seam** — scaffold a vLLM plugin, and a plan that *proves* it helped | ✅ |
+
+Every row names the command that reaches it, on purpose. Two of them said ✅ for
+a while with no way to run them — the capability existed, the gateway had its own
+test suite, and nothing on the command line could start it. A capability you
+cannot reach is not shipped, so the table now has to name its door.
 
 Full acceptance criteria and risk gates: **[implementation plan](docs/80-implementation-plan.md)**.
 
@@ -637,10 +657,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 247 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1675 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1679 Python
 ```
 
-**1922 tests.** 1675 Python, 247 Rust. Eighteen of the Python tests skip on a
+**1926 tests.** 1679 Python, 247 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
