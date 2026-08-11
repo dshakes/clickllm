@@ -935,10 +935,13 @@ def cmd_guard(args: argparse.Namespace) -> int:
     # checked in eleven months" is not a thing to deploy on silently.
     if args.fail_on == "any" and proposal.findings:
         if not args.json:
-            print(
-                f"  --fail-on any: {len(proposal.findings)} finding(s), none of which "
-                "voids the receipt on its own.\n"
-            )
+            if proposal.valid:
+                print(
+                    f"  --fail-on any: {len(proposal.findings)} finding(s), none of which "
+                    "voids the receipt on its own.\n"
+                )
+            else:
+                print(f"  --fail-on any: failing on {len(proposal.findings)} finding(s).\n")
         return 1
     return 0 if proposal.valid else 1
 
@@ -1139,6 +1142,11 @@ def cmd_prove(args: argparse.Namespace) -> int:
     # nothing, not several hundred round trips followed by a usage error.
     judge, judge_model, agreement = _judge_from(args)
 
+    # Parsed here too, for the same reason: a missing or malformed
+    # --fingerprints file should fail before collection spends anything, not
+    # after `_collect_replies()` has already paid for every round trip.
+    fingerprints = _fingerprints_from(args.prove_fingerprints)
+
     # A file where nothing was ever collected is not a proof of anything, and
     # it does not read as one: every candidate answer is empty, every grader
     # fails it, and the verdict comes back 0% — "keep the incumbent", stated
@@ -1198,7 +1206,7 @@ def cmd_prove(args: argparse.Namespace) -> int:
         # What the receipt was issued against, so `clickllm guard` can later
         # tell whether the model behind the name is still that model. Absent,
         # that check has nothing to compare and silently does not run.
-        fingerprints=_fingerprints_from(args.prove_fingerprints),
+        fingerprints=fingerprints,
     )
 
     # Collection failures are reported apart from eval failures, and never in

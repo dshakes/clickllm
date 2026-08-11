@@ -518,6 +518,33 @@ def test_the_cli_exit_is_a_sentence_not_a_traceback(tmp_path, capsys: pytest.Cap
     assert "http(s) URL" in err, err
 
 
+def test_a_bad_fingerprints_file_fails_before_collection_spends_anything(
+    tmp_path, capsys: pytest.CaptureFixture
+):
+    """`--fingerprints` used to be parsed after `_collect_replies()`, so a
+    malformed file burned the whole live collection before failing on the
+    input error. It must fail first, before a single request goes out."""
+    from clickllm import cli
+
+    bad = tmp_path / "fp.json"
+    bad.write_text("not json")
+
+    with stub(lambda p, n: ok('{"a": 1}')) as (base, log):
+        code = cli.main(
+            [
+                "prove",
+                _evalset(tmp_path / "e.json", 5),
+                "--candidate-endpoint",
+                base,
+                "--fingerprints",
+                str(bad),
+            ]
+        )
+        assert not log, "collection ran before the fingerprints file was validated"
+    assert code == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
 # --- the judge, over the same wire ------------------------------------------------
 
 
