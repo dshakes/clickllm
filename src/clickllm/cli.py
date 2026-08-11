@@ -847,6 +847,15 @@ def cmd_migrate(args: argparse.Namespace) -> int:
             )
             for r in doc["items"]
         ]
+        # Same refusal as `cmd_prove`: `distill` writes every candidate answer
+        # blank, so without a live endpoint to fill them, grading proceeds
+        # against nothing and `suite()` returns a real-looking 0% verdict.
+        if not args.candidate_endpoint and all(not i.candidate for i in items):
+            raise ValueError(
+                "every candidate answer is blank and no --candidate-endpoint "
+                "was given, so there is nothing to grade. Pass "
+                "--candidate-endpoint <url> to collect the candidate's replies."
+            )
         items, _ = _collect_replies(items, args)
         if not items:
             raise ValueError(

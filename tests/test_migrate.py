@@ -294,9 +294,58 @@ def test_the_schedule_is_printed_and_not_installed():
     assert "crontab" in where
 
 
+def test_an_interval_above_a_day_still_moves_with_the_request():
+    """Cron's hour field wraps at 24, so every value above it used to collapse
+    onto the same hardcoded "0 3 * * *" — a 48h request and a 720h request
+    produced an identical fragment, silently running daily either way."""
+    daily, _ = migrate.install_schedule(interval_hours=24)
+    two_days, _ = migrate.install_schedule(interval_hours=48)
+    ten_days, _ = migrate.install_schedule(interval_hours=240)
+    assert daily != two_days
+    assert two_days != ten_days
+    assert "*/2" in two_days
+    assert "*/10" in ten_days
+
+
 def test_the_cli_exposes_the_loop_and_no_way_to_apply_its_proposal():
     src = (ROOT / "src" / "clickllm" / "cli.py").read_text()
     block = re.search(r'mg = sub\.add_parser\("migrate".*?mg\.set_defaults', src, re.S)
     assert block, "the migrate parser moved"
     for verb in ("--apply", "--advance", "--promote", "--percent", "--cutover"):
         assert verb not in block.group(0), f"migrate must not expose {verb}"
+
+
+def test_migrate_refuses_a_blank_candidate_without_an_endpoint(monkeypatch, tmp_path):
+    """`prove_it` must carry the same refusal `cmd_prove` has: `distill` writes
+    every candidate answer blank, and without `--candidate-endpoint` to fill
+    them, scoring them as-is would report a fabricated 0% verdict — a HOLD
+    recorded and rendered with the same confidence as a real comparison."""
+    from clickllm import cli, core
+
+    log, key = tmp_path / "captures.log", tmp_path / "capture.key"
+    log.write_bytes(b"not read, only checked for existence")
+    key.write_bytes(b"not read, only checked for existence")
+    monkeypatch.setattr(core, "available", lambda: True)
+    monkeypatch.setattr(core, "read_captures", lambda *a, **k: _rows())
+
+    code = cli.main(
+        [
+            "migrate",
+            "--candidate",
+            "cand",
+            "--capture",
+            str(log),
+            "--key",
+            str(key),
+            "--state",
+            str(tmp_path / "migration.json"),
+            "--budget",
+            "50",
+            "--min-per-cluster",
+            "2",
+        ]
+    )
+    assert code == 2
+    assert not (tmp_path / "migration.json").exists(), (
+        "a refused run must not record a state file, or the refusal reads as a run"
+    )

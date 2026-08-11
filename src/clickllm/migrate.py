@@ -277,7 +277,15 @@ def install_schedule(*, interval_hours: int = 24, state: str = "") -> tuple[str,
     """
     where = "your crontab (`crontab -e`)"
     arg = f" --state {state}" if state else ""
-    every = f"0 */{interval_hours} * * *" if interval_hours < 24 else "0 3 * * *"
+    # Cron's hour field wraps at 24, so "every 30 hours" cannot be expressed
+    # as an hour-of-day step — collapsing it to a fixed "0 3 * * *" silently
+    # ran daily regardless of what was asked for. Above 24h, step in days
+    # instead; still approximate for non-multiples of 24, but it moves with
+    # the requested interval instead of ignoring it.
+    if interval_hours < 24:
+        every = f"0 */{interval_hours} * * *"
+    else:
+        every = f"0 3 */{max(1, interval_hours // 24)} * *"
     fragment = f"{every} clickllm migrate --step{arg} >> ~/.clickllm/migrate.log 2>&1\n"
     return fragment, where
 
