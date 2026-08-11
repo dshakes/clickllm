@@ -110,6 +110,26 @@ jobs:
         env:
           PYTHONPATH: src
 
+      # The chain test needs a gateway binary as well as the extension, and it
+      # is the only check that runs observe → distill together. Without this it
+      # skips everywhere, which is the same as not existing.
+      - name: build the gateway binary
+        run: cargo build --release -p clickllm-gateway
+
+      - name: the chain test must run, not skip
+        run: |
+          uv run --no-sync python -c "
+          import subprocess, sys
+          out = subprocess.run(
+              [sys.executable, '-m', 'pytest', 'tests/test_observe.py', '-q', '-rs'],
+              capture_output=True, text=True)
+          print(out.stdout[-3000:])
+          assert 'skipped' not in out.stdout, 'the chain test skipped; it is the acceptance test'
+          assert out.returncode == 0, 'the chain test failed'
+          "
+        env:
+          PYTHONPATH: src
+
   lint:
     runs-on: ubuntu-latest
     steps:
