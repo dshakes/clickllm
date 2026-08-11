@@ -293,15 +293,27 @@ def test_the_whole_chain_runs_on_one_machine(tmp_path):
 
     from clickllm import core
 
-    def free_port() -> int:
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            return int(s.getsockname()[1])
+    def two_free_ports() -> tuple[int, int]:
+        # Both sockets held open at once, then released together. Asking twice
+        # in sequence can hand back the same port the first call just freed —
+        # the OS reuses ephemeral ports eagerly — and the two processes then
+        # race for one port, with the loser silently dead. That is what this
+        # test did on macOS CI: "upstream never accepted a connection".
+        with socket.socket() as a, socket.socket() as b:
+            a.bind(("127.0.0.1", 0))
+            b.bind(("127.0.0.1", 0))
+            return int(a.getsockname()[1]), int(b.getsockname()[1])
 
-    up_port, gw_port = free_port(), free_port()
+    up_port, gw_port = two_free_ports()
+    assert up_port != gw_port
     up_src = tmp_path / "upstream.py"
     up_src.write_text(UPSTREAM.replace("PORT", str(up_port)))
-    upstream = subprocess.Popen([sys.executable, str(up_src)])
+    # Captured, not discarded. A child that fails to bind writes a traceback
+    # and exits; with the pipes thrown away the only symptom was a timeout
+    # thirty seconds later that said nothing about why.
+    upstream = subprocess.Popen(
+        [sys.executable, str(up_src)], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     log = tmp_path / "captures.log"
     key = tmp_path / "capture.key"
     gateway = subprocess.Popen(
@@ -320,6 +332,13 @@ def test_the_whole_chain_runs_on_one_machine(tmp_path):
                     return
             except OSError:
                 time.sleep(0.1)
+            for proc, label in ((upstream, "upstream"), (gateway, "gateway")):
+                if label == what and proc.poll() is not None:
+                    out, err = proc.communicate()
+                    pytest.fail(
+                        f"{what} exited {proc.returncode} before listening on "
+                        f"{port}:\n{err.decode(errors='replace')[-800:]}"
+                    )
         pytest.fail(f"{what} never accepted a connection on {port}")
 
     try:
