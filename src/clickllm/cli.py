@@ -925,6 +925,21 @@ def cmd_guard(args: argparse.Namespace) -> int:
 
     # Nonzero when the receipt no longer describes production, so this is usable
     # as a cron job or a CI step without parsing the output.
+    #
+    # `--fail-on any` exists because the default is a *judgement*, not a fact:
+    # an aged proof and a newly released model both leave `valid` true, and
+    # whether that should stop a deploy is the deploying team's policy rather
+    # than ours. Making them pick it is better than picking for them and being
+    # quietly wrong for half of them — and the strict mode is the one a release
+    # gate usually wants, since "nothing observed has changed, but nobody has
+    # checked in eleven months" is not a thing to deploy on silently.
+    if args.fail_on == "any" and proposal.findings:
+        if not args.json:
+            print(
+                f"  --fail-on any: {len(proposal.findings)} finding(s), none of which "
+                "voids the receipt on its own.\n"
+            )
+        return 1
     return 0 if proposal.valid else 1
 
 
@@ -1068,6 +1083,22 @@ def _judge_from(args: argparse.Namespace) -> tuple[JudgeFn | None, str, Agreemen
     return judge, model, Agreement(agreed=args.judge_agreed, total=args.judge_samples, model=model)
 
 
+def _fingerprints_from(path: str | None) -> dict[str, str]:
+    """Read a `{model: fingerprint}` file, or return nothing if none was given.
+
+    Values are stringified rather than trusted: a JSON number here would be
+    compared against a string later and always differ, reporting a model change
+    that never happened — the one false alarm guaranteed to make someone stop
+    believing the alert.
+    """
+    if not path:
+        return {}
+    raw = json.loads(pathlib.Path(path).read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: expected an object mapping model name to fingerprint")
+    return {str(k): str(v) for k, v in raw.items()}
+
+
 def cmd_prove(args: argparse.Namespace) -> int:
     """Run the eval suite over an eval set and print the verdict.
 
@@ -1164,6 +1195,10 @@ def cmd_prove(args: argparse.Namespace) -> int:
         # quietly presenting the smaller number as the whole thing.
         traffic_captures=asked,
         tool_version=SERVER_INFO["version"],
+        # What the receipt was issued against, so `clickllm guard` can later
+        # tell whether the model behind the name is still that model. Absent,
+        # that check has nothing to compare and silently does not run.
+        fingerprints=_fingerprints_from(args.prove_fingerprints),
     )
 
     # Collection failures are reported apart from eval failures, and never in
@@ -1559,6 +1594,18 @@ def main(argv: list[str] | None = None) -> int:
         "--available", action="append", help="a candidate model that exists now (repeatable)"
     )
     g.add_argument("--today", help="ISO date to evaluate against (default: today)")
+    g.add_argument(
+        "--fail-on",
+        dest="fail_on",
+        choices=("invalidating", "any"),
+        default="invalidating",
+        help=(
+            "which findings exit nonzero. 'invalidating' (default): only what "
+            "voids the proof — the model changed, or traffic moved outside the "
+            "eval set. 'any': also age and new releases, for a release gate "
+            "that should not deploy on an unreviewed proof."
+        ),
+    )
     g.add_argument("--json", action="store_true")
     g.set_defaults(fn=cmd_guard)
 
@@ -1661,6 +1708,16 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=120.0,
         help="seconds to wait for one reply",
+    )
+    pv.add_argument(
+        "--fingerprints",
+        dest="prove_fingerprints",
+        help=(
+            "JSON file mapping model name to whatever identifies the weights you "
+            "served — a digest, a revision, a build id. Recorded in the receipt so "
+            "`clickllm guard` can later detect a silent provider-side swap. Without "
+            "it that check has nothing to compare against and cannot run."
+        ),
     )
     pv.set_defaults(fn=cmd_prove)
 

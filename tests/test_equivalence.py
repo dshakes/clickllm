@@ -614,3 +614,185 @@ def test_a_cluster_that_carries_traffic_is_still_named():
         incumbent_cost=1000.0,
     )
     assert "thin" in m.hybrid_for(m.candidates[0]).unproven_clusters
+
+
+# --- the check that could not run ------------------------------------------------
+
+
+def _receipt_with(fingerprints=None):
+    from clickllm.prove import EvalItem, suite
+
+    items = [
+        EvalItem(item_id=str(i), cluster="c", prompt="p", baseline="x", candidate="x")
+        for i in range(40)
+    ]
+    return suite(
+        items,
+        shares={"c": 1.0},
+        candidate="cand",
+        incumbent="inc",
+        issued="2026-08-11",
+        fingerprints=fingerprints,
+    ).receipt
+
+
+def test_a_receipt_with_no_fingerprints_says_the_check_did_not_run():
+    """The most important of guard's three checks was passing by doing nothing.
+
+    `guard.check` iterates `receipt.fingerprints`, and `clickllm prove` had no
+    flag to populate it — so *every* receipt the CLI produced recorded none, the
+    loop ran zero times, and a caller supplying correct current fingerprints was
+    told the receipt still holds. A provider could swap the model underneath a
+    team gating deploys on this and nothing would say so.
+    """
+    from datetime import date
+
+    from clickllm import guard
+
+    p = guard.check(
+        _receipt_with(None),
+        today=date(2026, 8, 12),
+        fingerprints={"cand": "sha256:whatever"},
+    )
+    kinds = {f.kind for f in p.findings}
+    assert guard.Drift.UNCHECKABLE in kinds, "silence again"
+    assert "--fingerprints" in p.action
+
+
+def test_not_being_able_to_check_is_not_evidence_that_it_changed():
+    """`UNCHECKABLE` must not void the receipt. "I could not tell" and "it
+    changed" are different claims, and voiding on the first would make every
+    receipt issued before this existed read as broken."""
+    from datetime import date
+
+    from clickllm import guard
+
+    p = guard.check(
+        _receipt_with(None),
+        today=date(2026, 8, 12),
+        fingerprints={"cand": "sha256:whatever"},
+    )
+    assert p.valid is True
+    assert not any(f.invalidates for f in p.findings)
+
+
+def test_a_receipt_that_records_fingerprints_detects_a_swap():
+    """The capability the flag restores, end to end."""
+    from datetime import date
+
+    from clickllm import guard
+
+    r = _receipt_with({"cand": "sha256:aaaa"})
+    changed = guard.check(r, today=date(2026, 8, 12), fingerprints={"cand": "sha256:bbbb"})
+    assert not changed.valid
+    assert guard.Drift.MODEL_CHANGED in {f.kind for f in changed.findings}
+
+    same = guard.check(r, today=date(2026, 8, 12), fingerprints={"cand": "sha256:aaaa"})
+    assert same.valid and not same.findings
+
+
+def test_no_finding_when_the_caller_supplied_nothing_to_compare():
+    """The control that keeps the new finding from becoming noise: a caller who
+    did not pass fingerprints is not asking the question, and answering it
+    anyway would fire on every plain `clickllm guard`."""
+    from datetime import date
+
+    from clickllm import guard
+
+    for r in (_receipt_with(None), _receipt_with({"cand": "sha256:aaaa"})):
+        p = guard.check(r, today=date(2026, 8, 12))
+        assert not p.findings, p.findings
+
+
+def test_the_prove_command_actually_records_the_fingerprints_it_was_given(tmp_path):
+    """Removing the wiring from `cmd_prove` left every unit test above green.
+
+    They exercise `suite(fingerprints=...)`, which is the *library*. The defect
+    being fixed was that no caller passed it — so the test has to be the command,
+    not the function it eventually calls. Same shape as the capture guard whose
+    call site could be deleted with its own unit tests still passing.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parents[1]
+    evalset = tmp_path / "e.json"
+    evalset.write_text(
+        json.dumps(
+            [
+                {
+                    "item_id": str(i),
+                    "cluster": "c",
+                    "prompt": "p",
+                    "baseline": "x",
+                    "candidate": "x",
+                }
+                for i in range(40)
+            ]
+        )
+    )
+    fp = tmp_path / "fp.json"
+    fp.write_text(json.dumps({"cand": "sha256:aaaa", "inc": 12345}))
+    out = tmp_path / "r.json"
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "clickllm.cli",
+            "prove",
+            str(evalset),
+            "--out",
+            str(out),
+            "--issued",
+            "2026-08-11",
+            "--fingerprints",
+            str(fp),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root / "src")},
+    )
+    # Not `returncode == 0`: `cmd_prove` returns 0 only when it proposes moving
+    # traffic, and a verdict of "move nothing" is a successful run with a no.
+    # Asserting 0 here would be asserting that the candidate passed.
+    assert out.exists(), proc.stdout + proc.stderr
+    recorded = json.loads(out.read_text())["receipt"]["fingerprints"]
+    assert recorded["cand"] == "sha256:aaaa"
+    # Stringified, not trusted: a JSON number would be compared against a string
+    # later and always differ, reporting a model change that never happened —
+    # the one false alarm guaranteed to make someone stop believing the alert.
+    assert recorded["inc"] == "12345"
+
+
+def test_prove_without_the_flag_still_works_and_records_nothing(tmp_path):
+    """The control for the above: the flag is optional, and a receipt without it
+    is still a receipt — it just cannot answer the model-change question, which
+    `guard` now says out loud rather than passing silently."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parents[1]
+    evalset = tmp_path / "e.json"
+    evalset.write_text(
+        json.dumps(
+            [{"item_id": "1", "cluster": "c", "prompt": "p", "baseline": "x", "candidate": "x"}]
+        )
+    )
+    out = tmp_path / "r.json"
+    proc = subprocess.run(
+        [sys.executable, "-m", "clickllm.cli", "prove", str(evalset), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root / "src")},
+    )
+    assert out.exists(), proc.stdout + proc.stderr
+    assert json.loads(out.read_text())["receipt"]["fingerprints"] == {}

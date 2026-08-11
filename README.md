@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-1926-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-1934-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -657,10 +657,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 247 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1679 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1687 Python
 ```
 
-**1926 tests.** 1679 Python, 247 Rust. Eighteen of the Python tests skip on a
+**1934 tests.** 1687 Python, 247 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
@@ -709,8 +709,12 @@ Four defects caught by review or by rendering, all now regression tests:
 | [20 — PRD](docs/20-prd.md) | Goals, personas, FR/NFR, epics, risks. |
 | [30 — Architecture](docs/30-architecture.md) | Datapath/control-plane split, grader stack, fit math. |
 | [40 — UX](docs/40-ux.md) | CLI, TUI, console, MCP. |
+| [50 — Roadmap](docs/50-roadmap.md) | What is shipped, what is next, what is out of scope. |
+| [60 — Pitch](docs/60-pitch.md) | The argument in one pass, for someone deciding. |
+| [70 — Naming](docs/70-naming.md) | Why it is called this. |
 | [80 — Plan](docs/80-implementation-plan.md) | M0–M10, acceptance criteria, risk gates. |
-| [ADRs](docs/adr/) | Eight decisions, including the two later reversed. |
+| [90 — CI gating](docs/90-ci-gating.md) | Gate a deploy on a proof that still holds. |
+| [ADRs](docs/adr/) | 15 decisions, including the two later reversed. |
 
 ## Prior art
 
