@@ -144,6 +144,44 @@ def test_the_eval_set_prove_reads_is_the_eval_set_distill_writes():
     assert ToolChoice().grade(item).outcome.name == "PASS"
 
 
+def test_distill_tells_you_the_endpoint_is_required_not_just_the_label(
+    monkeypatch, tmp_path, capsys
+):
+    """`--candidate <model>` alone is a label with nothing behind it — collection
+    only happens with `--candidate-endpoint`. Printing the label-only form as
+    "next" leads straight to scoring blank candidate answers as a real proof."""
+    from clickllm import cli, core
+
+    log, key = tmp_path / "captures.log", tmp_path / "capture.key"
+    log.write_bytes(b"not read, only checked for existence")
+    key.write_bytes(b"not read, only checked for existence")
+    monkeypatch.setattr(core, "available", lambda: True)
+    monkeypatch.setattr(core, "read_captures", lambda *a, **k: _rows())
+
+    out = tmp_path / "evalset.json"
+    code = cli.main(
+        [
+            "distill",
+            "--capture",
+            str(log),
+            "--key",
+            str(key),
+            "--out",
+            str(out),
+            "--budget",
+            "50",
+            "--min-per-cluster",
+            "2",
+        ]
+    )
+    assert code == 0
+    printed = capsys.readouterr().out
+    assert "--candidate-endpoint" in printed, (
+        "the next-step hint must include --candidate-endpoint, or following it "
+        "silently proves nothing"
+    )
+
+
 def test_a_hand_written_tool_call_does_not_kill_the_run():
     """An eval set is a file — from distill, a hand edit, or another tool. A
     bare string is an obvious way to write one by hand, and invariant 7 applies
@@ -154,6 +192,27 @@ def test_a_hand_written_tool_call_does_not_kill_the_run():
     assert _call_names(({"name": "refund"},)) == ["refund"]
     assert _call_names(({"function": {"name": "refund"}},)) == ["refund"]
     assert _call_names((None, 7, {}, {"function": "not a dict"})) == []
+
+
+def test_a_hand_written_tool_call_survives_the_full_grader_stack():
+    """`_call_names` accepting bare strings is not enough — ToolArgs pulls each
+    call apart looking for `arguments` too, four frames past `_call_names`, and
+    used to raise `AttributeError: 'str' object has no attribute 'get'` on
+    exactly the input the sibling ToolChoice fix claims to handle safely."""
+    from clickllm.prove import EvalItem
+    from clickllm.prove.graders import ToolArgs, ToolChoice
+
+    item = EvalItem(
+        item_id="x",
+        cluster="c",
+        prompt="p",
+        baseline="ok",
+        candidate="ok",
+        baseline_tool_calls=("refund",),
+        candidate_tool_calls=("refund",),
+    )
+    assert ToolChoice().grade(item).outcome.name == "PASS"
+    assert ToolArgs().grade(item).outcome.name == "PASS"
 
 
 def test_a_cluster_claims_its_share_of_traffic_not_of_the_sample():

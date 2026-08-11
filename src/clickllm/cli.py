@@ -767,7 +767,12 @@ def cmd_distill(args: argparse.Namespace) -> int:
     print()
     print(report.render())
     print(f"\n  wrote {out}")
-    print(f"  next: clickllm prove {out} --candidate <model>\n")
+    print(
+        f"  next: clickllm prove {out} "
+        "--candidate-endpoint <url> --candidate <model>\n"
+        "        (the endpoint is required — without it every candidate answer "
+        "in this file is blank)\n"
+    )
     return 0
 
 
