@@ -148,6 +148,25 @@ _REQUIREMENT_TYPES: dict[str, type] = {
 }
 
 
+def _prove_path(model_id: str) -> list[str]:
+    """The path from a running model to a receipt, in one place.
+
+    It was in two: `answer()` printed a `clickllm prove` line and the PROVE
+    stage printed the same command with the cost and window flags that make the
+    saving computable at all. They had already drifted the day the flags landed
+    — the deployment block was telling people to run the one form that reports
+    "Saving: unknown".
+    """
+    return [
+        "  clickllm observe                       record real requests, redacted before storage",
+        "  clickllm distill                       turn them into an eval set",
+        f"  clickllm prove evalset.json --candidate {model_id} \\",
+        "      --incumbent <your-current-model> --incumbent-cost <$/mo> \\",
+        "      --candidate-cost <$/mo> --traffic-window '14 days'",
+        "  clickllm brief receipt.json --out brief.html",
+    ]
+
+
 @dataclass
 class Session:
     """A conversation with state. Feed it sentences; read answers off it."""
@@ -400,6 +419,63 @@ class Session:
 
     # --- output ---------------------------------------------------------------
 
+    def _better_at(self, **override: int) -> tuple[str, str] | None:
+        """(what to change, what it buys) if a neighbouring setting changes the answer.
+
+        Computed, not curated — the same rule `_worth_asking` follows. The plan
+        is re-solved at the neighbouring setting and the suggestion is raised
+        only when the *outcome* differs: a different model, or the same model
+        stopping being slow. A tip that does not change what you would deploy is
+        noise dressed as advice.
+        """
+        req = self.requirements
+        now = self._candidates()
+        # `now` being empty is not a reason to skip — it is the most useful case
+        # there is. On a 16 GB machine at concurrency 4 nothing fits at all, and
+        # halving it makes a model fit; excluding that was excluding the one
+        # suggestion a stuck user actually needs. Over a 240-configuration sweep
+        # this fires 27 times and the pick-changing case fires 8, so both earn
+        # their place.
+        mine = self._default_pick(now) if now else None
+
+        from . import fit as _fit
+
+        assert self.hw is not None
+        context = int(override.get("context", req.context))
+        concurrency = int(override.get("concurrency", req.concurrency))
+        if (context, concurrency) == (req.context, req.concurrency):
+            return None
+        # `rank` returns (feasible, rejected). Unpacked, not indexed — the first
+        # version bound the whole tuple and `_default_pick` then asked a list for
+        # `.slow`, which is the kind of mistake that only shows up at the one
+        # input where the branch is reached.
+        theirs, _rejected = _fit.rank(self.hw, context, concurrency)
+        if not theirs:
+            return None
+        best = self._default_pick(theirs)
+
+        what = f"context {context:,}" if "context" in override else f"concurrency {concurrency}"
+        if mine is None:
+            return (what, f"{best.model.name} fits — nothing does at your current settings")
+        if best.model.id != mine.model.id:
+            return (what, f"{best.model.name} becomes the pick instead of {mine.model.name}")
+        if mine.slow and not best.slow:
+            return (what, f"{best.model.name} stops being throughput-limited")
+        return None
+
+    def _optimizations(self) -> tuple[str, ...]:
+        """What to change that you did not ask about, and only if it matters."""
+        req = self.requirements
+        out = []
+        for override in (
+            {"concurrency": max(1, req.concurrency // 2)},
+            {"context": max(1024, req.context // 2)},
+        ):
+            found = self._better_at(**override)
+            if found:
+                out.append(f"at {found[0]}, {found[1]}")
+        return tuple(out)
+
     def step(self) -> Turn:
         """Do the next thing that can be done, and report it."""
         req = self.requirements
@@ -422,8 +498,16 @@ class Session:
                 said=(
                     f"Nothing in the catalogue fits {self.hw.name} at "
                     f"{req.context:,} context and concurrency {req.concurrency}. "
-                    f"That is an answer, not a failure — reduce one of them, or "
-                    f"use a bigger machine."
+                    f"That is an answer, not a failure."
+                    # Which change, and what it buys — computed, not gestured at.
+                    # "Reduce one of them" was true and useless: it is the moment
+                    # a user is most stuck and the message named neither the knob
+                    # nor the amount.
+                    + (
+                        " " + "; ".join(self._optimizations()).capitalize() + "."
+                        if self._optimizations()
+                        else " Reduce one of them, or use a bigger machine."
+                    )
                 ),
                 evidence=self.evidence,
                 assuming=assuming,
@@ -444,13 +528,89 @@ class Session:
         )
         if p.warnings:
             said += f" Cannot meet: {p.warnings[0]}"
+        if question is not None or self.stage == Stage.CONFIGURE:
+            # Still configuring. `done` stays False once the later stages exist:
+            # a plan is not the end of the job, and saying so here is what let
+            # `OPTIMIZE`, `DEPLOY` and `PROVE` be declared and never assigned.
+            if question is None:
+                self.stage = Stage.OPTIMIZE
+            return Turn(
+                stage=Stage.CONFIGURE,
+                said=said,
+                question=question,
+                evidence=self.evidence,
+                assuming=assuming,
+                done=False,
+            )
+
+        return self._after_configure(said, assuming)
+
+    def _after_configure(self, said: str, assuming: tuple[str, ...]) -> Turn:
+        """The three stages that were declared and never reached.
+
+        `Stage.OPTIMIZE`, `DEPLOY` and `PROVE` existed in the enum from the
+        start and nothing ever assigned them, so every conversation stopped at a
+        deployment plan — including the browser one, which is the surface where
+        stopping there is least defensible. One session should carry someone from
+        "what am I trying to do" to a receipt.
+
+        Each is one turn, and each ends in something the *human* does. Nothing
+        here runs a command, and nothing here claims a migration is justified.
+        """
+        if self.stage == Stage.OPTIMIZE:
+            self.stage = Stage.DEPLOY
+            tips = self._optimizations()
+            return Turn(
+                stage=Stage.OPTIMIZE,
+                said=(
+                    said
+                    + "\n\nBefore you run it: "
+                    + (
+                        "; ".join(tips) + "."
+                        if tips
+                        else (
+                            "nothing you did not ask about would change this — the "
+                            "settings you gave are the ones that matter here."
+                        )
+                    )
+                ),
+                evidence=self.evidence,
+                assuming=assuming,
+                done=False,
+            )
+
+        if self.stage == Stage.DEPLOY:
+            self.stage = Stage.PROVE
+            return Turn(
+                stage=Stage.DEPLOY,
+                # `answer()` is the command, and it is *handed over*. This tool
+                # does not run it: a session that deployed would be a session
+                # that can be talked into deploying, and the thing steering it
+                # may be an agent reading a customer's request log (invariant 7).
+                # No extra sentence: `answer()` already closes with "Nothing
+                # above has been run. Deployment is yours to trigger, and no
+                # eval result moves production traffic without a human." Saying
+                # it twice in one turn is the duplicated fact this repo keeps
+                # finding, in the output rather than in the code.
+                said=self.answer(),
+                evidence=self.evidence,
+                assuming=assuming,
+                done=False,
+            )
+
+        self.stage = Stage.PROVE
         return Turn(
-            stage=self.stage,
-            said=said,
-            question=question,
+            stage=Stage.PROVE,
+            said=(
+                "How you will know it is good enough — on your traffic, not a benchmark:\n"
+                + "\n".join(_prove_path(self.model_id or "<model>"))
+                + "\n\n"
+                "The receipt tells you which kinds of request are safe to move and which "
+                "must stay. Nothing in it authorises a cutover on its own — shadow mode does."
+            ),
             evidence=self.evidence,
             assuming=assuming,
-            done=question is None,
+            done=True,
         )
 
     def answer(self) -> str:
@@ -496,8 +656,7 @@ class Session:
         out += [
             "",
             "THEN PROVE IT",
-            "  clickllm prove evalset.json --candidate "
-            f"{best.model.id} --incumbent <your-current-model>",
+            *_prove_path(best.model.id),
             "",
             "Nothing above has been run. Deployment is yours to trigger, and no",
             "eval result moves production traffic without a human.",

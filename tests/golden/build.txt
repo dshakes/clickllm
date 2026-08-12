@@ -30,7 +30,12 @@ WORTH CHANGING
   [low] State a TTFT or ITL budget.
 
 THEN PROVE IT
-  clickllm prove evalset.json --candidate qwen3-30b-a3b --incumbent <your-current-model>
+  clickllm observe                       record real requests, redacted before storage
+  clickllm distill                       turn them into an eval set
+  clickllm prove evalset.json --candidate qwen3-30b-a3b \
+      --incumbent <your-current-model> --incumbent-cost <$/mo> \
+      --candidate-cost <$/mo> --traffic-window '14 days'
+  clickllm brief receipt.json --out brief.html
 
 Nothing above has been run. Deployment is yours to trigger, and no
 eval result moves production traffic without a human.
