@@ -165,6 +165,11 @@ def test_the_move_section_makes_no_claim_when_nothing_is_proven():
     assert r.movable_share == 0
     page = render(r)
     assert "Nothing yet proven safe to move" in page
+    # And it says so once, as a finding rather than as a failure. The heading,
+    # the headline figure and the body each carried "nothing yet", which reads
+    # to a stakeholder like the tool broke rather than like the answer being no.
+    assert "That is a result, not an error" in page
+    assert page.count("Nothing yet") == 1, "the same non-result is stated more than once"
     assert "Every kind of request below cleared" not in page
     assert "Safe to move to" not in page
 
