@@ -20,9 +20,29 @@ mcp envelope: recommended_runtime
 ```
 
 The *answers* agree — the same five models in the same order, the same engine
-with the same reason. The **shapes** do not. `model_id` versus `id`, `runtime`
-versus `recommended_runtime`, and four fields the agent surface never sees:
-`weights_gb`, `kv_gb`, `name`, `slow`.
+with the same reason. The **shapes** do not.
+
+A closer audit found **four** shapes, not two, agreeing on only four fields
+(`headroom_gb`, `license`, `quant`, `total_gb`). The same fact is spelled three
+ways: the model is `id` in the CLI and MCP but `model_id` in the SDK and
+workbench; throughput is `tokens_per_sec` in the CLI and
+`tokens_per_sec_estimate` everywhere else; the licence flag is `license_ok`
+versus `license_clean_commercial`; verification is `verified` versus
+`architecture_verified`.
+
+**And one of them dropped a disclosure.** Every throughput figure here is a
+memory-bandwidth roofline. `clickllm fit --explain` says so — *"roofline
+estimate, not measured"* — and `mcp`, `sdk` and `ui` each carry an
+`estimate_basis` beside the number. `clickllm fit --json` carried neither: a
+program reading the documented machine-readable surface got
+`"tokens_per_sec": 15` with no way to know it was a projection, while a human
+reading the table at least saw a `~` and a pointer to `--explain`.
+
+That is the real cost of four shapes, and the reason this is not cosmetic
+tidying: **while every surface assembles its own result, a disclosure is
+per-surface, and one of them will eventually omit it.** Invariant 6 stops being
+a property of the product and becomes a property of whichever code path you
+happened to read.
 
 That is subtler than a wrong answer and worse to live with. A caller reading
 `runtime` gets `None` from the surface that spells it `recommended_runtime`,
@@ -74,12 +94,23 @@ marked `xfail(strict=True)`: they document the defect, they fail loudly the
 moment someone fixes it without removing the marker, and the fix lands as its
 own versioned change with a note for anyone depending on the old spelling.
 
-**The public contract wins where they disagree.** When converging, prefer the
-MCP spelling (`id`, `recommended_runtime`) because that is the surface external
-agents build against; the workbench is ours to update. The richer fields
+**Which spelling wins is not yet decided, and the first guess was wrong.** This
+ADR originally reasoned that the MCP spelling should win "because that is what
+external agents build against". The audit contradicts it: `mcp.py` declares
+nine `inputSchema` and **zero** `outputSchema`, and results reach an agent as an
+unstructured `{"type": "text"}` blob — so the MCP output shape is convention,
+not a declared contract. Meanwhile `clickllm fit --json` is documented in the
+agent skill as the machine-readable surface and is pinned by a golden.
+
+The decision is therefore deferred to the change that makes it, with the audit
+recorded here so it is made on the evidence rather than on that first guess. Whatever wins, the richer fields
 (`weights_gb`, `kv_gb`, `name`, `slow`) are *added* to the shared shape rather
 than dropped — additive for agents, and an agent should see the weights/KV
 split that a human sees.
+
+The disclosure did not wait for that decision: `estimate_basis` was added to
+`clickllm fit --json` immediately and additively, because a missing disclosure
+is a defect and a field name is a preference.
 
 **Golden approval tests were recorded before any code moved.** A conformance
 test proves the surfaces agree with each other; only a golden recorded

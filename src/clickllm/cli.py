@@ -34,6 +34,13 @@ def _lic(m: catalog.ModelSpec) -> str:
     return f"{m.license} {'OK' if m.license_ok else '!'}"
 
 
+#: What every throughput figure in this project actually is. Stated once and
+#: emitted beside the number on every machine-readable surface, because a
+#: disclosure that each surface re-decides is a disclosure one of them will
+#: eventually omit — which is exactly what happened here.
+ROOFLINE_BASIS = "memory-bandwidth roofline, not measured"
+
+
 def cmd_fit(args: argparse.Namespace) -> int:
     hw = hardware.detect()
     ctx, conc = _parse_size(args.context), args.concurrency
@@ -62,6 +69,14 @@ def cmd_fit(args: argparse.Namespace) -> int:
                         "usable_bytes": f.usable_bytes,
                         "headroom_bytes": f.headroom_bytes,
                         "tokens_per_sec": f.tokens_per_sec,
+                        # Invariant 6, and the reason this is here rather than
+                        # only in `--explain`: a human sees the `~` in the table
+                        # and the pointer to `--explain`; a program reading this
+                        # JSON sees a bare integer. `mcp`, `sdk` and `ui` all
+                        # carried this basis and only the CLI's machine-readable
+                        # surface — the one most likely to be piped into someone
+                        # else's capacity planning — did not.
+                        "estimate_basis": ROOFLINE_BASIS,
                         "feasible": f.feasible,
                         "explain": f.explain(),
                     },
@@ -95,7 +110,11 @@ def cmd_fit(args: argparse.Namespace) -> int:
                             "kv_gb": round(f.kv_bytes / GB, 1),
                             "total_gb": round(f.total_bytes / GB, 1),
                             "headroom_gb": round(f.headroom_bytes / GB, 1),
-                            "tokens_per_sec": round(f.tokens_per_sec) if f.tokens_per_sec else None,
+                            "tokens_per_sec": (
+                                round(f.tokens_per_sec) if f.tokens_per_sec else None
+                            ),
+                            # See the note on the other emission site above.
+                            "estimate_basis": ROOFLINE_BASIS,
                             "license": f.model.license,
                             "license_ok": f.model.license_ok,
                         }

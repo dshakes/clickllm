@@ -23,6 +23,7 @@
       "total_gb": 84.1,
       "headroom_gb": 11.9,
       "tokens_per_sec": 15,
+      "estimate_basis": "memory-bandwidth roofline, not measured",
       "license": "Apache-2.0",
       "license_ok": true
     },
@@ -35,6 +36,7 @@
       "total_gb": 56.2,
       "headroom_gb": 39.8,
       "tokens_per_sec": 60,
+      "estimate_basis": "memory-bandwidth roofline, not measured",
       "license": "Apache-2.0",
       "license_ok": true
     },
@@ -47,6 +49,7 @@
       "total_gb": 65.2,
       "headroom_gb": 30.8,
       "tokens_per_sec": 14,
+      "estimate_basis": "memory-bandwidth roofline, not measured",
       "license": "Apache-2.0",
       "license_ok": true
     },
@@ -59,6 +62,7 @@
       "total_gb": 66.3,
       "headroom_gb": 29.7,
       "tokens_per_sec": 18,
+      "estimate_basis": "memory-bandwidth roofline, not measured",
       "license": "MIT",
       "license_ok": true
     },
@@ -71,6 +75,7 @@
       "total_gb": 41.6,
       "headroom_gb": 54.4,
       "tokens_per_sec": 32,
+      "estimate_basis": "memory-bandwidth roofline, not measured",
       "license": "Llama 3.1",
       "license_ok": false
     }

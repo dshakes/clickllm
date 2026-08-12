@@ -232,3 +232,74 @@ def test_a_surface_cannot_quietly_stop_answering():
         ("mcp", mcp._fit(context="32k", concurrency=8)),
     ):
         assert _feasible_ids(payload), f"{name} reported nothing fits on a 96 GB machine"
+
+
+# --- invariant 6, across every machine-readable surface --------------------------
+
+
+def _throughput_fields(row: dict) -> tuple[str | None, object]:
+    """The tok/s field and its value, whatever this surface calls it."""
+    for k in ("tokens_per_sec_estimate", "tokens_per_sec"):
+        if k in row:
+            return k, row[k]
+    return None, None
+
+
+def test_every_machine_readable_surface_says_the_throughput_is_an_estimate():
+    """Invariant 6: never report a number without its confidence.
+
+    Every throughput figure in this project is a memory-bandwidth roofline.
+    `clickllm fit --explain` says so — "roofline estimate, not measured" — and
+    `mcp`, `sdk` and `ui` all carry `estimate_basis` beside the number.
+
+    `clickllm fit --json` carried neither. A human reading the table sees a `~`
+    and a pointer to `--explain`; a program reading the JSON sees
+    `tokens_per_sec: 15` and has no way to know it is a projection. That is the
+    surface most likely to be piped into someone's capacity planning.
+
+    This is the reason the four shapes are worth converging at all: while each
+    surface assembles its own result, a disclosure is per-surface and one of
+    them will always be missing it.
+    """
+    import contextlib
+    import io
+    import json as _json
+
+    from clickllm import cli
+
+    def _cli_json() -> dict:
+        """Run the command; do not read its golden.
+
+        The first version of this read `tests/golden/fit_json.txt`, which made
+        it a test of a recorded file rather than of the code — deleting the
+        disclosure from `cli.py` left it passing, and the control caught that.
+        A conformance test that reads an artifact is only checking that the
+        artifact still says what it said.
+        """
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli.main(["fit", "--context", "32k", "--concurrency", "8", "--json"])
+        return _json.loads(buf.getvalue())
+
+    surfaces = {
+        "ui": ui._fit("32k", 8),
+        "mcp": mcp._fit(context="32k", concurrency=8),
+        "sdk": sdk.fit(context="32k", concurrency=8).to_dict(),
+        "cli --json": _cli_json(),
+    }
+    missing = []
+    for name, payload in surfaces.items():
+        rows = payload.get("feasible") or []
+        assert rows, f"{name} reported nothing feasible"
+        row = rows[0]
+        field, value = _throughput_fields(row)
+        assert field, f"{name} reports no throughput at all"
+        if value is None:
+            continue  # a model with no estimate is already honest
+        discloses = "estimate" in field or bool(row.get("estimate_basis"))
+        if not discloses:
+            missing.append(f"{name} ({field}={value!r}, no estimate_basis)")
+
+    assert not missing, "these hand a program a roofline projection as a bare number: " + "; ".join(
+        missing
+    )
