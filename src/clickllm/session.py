@@ -170,6 +170,52 @@ class Session:
 
     # --- input ---------------------------------------------------------------
 
+    def turn(
+        self,
+        description: str = "",
+        machine: str | Hardware | None = None,
+        *,
+        detect_hardware: bool = False,
+        **fields: object,
+    ) -> Turn:
+        """One external turn: apply everything the caller has, then step once.
+
+        The public form of the chain every caller already writes by hand.
+        `cli.cmd_build` and `mcp._build` each do `_apply_text` →
+        `_apply_hardware` → `_apply_fields` → exactly one `step()`, using the
+        private mutators, because the public `tell()`/`on()`/`set()` each end in
+        their own `step()`.
+
+        That matters more than it looks. `step()` calls `_worth_asking()`, which
+        *commits* a question by adding it to `asked` — so two `step()`s in one
+        external turn burn the best question on an intermediate state and show
+        the user a lower-priority one. A third caller doing the chain slightly
+        differently is a bug nobody would see: the answer stays correct and the
+        question quietly gets worse.
+
+        So the rule stops being something callers must know and becomes
+        something this method does.
+
+        Args:
+            description: plain language, appended to what has been said.
+            machine: a profile id or a `Hardware`. Passed only when the caller
+                has one — `None` here means "not supplied", which is why
+                detecting the local machine needs the explicit flag below rather
+                than being what `None` happens to mean.
+            detect_hardware: detect the local machine when `machine` is None.
+            **fields: direct answers, e.g. `concurrency=32`.
+
+        Returns:
+            The `Turn` — one question at most, and the best one.
+        """
+        if description:
+            self._apply_text(description)
+        if machine is not None or detect_hardware:
+            self._apply_hardware(machine)
+        if fields:
+            self._apply_fields(**fields)
+        return self.step()
+
     def tell(self, text: str) -> Turn:
         """Feed plain language. Re-reads requirements, keeping anything you stated."""
         self._apply_text(text)

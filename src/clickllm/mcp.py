@@ -111,21 +111,22 @@ def _build(
     from .session import Session
 
     s = Session.from_json(_json.dumps(state)) if state else Session()
-    # Mutate state directly rather than calling tell()/on()/set() (which each
-    # call step() internally) — a worth-asking question gets committed to
-    # `s.asked` inside step(), and if that commit fires on an intermediate
-    # call whose Turn is then discarded, the single most valuable question is
-    # silently lost before it ever reaches whoever is having this conversation.
-    # One step() call at the end means exactly one commit, in priority order.
-    if description:
-        s._apply_text(description)
-    if machine or s.hw is None:
-        s._apply_hardware(machine or None)
+    # `Session.turn()` rather than the hand-written chain this used to be — and
+    # rather than tell()/on()/set(), which each end in their own step(). A
+    # worth-asking question is *committed* inside step(), so a commit that fires
+    # on an intermediate call whose Turn is discarded silently throws away the
+    # single most valuable question. One step per external turn is now the
+    # method's job instead of every caller's.
     known = {k: v for k, v in overrides.items() if v is not None}
-    if known:
-        s._apply_fields(**known)
-
-    turn = s.step()
+    turn = s.turn(
+        description=description,
+        machine=machine or None,
+        # This surface detects the local machine on the first turn, when the
+        # session has none yet — preserved exactly, because `machine=None` means
+        # "not supplied" and would otherwise stop detecting.
+        detect_hardware=s.hw is None,
+        **known,
+    )
     return {
         "stage": turn.stage.value,
         "said": turn.said,

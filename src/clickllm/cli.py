@@ -376,27 +376,27 @@ def cmd_build(args: argparse.Namespace) -> int:
     s = Session()
     if args.resume:
         s = Session.from_json(pathlib.Path(args.resume).read_text())
-    # Apply every input as a state mutation, WITHOUT calling step() in between —
-    # step() is where a worth-asking question gets committed to `s.asked`, and
-    # committing it on an intermediate call whose Turn we then discard is how
-    # the single most valuable question got silently lost before a user ever
-    # saw it. One step() call at the end means exactly one commit, in the
-    # correct priority order.
-    if args.description:
-        s._apply_text(" ".join(args.description))
-    # Only touch hardware when a profile was named or none is known yet — a
-    # bare --resume must not silently re-detect the local machine and discard
-    # a previously saved --on profile (e.g. a remote "h100"). mcp._build guards
-    # the same way; this was a real inconsistency between the two surfaces.
-    if args.on or s.hw is None:
-        s._apply_hardware(args.on)
-
+    # `Session.turn()` — one step per external turn, which is where a
+    # worth-asking question gets committed to `s.asked`. Committing on an
+    # intermediate call whose Turn is then discarded is how the single most
+    # valuable question got silently lost before a user ever saw it. That rule
+    # used to be written out here and again in `mcp._build`; it now belongs to
+    # the method, so a third caller cannot get it subtly wrong.
+    fields = {}
     for name in ("concurrency", "context", "ttft_ms", "itl_ms", "prefix_sharing"):
         v = getattr(args, name, None)
         if v is not None:
-            s._apply_fields(**{name: _parse_size(v) if name == "context" else v})
+            fields[name] = _parse_size(v) if name == "context" else v
 
-    turn = s.step()
+    turn = s.turn(
+        description=" ".join(args.description) if args.description else "",
+        machine=args.on or None,
+        # Only detect when nothing is known yet: a bare `--resume` must not
+        # silently re-detect the local machine and discard a saved `--on`
+        # profile (e.g. a remote "h100").
+        detect_hardware=s.hw is None,
+        **fields,
+    )
     if args.json:
         print(
             json.dumps(
