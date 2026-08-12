@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -171,6 +172,7 @@ def distill(
     *,
     budget: int = 200,
     min_per_cluster: int = 3,
+    name_with: Callable[[str], str] | None = None,
 ) -> tuple[dict[str, Any], DistillReport]:
     """Cluster captures by task shape and sample an eval set out of them.
 
@@ -184,6 +186,13 @@ def distill(
 
     caps = [from_capture_row(r) for r in rows]
     clusters = cluster(caps)
+    if name_with is not None:
+        # Between clustering and sampling, so the names reach the report. Never
+        # raises and never blocks: a cluster that cannot be named keeps its
+        # structural description, which is correct and merely ugly.
+        from .distill.name import name_clusters
+
+        name_clusters(clusters, name_with)
     report = sample(clusters, budget=budget, min_per_cluster=min_per_cluster)
     total = sum(c.size for c in clusters) or 1
 
