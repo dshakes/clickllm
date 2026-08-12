@@ -102,10 +102,41 @@ def test_the_same_question_is_never_asked_twice():
 
 
 def test_answering_everything_that_matters_ends_the_questions():
+    """The questions end. The session does not.
+
+    This asserted that the turn after the last question was `done`, which was
+    true while `OPTIMIZE`, `DEPLOY` and `PROVE` were declared and never
+    assigned. A plan is not the end of the job — the session now carries on to
+    the command and to how you would prove it, and the thing that must stop is
+    the *asking*.
+    """
+    from clickllm.session import Stage
+
     s = started()
+    # `set()` ends in its own `step()`, so the conversation has already moved on
+    # by the time the first explicit `step()` is called — which is why this
+    # collects from that first call rather than assuming it starts at OPTIMIZE.
     s.set(context=8192, concurrency=8, prefix_sharing=0.8)
-    assert s.step().question is None
-    assert s.step().done
+    first = s.step()
+    assert first.question is None
+
+    stages = [first.stage]
+    for _ in range(6):
+        turn = s.step()
+        stages.append(turn.stage)
+        assert turn.question is None, f"asked another question at {turn.stage}: {turn.question}"
+        if turn.done:
+            break
+    else:  # pragma: no cover
+        raise AssertionError(f"never finished; reached {stages}")
+
+    assert stages[-1] == Stage.PROVE, stages
+    assert Stage.DEPLOY in stages, stages
+    # In declared order, never backwards: a conversation that revisits a stage
+    # is one the user cannot tell they are making progress through.
+    order = list(Stage)
+    positions = [order.index(x) for x in stages]
+    assert positions == sorted(positions), stages
 
 
 def test_a_stated_field_is_never_re_asked():
@@ -480,3 +511,177 @@ def test_turn_does_not_touch_hardware_it_was_not_given():
     s = Session()
     s.turn("a support chatbot")
     assert s.hw is None, "hardware was detected without being asked for"
+
+
+# --- the three stages that were declared and never assigned -----------------------
+
+
+def _walk_to(session, turn, target, limit: int = 10):
+    """Step until `target`, with a bound.
+
+    Bounded deliberately. The first version of these tests used
+    `while turn.stage != target and not turn.done`, and the control that stops
+    the stages advancing turned every one of them into an infinite loop rather
+    than a failure — a hang gives CI no signal at all, which is strictly worse
+    than a red tick.
+    """
+    for _ in range(limit):
+        if turn.stage == target or turn.done:
+            return turn
+        turn = session.turn("")
+    raise AssertionError(f"never reached {target} in {limit} turns; stuck at {turn.stage}")
+
+
+def _machine():
+    from clickllm.hardware import Hardware
+
+    gb = 1024**3
+    return Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * gb,
+        usable_bytes=96 * gb,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+
+
+def test_one_session_carries_you_from_a_description_to_how_you_would_prove_it():
+    """`Stage.OPTIMIZE`, `DEPLOY` and `PROVE` were in the enum from the start
+    and nothing ever assigned them, so every conversation stopped at a
+    deployment plan — including the browser one, which is the surface where
+    stopping there is least defensible."""
+    from clickllm.session import Session, Stage
+
+    s = Session()
+    turn = s.turn("a support chatbot for 20 agents", machine=_machine())
+    seen = []
+    for _ in range(10):
+        seen.append(turn.stage)
+        if turn.done:
+            break
+        turn = s.turn("")
+    else:  # pragma: no cover
+        raise AssertionError(f"never finished: {seen}")
+
+    for stage in (Stage.CONFIGURE, Stage.OPTIMIZE, Stage.DEPLOY, Stage.PROVE):
+        assert stage in seen, f"{stage} was never reached: {seen}"
+    assert seen[-1] == Stage.PROVE and turn.done
+
+
+def test_the_deploy_stage_hands_over_a_command_and_says_it_will_not_run_it():
+    """A session that deployed would be a session that can be talked into
+    deploying, and the thing steering it may be an agent reading a customer's
+    request log (invariant 7)."""
+    from clickllm.session import Session, Stage
+
+    s = Session()
+    turn = s.turn("a chatbot for 20 agents", machine=_machine())
+    turn = _walk_to(s, turn, Stage.DEPLOY)
+    assert turn.stage == Stage.DEPLOY
+    assert "MODEL" in turn.said and "MACHINE" in turn.said
+    # `answer()`'s own closing, not a second sentence saying the same thing.
+    assert "Nothing above has been run" in turn.said
+    assert "without a human" in turn.said
+
+
+def test_the_prove_stage_names_the_path_and_refuses_to_authorise_a_cutover():
+    """Invariant 8, at the moment a user is most likely to think they are done."""
+    from clickllm.session import Session, Stage
+
+    s = Session()
+    turn = s.turn("a chatbot for 20 agents", machine=_machine())
+    turn = _walk_to(s, turn, Stage.PROVE)
+    assert turn.stage == Stage.PROVE and turn.done
+    for command in ("clickllm observe", "clickllm distill", "clickllm prove", "clickllm brief"):
+        assert command in turn.said, f"{command} is missing from the path"
+    assert "shadow mode" in turn.said.lower()
+    assert "authorises a cutover" in turn.said
+
+
+def test_no_stage_after_configure_asks_a_question():
+    """One question at a time is the rule, and "no more questions" has to mean
+    it — a stage that starts asking again after the plan is a form in disguise."""
+    from clickllm.session import Session, Stage
+
+    s = Session()
+    turn = s.turn("a chatbot for 20 agents", machine=_machine())
+    for _ in range(8):
+        if turn.stage != Stage.CONFIGURE or turn.done:
+            break
+        turn = s.turn("")
+    for _ in range(5):
+        assert turn.question is None, f"{turn.stage} asked {turn.question!r}"
+        if turn.done:
+            break
+        turn = s.turn("")
+
+
+def test_a_finished_session_stays_finished():
+    """Stepping past the end must not wrap around to the beginning."""
+    from clickllm.session import Session, Stage
+
+    s = Session()
+    turn = s.turn("a chatbot for 20 agents", machine=_machine())
+    turn = _walk_to(s, turn, Stage.PROVE)
+    for _ in range(3):
+        turn = s.turn("")
+        assert turn.stage == Stage.PROVE and turn.done
+
+
+# --- the optimizer: computed, not curated ----------------------------------------
+
+
+def _small(usable_gb: int):
+    from clickllm.hardware import Hardware
+
+    gb = 1024**3
+    return Hardware(
+        kind="apple",
+        name=f"{usable_gb}GB",
+        total_bytes=(usable_gb + 5) * gb,
+        usable_bytes=usable_gb * gb,
+        bandwidth_gbps=400.0,
+        cores=12,
+    )
+
+
+def test_it_says_which_setting_to_change_and_what_that_buys():
+    """ "Reduce one of them" was true and useless: it is the moment a user is
+    most stuck, and the message named neither the knob nor the amount."""
+    from clickllm.session import Session
+
+    s = Session()
+    s.tell("a chatbot")
+    s.on(_small(8))
+    s.set(concurrency=2, context=8192)
+    tips = s._optimizations()
+    assert tips, "nothing suggested on a machine where nothing fits"
+    assert any("concurrency 1" in t or "context" in t for t in tips), tips
+    assert any("fits" in t for t in tips), tips
+
+
+def test_a_suggestion_is_raised_only_when_the_outcome_actually_differs():
+    """Computed, not curated — the same rule `_worth_asking` follows. A tip that
+    does not change what you would deploy is noise dressed as advice."""
+    from clickllm.session import Session
+
+    s = Session()
+    s.tell("a chatbot")
+    s.on(_machine())
+    s.set(concurrency=1, context=8192)
+    # A 96 GB machine at concurrency 1: halving anything changes nothing.
+    assert s._optimizations() == ()
+
+
+def test_the_nothing_fits_turn_names_the_change_rather_than_gesturing_at_it():
+    from clickllm.session import Session, Stage
+
+    s = Session()
+    s.tell("a chatbot")
+    s.on(_small(8))
+    s.set(concurrency=2, context=8192)
+    turn = s.step()
+    assert turn.stage == Stage.CHOOSE
+    assert "Nothing in the catalogue fits" in turn.said
+    assert "fits" in turn.said.split("not a failure.")[1], turn.said
