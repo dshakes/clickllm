@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import sys
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from . import catalog, engine, fit, hardware
@@ -1282,10 +1283,39 @@ def _collect_replies(
             side=side,
             workers=args.collect_workers,
             timeout=args.collect_timeout,
+            on_progress=_progress_line(side, quiet=getattr(args, "json", False)),
         )
+        # Leave the finished count on its own line, so the report that follows
+        # does not land on top of a half-drawn progress line.
+        if not getattr(args, "json", False):
+            print(file=sys.stderr)
         collections.append(got)
         items = list(got.items)
     return items, collections
+
+
+def _progress_line(side: str, *, quiet: bool) -> Callable[[object], None] | None:
+    """A one-line progress indicator for a collection, or nothing.
+
+    Collection is the longest thing this tool does — `collect`'s own docstring
+    says a real eval set takes hours — and it printed nothing until it finished.
+    Silence and a hang look identical, and the reasonable response to a tool
+    that looks hung is to kill it, which on a paid endpoint discards every reply
+    already bought.
+
+    **stderr, not stdout.** `--json` output must stay a parseable document, and
+    a progress line on stdout would sit inside it. `--json` suppresses this
+    entirely anyway; writing to stderr means even that is belt and braces.
+    """
+    if quiet:
+        return None
+
+    def show(p: object) -> None:
+        # `\r` and no newline: one line that updates in place rather than a
+        # thousand lines of scrollback for a thousand-item eval set.
+        print(f"\r  {side}: {p.render().strip()}   ", end="", file=sys.stderr, flush=True)
+
+    return show
 
 
 def _judge_from(args: argparse.Namespace) -> tuple[JudgeFn | None, str, Agreement | None]:

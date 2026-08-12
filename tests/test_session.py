@@ -407,14 +407,32 @@ def test_turn_does_not_spend_questions_on_intermediate_states():
     That is the quiet failure — the answer stays correct, and a question the
     user should have been asked has been thrown away.
     """
+    from clickllm.hardware import Hardware
     from clickllm.session import Session
 
+    # A pinned machine, not the host. `detect_hardware=True` read whatever CI
+    # was running on, and on a runner where nothing in the catalogue fits,
+    # `step()` returns a refusal and never asks anything — so `asked` came back
+    # empty and the comparison was between two empty sets. The vacuity guard at
+    # the end is what caught it; without that this would have passed by
+    # comparing nothing to nothing.
+    #
+    # Third time this repo has written a test that was partly about the runner.
+    machine = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * 1024**3,
+        usable_bytes=96 * 1024**3,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+
     chained = Session()
-    chained.on(None)  # step #1 — has hardware, so it really does commit
+    chained.on(machine)  # step #1 — has hardware, so it really does commit
     chained.tell("a support chatbot for 20 agents")  # step #2
 
     single = Session()
-    single.turn("a support chatbot for 20 agents", detect_hardware=True)
+    single.turn("a support chatbot for 20 agents", machine=machine)
 
     spent = chained.asked - single.asked
     assert spent == {"context"}, (
@@ -426,17 +444,25 @@ def test_turn_does_not_spend_questions_on_intermediate_states():
 def test_turn_matches_the_chain_its_callers_hand_write():
     """`cmd_build` and `mcp._build` both do the private chain. `turn()` must be
     the same thing, or it is a third behaviour rather than a shared one."""
+    from clickllm.hardware import Hardware
     from clickllm.session import Session
+
+    machine = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * 1024**3,
+        usable_bytes=96 * 1024**3,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
 
     by_hand = Session()
     by_hand._apply_text("a support chatbot for 20 agents")
-    by_hand._apply_hardware(None)
+    by_hand._apply_hardware(machine)
     by_hand._apply_fields(concurrency=32)
     expected = by_hand.step()
 
-    via_turn = Session().turn(
-        "a support chatbot for 20 agents", detect_hardware=True, concurrency=32
-    )
+    via_turn = Session().turn("a support chatbot for 20 agents", machine=machine, concurrency=32)
     assert via_turn.stage == expected.stage
     assert via_turn.question == expected.question
     assert via_turn.said == expected.said
