@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-2036-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-2073-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -670,10 +670,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1787 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1824 Python
 ```
 
-**2036 tests.** 1787 Python, 249 Rust. Eighteen of the Python tests skip on a
+**2073 tests.** 1824 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
@@ -727,7 +727,7 @@ Four defects caught by review or by rendering, all now regression tests:
 | [70 — Naming](docs/70-naming.md) | Why it is called this. |
 | [80 — Plan](docs/80-implementation-plan.md) | M0–M10, acceptance criteria, risk gates. |
 | [90 — CI gating](docs/90-ci-gating.md) | Gate a deploy on a proof that still holds. |
-| [ADRs](docs/adr/) | 16 decisions, including the two later reversed. |
+| [ADRs](docs/adr/) | 17 decisions, including the two later reversed. |
 
 ## Prior art
 

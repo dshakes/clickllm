@@ -34,7 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover - import-time cost for a type only
 __all__ = ["CONTRACT", "fit"]
 
 #: The engine's result contract, versioned like the artifacts already are
-#: (`clickllm.receipt/v1`, `clickllm.box/v1`). A surface may render these
+#: (`clickllm.receipt/v2`, `clickllm.box/v1`). A surface may render these
 #: results however it likes; what this names is the *computation* behind them,
 #: so that a change to what the engine answers is visible rather than silent.
 CONTRACT = "clickllm.engine/v1"

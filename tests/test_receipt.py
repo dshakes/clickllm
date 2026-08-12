@@ -16,6 +16,7 @@ from clickllm.prove.graders import EvalItem
 from clickllm.prove.judge import Agreement
 from clickllm.prove.receipt import (
     FORMAT,
+    SUPPORTED_FORMATS,
     Claim,
     Receipt,
     eval_set_digest,
@@ -279,8 +280,22 @@ def test_an_empty_eval_set_still_has_a_stable_digest():
 
 
 def test_the_format_tag_is_present_and_versioned():
+    """The tag is what makes a format change visible instead of silent.
+
+    This pinned `/v1` and failed when v2 added the cost fields — which is the
+    test working. Pinning the *shape* rather than the number keeps that: a new
+    version must still be a version, and every older one must still be readable,
+    because a receipt is an artifact that outlives the tool that wrote it.
+    """
+    import re
+
     assert receipt(cs("e", 10, 10)).format == FORMAT
-    assert FORMAT.endswith("/v1")
+    assert re.fullmatch(r"clickllm\.receipt/v\d+", FORMAT), FORMAT
+    assert FORMAT in SUPPORTED_FORMATS
+    assert "clickllm.receipt/v1" in SUPPORTED_FORMATS, (
+        "v1 receipts are on other people's disks; dropping them from the "
+        "readable set makes every one of them read as forged"
+    )
 
 
 def test_a_claim_with_no_items_renders_as_unknown_not_as_zero():

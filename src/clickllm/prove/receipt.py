@@ -42,6 +42,8 @@ from dataclasses import asdict, dataclass, field, fields
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from clickllm.prove.cost import Saving
+from clickllm.prove.cost import saving as cost_saving
 from clickllm.prove.equivalence import (
     DEFAULT_EQUIVALENCE_BAR,
     CandidateReport,
@@ -66,7 +68,43 @@ __all__ = [
 
 #: Format identifier. A reader that does not recognise this must refuse the file
 #: rather than interpret fields it may be guessing at.
-FORMAT = "clickllm.receipt/v1"
+FORMAT = "clickllm.receipt/v2"
+
+#: Formats this can read. v2 added `incumbent_cost`/`candidate_cost`.
+#:
+#: Adding *any* field to `Receipt` changes `asdict`, which changes the digest,
+#: which made every receipt 1.0.0 issued report as **altered since it was
+#: issued** — a false accusation of forgery, which is a worse failure than a
+#: parse error because a reader acts on it. A content address is a property of
+#: the document that was sealed, so a v1 document is digested over the fields
+#: v1 had, and v2 over all of them. Neither is weakened: each covers everything
+#: its own document contains.
+SUPPORTED_FORMATS = ("clickllm.receipt/v1", FORMAT)
+
+#: Exactly the fields `clickllm.receipt/v1` carried. Frozen — this is a
+#: historical fact about files already on disk, not a list to keep current.
+_V1_FIELDS = frozenset(
+    {
+        "incumbent",
+        "candidate",
+        "issued",
+        "eval_set",
+        "bar",
+        "proven",
+        "regret",
+        "unproven",
+        "traffic_captures",
+        "traffic_window",
+        "judge_model",
+        "judge_agreement",
+        "judge_trustworthy",
+        "judge_calibration",
+        "redacted",
+        "fingerprints",
+        "tool_version",
+        "format",
+    }
+)
 
 
 def _canonical(obj: Any) -> bytes:
@@ -345,6 +383,14 @@ class Receipt:
     judge_calibration: str | None = None
     #: What redaction removed, by kind. Evidence the eval set is safe to share.
     redacted: dict[str, int] = field(default_factory=dict)
+    #: What the incumbent costs per month and what the candidate would, in
+    #: dollars. `0.0` means "not supplied" — deliberately not `None`, so an old
+    #: receipt read off disk and a new one issued without rates are the same
+    #: document, and the money never becomes a reason a v1 file stops verifying.
+    #: The saving derived from these is a range with a refusal path; see
+    #: `cost.saving`, which is the only place that arithmetic exists.
+    incumbent_cost: float = 0.0
+    candidate_cost: float = 0.0
     #: Model fingerprints this was issued against, so a silent provider-side
     #: model change invalidates the receipt instead of quietly outliving it.
     fingerprints: dict[str, str] = field(default_factory=dict)
@@ -375,6 +421,20 @@ class Receipt:
         """
         _check_declared_types(self)
         check_bar(self.bar)
+        # Money must never sit outside the digest that seals it. A v1 document
+        # is digested over the v1 fields, so a v1 receipt carrying a cost would
+        # carry a number no one could detect being changed — the one field where
+        # that matters most. v1 receipts have no cost; that is what makes
+        # leaving them out of the digest safe.
+        if self.format == "clickllm.receipt/v1" and (self.incumbent_cost or self.candidate_cost):
+            raise ValueError(
+                "a clickllm.receipt/v1 document cannot carry a cost — its digest "
+                f"does not cover one. Issue it as {FORMAT}."
+            )
+        for name in ("incumbent_cost", "candidate_cost"):
+            v = getattr(self, name)
+            if v < 0 or v != v or v in (float("inf"), float("-inf")):
+                raise ValueError(f"{name} must be a non-negative number of dollars, got {v!r}")
         # The aggregate, because per-claim validation is not enough and missing
         # that was the same mistake made on `CandidateReport` earlier: the value
         # that reaches the arithmetic is the *sum*. Two individually legal 0.9
@@ -473,12 +533,36 @@ class Receipt:
         """
         return not self.unproven
 
+    @property
+    def saving(self) -> Saving:
+        """Monthly dollars saved, as a range — or a refusal naming what is missing.
+
+        Derived, never stored: a stored saving is a number that can disagree
+        with the claims above it on the same sealed document. This one is
+        recomputed from the movable share every time the receipt is read, so it
+        cannot outlive the evidence it came from.
+        """
+        return cost_saving(
+            self.incumbent_cost or None,
+            self.candidate_cost or None,
+            self.movable_share,
+            captures=self.traffic_captures,
+            window=self.traffic_window,
+        )
+
     def digest(self) -> str:
         """Content address of this receipt.
 
         Any alteration — a number, a cluster, the date — changes it.
         """
-        return hashlib.sha256(_canonical(asdict(self))).hexdigest()
+        payload = asdict(self)
+        if self.format == "clickllm.receipt/v1":
+            # A v1 file was sealed before these fields existed. Digesting them
+            # into it would retroactively invalidate every receipt already
+            # issued — see SUPPORTED_FORMATS. A v1 receipt cannot *carry* cost,
+            # so nothing is left uncovered by leaving it out.
+            payload = {k: v for k, v in payload.items() if k in _V1_FIELDS}
+        return hashlib.sha256(_canonical(payload)).hexdigest()
 
     # --- portability ----------------------------------------------------------
 
@@ -507,8 +591,11 @@ class Receipt:
         body = blob.get("receipt", blob)
         if not isinstance(body, dict):
             raise ValueError(f"a receipt must be a JSON object, got {type(body).__name__}")
-        if body.get("format") != FORMAT:
-            raise ValueError(f"unknown receipt format {body.get('format')!r}")
+        if body.get("format") not in SUPPORTED_FORMATS:
+            raise ValueError(
+                f"unknown receipt format {body.get('format')!r}, "
+                f"expected one of {', '.join(SUPPORTED_FORMATS)}"
+            )
         # Everything below this line is shape, and shape has been guarded one
         # level at a time across four reviews: the document, then the envelope,
         # then the digest, then the claim groups — `{"proven": [7]}` raising
@@ -589,6 +676,11 @@ class Receipt:
             out.append("")
 
         out.append(f"Movable: {self.movable_share:.0%} of captured traffic")
+        # The money, with its range or its refusal — never a bare figure, and
+        # never absent. A receipt that silently omits cost when it cannot
+        # compute one reads as a migration nobody costed; saying why is the
+        # difference between a gap and an answer.
+        out.append(self.saving.render())
         if not self.complete:
             out.append(f"Coverage: incomplete — {len(self.unproven)} cluster(s) unresolved")
         if self.judge_model:
@@ -628,6 +720,8 @@ def issue(
     redacted: dict[str, int] | None = None,
     fingerprints: dict[str, str] | None = None,
     tool_version: str = "",
+    incumbent_cost: float = 0.0,
+    candidate_cost: float = 0.0,
 ) -> Receipt:
     """Turn a scored candidate into a receipt.
 
@@ -686,6 +780,8 @@ def issue(
         judge_trustworthy=agreement.trustworthy if agreement else None,
         judge_calibration=calibration.render() if calibration else None,
         redacted=dict(redacted or {}),
+        incumbent_cost=incumbent_cost,
+        candidate_cost=candidate_cost,
         fingerprints=dict(fingerprints or {}),
         tool_version=tool_version,
     )

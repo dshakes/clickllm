@@ -1476,6 +1476,12 @@ def cmd_prove(args: argparse.Namespace) -> int:
         # tell whether the model behind the name is still that model. Absent,
         # that check has nothing to compare and silently does not run.
         fingerprints=fingerprints,
+        # The cost the whole product is about. `suite` has accepted these since
+        # it was written and `Policy` has computed the blended figure all along;
+        # no surface supplied them, so the saving was permanently "unknown".
+        incumbent_cost=args.incumbent_cost,
+        monthly_cost=args.candidate_cost,
+        traffic_window=args.traffic_window,
     )
 
     # Collection failures are reported apart from eval failures, and never in
@@ -2010,6 +2016,38 @@ def main(argv: list[str] | None = None) -> int:
         "advance on",
     )
     _add_collection_flags(pv)
+    pv.add_argument(
+        "--incumbent-cost",
+        dest="incumbent_cost",
+        type=float,
+        help=(
+            "what you spend on the incumbent per month, in dollars. Without it "
+            "the report says the saving is unknown rather than guessing one — a "
+            "fabricated saving is the single most damaging number here."
+        ),
+    )
+    pv.add_argument(
+        "--candidate-cost",
+        dest="candidate_cost",
+        type=float,
+        help=(
+            "what the candidate would cost per month. `clickllm fit` and "
+            "`clickllm host` both estimate this for self-hosting; pass the "
+            "figure you believe."
+        ),
+    )
+    pv.add_argument(
+        "--traffic-window",
+        dest="traffic_window",
+        default="",
+        metavar="PERIOD",
+        help=(
+            "how long the traffic was captured over, e.g. '14 days'. Captures "
+            "carry no timestamps, so this is not derivable — and without it a "
+            "monthly saving would be an extrapolation from an unknown period, "
+            "which the receipt refuses to make."
+        ),
+    )
     pv.add_argument(
         "--fingerprints",
         dest="prove_fingerprints",
