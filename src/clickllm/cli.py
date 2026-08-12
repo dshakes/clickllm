@@ -765,6 +765,39 @@ def cmd_observe(args: argparse.Namespace) -> int:
     return observe.run_gateway(argv)
 
 
+def _namer_from(args: argparse.Namespace) -> Callable[[str], str]:
+    """An `ask` for the cluster namer, over the endpoint the user named.
+
+    Temperature 0, because a report whose row names change between two runs of
+    the same traffic is a report nobody trusts — and the structural description
+    underneath is stable regardless.
+    """
+    from .prove.collect import chat_url
+
+    url = chat_url(args.name_endpoint)
+    model = args.name_model
+
+    def ask(prompt: str) -> str:
+        import urllib.request
+
+        body = json.dumps(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+                # A name is three words. Capping this is also the cheapest
+                # defence against a reply that tries to be a document.
+                "max_tokens": 24,
+            }
+        ).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - user-named host
+            reply = json.loads(r.read())
+        return str(reply["choices"][0]["message"].get("content") or "")
+
+    return ask
+
+
 def cmd_distill(args: argparse.Namespace) -> int:
     """Turn a capture log into the eval set `clickllm prove` reads."""
     from . import core, observe
@@ -791,7 +824,17 @@ def cmd_distill(args: argparse.Namespace) -> int:
         print(f"\n  {log} holds no captures yet.\n")
         return 2
 
-    doc, report = observe.distill(rows, budget=args.budget, min_per_cluster=args.min_per_cluster)
+    # A namer only when an endpoint is given. Naming sends captured prompts to a
+    # model, which is the one thing in this pipeline that leaves the machine —
+    # so it is opt-in per run, never a default, and never inferred from some
+    # other endpoint the user configured for a different purpose (NFR-2).
+    namer = _namer_from(args) if getattr(args, "name_endpoint", "") else None
+    doc, report = observe.distill(
+        rows,
+        budget=args.budget,
+        min_per_cluster=args.min_per_cluster,
+        name_with=namer,
+    )
     out = observe.write_eval_set(doc, pathlib.Path(args.out))
     if args.json:
         print(json.dumps(doc, indent=2, sort_keys=True))
@@ -1908,6 +1951,23 @@ def main(argv: list[str] | None = None) -> int:
     ob.set_defaults(fn=cmd_observe)
 
     di = sub.add_parser("distill", help="turn a capture log into an eval set")
+    di.add_argument(
+        "--name-endpoint",
+        dest="name_endpoint",
+        default="",
+        help=(
+            "OpenAI-compatible endpoint used to give clusters readable names "
+            "(e.g. 'Refund requests' instead of 'free text · <=1k context'). "
+            "Opt-in per run: naming is the only step that sends captured "
+            "prompts anywhere, so it never happens without this flag."
+        ),
+    )
+    di.add_argument(
+        "--name-model",
+        dest="name_model",
+        default="",
+        help="model id for --name-endpoint",
+    )
     di.add_argument("--capture", help="the log to read (default: ~/.clickllm/captures.log)")
     di.add_argument("--key", help="the capture key (default: ~/.clickllm/capture.key)")
     di.add_argument("--out", default="evalset.json")
