@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-2191-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-2192-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -515,6 +515,13 @@ clickllm distill
   tool-calling (1 tool) · empty response ·      3 sampled   20.0% of traffic
 ```
 
+`clickllm distill --name-endpoint <url> --name-model <id>` turns those labels
+into `Refund requests` and `Multi-step tool calls`, keeping the structure
+underneath as the evidence. Opt-in per run, because naming is the only step that
+sends captured prompts anywhere. A name is a label and never a claim: it cannot
+move a share, a score or a verdict, and a reply that is not a short line of
+plain text is refused in favour of the structural description.
+
 Those two shapes were **found, not configured**. A request that offers tools is
 a different workload from one that does not, and a candidate can pass one and
 fail the other — so they are never averaged together. The share is share of
@@ -550,8 +557,31 @@ leaving you to guess. It also volunteers that two clusters against one bar means
 the intervals are unadjusted, which is not a thing a tool trying to look good
 would mention.
 
-Then `clickllm receipt` makes it a file someone else can re-check, and
-`clickllm guard` tells you when it stops being true.
+Give it your bill and it costs the migration — as a range, never a point:
+
+```bash
+clickllm prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
+    --traffic-window '14 days'
+
+  Saving: $2,506–$2,530/mo (~89%) on traffic proven at or above the 90% bar
+    100% [99–100] of traffic moved, measured on 400 captured requests
+    over 14 days; Wilson score, 95%
+```
+
+The share that moves is *measured*, so the dollars inherit its uncertainty — 60%
+on 40 requests is not the claim 60% on 4,000 is. Without a rate, a capture
+count, or a window of at least a week, it says the saving is unknown and names
+what would fix it. It will not extrapolate three days to a month.
+
+Long runs are resumable: `--resume run` writes each reply as it lands, so a
+collection killed at 380 of 400 does not re-buy the 380.
+
+Then `clickllm receipt` makes it a file someone else can re-check, `clickllm
+guard` tells you when it stops being true, and `clickllm brief receipt.json
+--out brief.html` turns it into one self-contained page you can send to whoever
+signs off — no network, no script, opens offline in six months, and leading with
+what is *not* proven. A reader who stops after the first screen stops having
+read the caveats.
 
 ## Three things everyone gets wrong
 
@@ -663,6 +693,18 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 
 **MCP server** — `clickllm-mcp`, JSON-RPC over stdio, zero dependencies. Deliberately read-only: an agent may analyse and recommend a migration; a human presses the button that moves production traffic.
 
+Nine tools, plus **resources** and **prompts**. Receipts and eval sets under
+`CLICKLLM_EVAL_ROOT` are readable as `clickllm:///<path>` — confined to that
+root, resolved before comparison so a symlink cannot walk out of it, and served
+only if the file's own `format` tag says it is a clickllm artifact. Three
+prompts carry the workflows: size a model, prove a migration, check a receipt
+still holds. Each argument sits inside explicit markers and is named as data,
+because an agent-supplied argument can carry anything.
+
+**Diagnostics** — nothing is emitted until `CLICKLLM_LOG` is set, and then only
+to stderr or a local file. There is no exporter, no collector endpoint, and no
+setting that adds one; a test fails if anything networked is even imported.
+
 ---
 
 ## Verification
@@ -670,10 +712,10 @@ result.receipt.digest()       # reproducible: same eval set, same digest
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1942 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1943 Python
 ```
 
-**2191 tests.** 1942 Python, 249 Rust. Eighteen of the Python tests skip on a
+**2192 tests.** 1943 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
