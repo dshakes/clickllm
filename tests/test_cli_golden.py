@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import cli, hardware
+from clickllm import catalog, cli, hardware
 from clickllm.hardware import Hardware
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -62,12 +62,20 @@ CASES: tuple[tuple[str, list[str]], ...] = (
 )
 
 
-def _run(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> str:
+def _run(argv: list[str], monkeypatch: pytest.MonkeyPatch, config_home: Path) -> str:
     """Run one command in-process against the synthetic machine."""
     monkeypatch.setattr(hardware, "detect", lambda: MACHINE)
     # `cli` imports `hardware` as a module and calls `hardware.detect()`, so
     # patching the module attribute reaches every caller. Patching
     # `cli.hardware.detect` would be the same object; this is the clearer spelling.
+    #
+    # catalog.load() also reads $XDG_CONFIG_HOME/clickllm/models.d — pointed at
+    # a fresh empty tmp_path so a developer's real drop-in catalogue (or lack
+    # of one) can't change what a golden records. Without this, `catalog
+    # sources` and every command that loads the catalogue would encode
+    # whatever happens to be in ~/.config on the machine that ran the test.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("CLICKLLM_CATALOG", raising=False)
     buf = io.StringIO()
     with redirect_stdout(buf):
         try:
@@ -77,10 +85,26 @@ def _run(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> str:
     return buf.getvalue()
 
 
+def _normalize_host_paths(text: str, config_home: Path) -> str:
+    """Replace the absolute paths `catalog-sources` prints with fixed tokens.
+
+    The built-in catalogue path is wherever this checkout lives
+    (`.../src/clickllm/models.json`) and the drop-in dir is under
+    `$XDG_CONFIG_HOME`, which here is a per-test tmp_path. Both are real,
+    correct, host-specific paths — exactly what makes them unfit for a golden
+    that must match on every machine.
+    """
+    text = text.replace(str(catalog.CATALOG_PATH), "<repo>/src/clickllm/models.json")
+    text = text.replace(str(config_home), "<config-home>")
+    return text
+
+
 @pytest.mark.parametrize("name,argv", CASES, ids=[n for n, _ in CASES])
-def test_cli_output_is_unchanged(name: str, argv: list[str], monkeypatch):
+def test_cli_output_is_unchanged(name: str, argv: list[str], monkeypatch, tmp_path):
     """Byte-for-byte, against a golden recorded before the engine refactor."""
-    got = _run(argv, monkeypatch)
+    got = _run(argv, monkeypatch, tmp_path)
+    if name == "catalog_sources":
+        got = _normalize_host_paths(got, tmp_path)
     path = GOLDEN / f"{name}.txt"
 
     if os.environ.get("CLICKLLM_REGENERATE_GOLDEN"):
@@ -117,9 +141,9 @@ def test_the_goldens_are_not_empty():
         )
 
 
-def test_the_synthetic_machine_is_actually_used(monkeypatch):
+def test_the_synthetic_machine_is_actually_used(monkeypatch, tmp_path):
     """If `detect` were not patched, these goldens would encode the developer's
     laptop and fail on every runner — the mistake this repo has made twice."""
-    out = _run(["fit", "--context", "32k", "--concurrency", "8"], monkeypatch)
+    out = _run(["fit", "--context", "32k", "--concurrency", "8"], monkeypatch, tmp_path)
     assert "M4 Max" in out
     assert "128 GB" in out or "96 GB" in out

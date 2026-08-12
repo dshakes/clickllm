@@ -198,12 +198,28 @@ def test_every_surface_agrees_on_where_a_model_runs():
     u = ui._where("llama-3.1-8b", "32k", 1)
     m = mcp._where("llama-3.1-8b", context="32k", concurrency=1)
 
-    def profiles(payload: dict) -> set[str]:
-        rows = payload.get("placements") or payload.get("hardware") or []
-        return {str(r.get("profile") or r.get("id") or "") for r in rows if isinstance(r, dict)}
+    def verdicts(payload: dict) -> dict[str, bool]:
+        """profile id -> whether that surface says the model fits there.
 
-    assert profiles(u) == profiles(m), (
-        f"ui considered {sorted(profiles(u))[:3]}, mcp considered {sorted(profiles(m))[:3]}"
+        Comparing verdicts, not just which profiles were considered — a
+        regression that flips one surface's fit/no-fit answer for a profile
+        while leaving the profile list untouched would still pass a
+        set-of-ids-only check. ui spells this `feasible`, mcp spells it
+        `fits`; both are `Placement.fit is not None`.
+        """
+        rows = payload.get("placements") or payload.get("hardware") or []
+        out = {}
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            profile = str(r.get("profile") or r.get("id") or "")
+            out[profile] = bool(r.get("feasible", r.get("fits")))
+        return out
+
+    vu, vm = verdicts(u), verdicts(m)
+    assert vu == vm, (
+        f"ui says {sorted(p for p, ok in vu.items() if ok)[:3]} fit, "
+        f"mcp says {sorted(p for p, ok in vm.items() if ok)[:3]} fit"
     )
 
 
