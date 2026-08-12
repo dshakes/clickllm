@@ -11,6 +11,7 @@ the one this product exists to prevent.
 
 from __future__ import annotations
 
+import dataclasses
 import html
 import json
 import re
@@ -140,6 +141,56 @@ def test_the_unproven_group_is_shown_as_unanswered_not_as_failure():
     page = render(r)
     assert "Not proven either way" in page
     assert "not failures and not passes" in page
+
+
+def test_the_move_section_makes_no_claim_when_nothing_is_proven():
+    """The heading and body above the table both branch on `receipt.proven`,
+    not just the table. An all-regret receipt still said "Safe to move" and
+    "every kind of request cleared the bar" — a false positive on the one
+    section a stakeholder is most likely to act on."""
+    items = [
+        EvalItem(item_id=f"{c}-{i}", cluster=c, prompt=f"{c} {i}", baseline="a", candidate=f"x{i}")
+        for c in ("good", "bad")
+        for i in range(100)
+    ]
+    r = suite(
+        items,
+        shares={"good": 0.6, "bad": 0.4},
+        names={"good": "Refund requests", "bad": "Multi-step tool calls"},
+        issued="2026-08-12",
+        traffic_captures=400,
+        traffic_window="14 days",
+    ).receipt
+    assert not r.proven, "the fixture must contain no proven cluster"
+    assert r.movable_share == 0
+    page = render(r)
+    assert "Nothing yet proven safe to move" in page
+    assert "Every kind of request below cleared" not in page
+    assert "Safe to move to" not in page
+
+
+def test_judge_trust_is_not_claimed_when_unmeasured():
+    """`judge_trustworthy` is `None` until a human-agreement sample exists.
+    Collapsing "unmeasured" into "measured and untrustworthy" mislabels a judge
+    as NOT trustworthy when nobody has checked — `receipt.py`'s own `render()`
+    guards on `judge_agreement` being present first, and this must match it."""
+    r = dataclasses.replace(
+        _receipt(), judge_model="judge-1", judge_agreement=None, judge_trustworthy=None
+    )
+    page = render(r)
+    assert "NOT trustworthy" not in page
+    assert "UNMEASURED" in page
+
+
+def test_judge_trust_is_claimed_only_once_measured_and_false():
+    r = dataclasses.replace(
+        _receipt(),
+        judge_model="judge-1",
+        judge_agreement="Agreement with human review: 82%",
+        judge_trustworthy=False,
+    )
+    page = render(r)
+    assert "NOT trustworthy" in page
 
 
 def test_the_money_is_a_range_with_its_basis():

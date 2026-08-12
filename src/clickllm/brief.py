@@ -143,11 +143,21 @@ def render(receipt: Receipt, *, title: str = "Migration briefing") -> str:
         )
 
     if receipt.judge_model:
-        judge = (
-            f"Judged by <code>{_e(receipt.judge_model)}</code>. "
-            + _e(receipt.judge_agreement or "Agreement with human review: UNMEASURED.")
-            + ("" if receipt.judge_trustworthy else " This judge is NOT trustworthy on this set.")
-        )
+        # NOT trustworthy is a claim about a *measurement* — it must never fire
+        # from an unmeasured `judge_trustworthy is None`, only from a measured
+        # `False`. `receipt.py`'s own `render()` has the same guard.
+        if receipt.judge_agreement:
+            trust = "" if receipt.judge_trustworthy else " This judge is NOT trustworthy on this set."
+            judge = (
+                f"Judged by <code>{_e(receipt.judge_model)}</code>. "
+                + _e(receipt.judge_agreement)
+                + trust
+            )
+        else:
+            judge = (
+                f"Judged by <code>{_e(receipt.judge_model)}</code>. "
+                "Agreement with human review: UNMEASURED."
+            )
     else:
         judge = (
             "No judge model was used — every claim here comes from deterministic "
@@ -181,19 +191,28 @@ def render(receipt: Receipt, *, title: str = "Migration briefing") -> str:
             + "</section>"
         )
 
-    parts.append(
-        "<section aria-labelledby='move'>"
-        f"<h2 id='move' class='good'>Safe to move to {_e(receipt.candidate)}</h2>"
-        f'<p class="headline">{receipt.movable_share:.0%} of captured traffic</p>'
-        f"<p>Every kind of request below cleared the {receipt.bar:.0%} bar across its "
-        "whole confidence interval — not just on average.</p>"
-        + (
-            _claims_table(f"Proven at or above the {receipt.bar:.0%} bar", receipt.proven, "good")
-            if receipt.proven
-            else "<p><strong>Nothing yet.</strong> No kind of request has cleared the bar.</p>"
+    # The whole heading and body branch on `receipt.proven`, not just the table
+    # below it — "Safe to move" and "every kind of request cleared the bar" are
+    # claims about *something* having passed, and are false when nothing has.
+    if receipt.proven:
+        parts.append(
+            "<section aria-labelledby='move'>"
+            f"<h2 id='move' class='good'>Safe to move to {_e(receipt.candidate)}</h2>"
+            f'<p class="headline">{receipt.movable_share:.0%} of captured traffic</p>'
+            f"<p>Every kind of request below cleared the {receipt.bar:.0%} bar across its "
+            "whole confidence interval — not just on average.</p>"
+            + _claims_table(f"Proven at or above the {receipt.bar:.0%} bar", receipt.proven, "good")
+            + "</section>"
         )
-        + "</section>"
-    )
+    else:
+        parts.append(
+            "<section aria-labelledby='move'>"
+            f"<h2 id='move' class='warn'>Nothing yet proven safe to move to {_e(receipt.candidate)}</h2>"
+            '<p class="headline">0% of captured traffic</p>'
+            f"<p>No kind of request has cleared the {receipt.bar:.0%} bar across its whole "
+            "confidence interval. <strong>Nothing yet.</strong></p>"
+            "</section>"
+        )
 
     parts.append(
         f"<section aria-labelledby='money'><h2 id='money'>What it saves</h2>{money}"
