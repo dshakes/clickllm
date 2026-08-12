@@ -190,3 +190,50 @@ def test_the_page_still_escapes_what_the_engine_returns():
     assert interpolations == escaped, (
         f"{interpolations - escaped} value(s) reach the page unescaped in buildTurn"
     )
+
+
+def test_the_conversation_works_over_a_real_socket(workbench):
+    """The tests above call `ui._build` directly. That is exactly how the MCP
+    server shipped a transport no conforming client could talk to: every test
+    called `handle()`, so the one layer that decided whether any of it was
+    reachable had no test at all.
+
+    This drives `/api/build` through the real HTTP handler — query parsing,
+    routing, JSON encoding and all — because a route that works when called as a
+    function and 500s when called as a URL is indistinguishable from a working
+    feature until someone opens the page.
+    """
+    import json
+    import urllib.parse
+
+    status, body = workbench(
+        "/api/build?"
+        + urllib.parse.urlencode({"say": "a chatbot for 20 agents", "machine": "detect"})
+    )
+    assert status == 200, body[:200]
+    first = json.loads(body)
+    assert first["said"] and first["state"], first
+
+    # And the state round-trips over the wire, which is the whole design: the
+    # server holds nothing, so the second turn is only possible if the first
+    # one's state survived being URL-encoded and sent back.
+    status, body = workbench(
+        "/api/build?"
+        + urllib.parse.urlencode({"say": "mostly short answers", "state": first["state"]})
+    )
+    assert status == 200, body[:200]
+    second = json.loads(body)
+    assert second["evidence"], "the carried state was lost in transit"
+    assert second["state"] != first["state"], "the conversation did not advance"
+
+
+def test_a_malformed_state_is_a_400_not_a_500(workbench):
+    """The state comes back from a browser, so it is untrusted input. A stack
+    trace here would be the error contract this file already guards, broken by
+    the newest route."""
+    import urllib.parse
+
+    status, body = workbench(
+        "/api/build?" + urllib.parse.urlencode({"say": "hello", "state": "{not json"})
+    )
+    assert status < 500, f"malformed state produced {status}: {body[:200]}"
