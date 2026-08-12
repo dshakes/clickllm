@@ -72,7 +72,7 @@ the best question.
    validate, coerce, or assemble a result. Validation stays at the solver
    (ADR-0011).
 3. Engine results carry a versioned contract, `clickllm.engine/v1`, following
-   the existing `clickllm.receipt/v1` convention — so a breaking change to a
+   the existing `clickllm.receipt/vN` convention — so a breaking change to a
    shape is visible rather than silent.
 4. **The anti-drift mechanism is a conformance test, not the shared code.**
    `tests/test_surface_conformance.py` asks every surface the same question and

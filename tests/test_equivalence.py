@@ -796,3 +796,87 @@ def test_prove_without_the_flag_still_works_and_records_nothing(tmp_path):
     )
     assert out.exists(), proc.stdout + proc.stderr
     assert json.loads(out.read_text())["receipt"]["fingerprints"] == {}
+
+
+def test_the_saving_does_not_claim_zero_quality_loss():
+    """It said "at zero measured quality loss", on the one number a reader most
+    wants to believe. It was false.
+
+    A cluster moves when its whole interval clears the bar. At a 0.90 bar a
+    cluster passing 98% [95–99] moves — and in this 200-item run that is four
+    items whose answers measurably differed. "Zero loss" was the strongest
+    possible claim attached to the strongest possible incentive to believe it.
+
+    What is true, and what it says now: the moved traffic met the bar the reader
+    chose, and the bar is named so they can judge it.
+    """
+    from clickllm.prove import EvalItem, suite
+
+    items = [
+        EvalItem(
+            item_id=str(i),
+            cluster="c",
+            prompt=f"prompt {i}",  # distinct: identical prompts are deduplicated
+            baseline="the answer",
+            candidate="the answer" if i >= 4 else f"something else {i}",
+        )
+        for i in range(200)
+    ]
+    r = suite(
+        items,
+        shares={"c": 1.0},
+        issued="2026-08-12",
+        incumbent_cost=2847.0,
+        monthly_cost=317.0,
+        bar=0.90,
+        traffic_captures=400,
+        traffic_window="14 days",
+    )
+
+    score = r.matrix.candidates[0].clusters[0]
+    differed = sum(1 for _id, ok in score.outcomes if not ok)
+    assert differed == 4, f"the fixture must contain real differences, had {differed}"
+    assert r.policy.moved_share == 1.0, "the fixture must actually clear the bar"
+
+    saving = next(line for line in r.policy.render().splitlines() if "Saving" in line)
+    assert "zero measured quality loss" not in saving, saving
+    assert "90% bar" in saving, saving
+    # And it is a range, not a point: the share it derives from was measured.
+    assert "–" in saving and "~" in saving, saving
+
+
+def test_the_saving_line_names_whichever_bar_was_set():
+    """The claim has to track the bar, or it is decoration."""
+    from clickllm.prove import EvalItem, suite
+
+    items = [
+        EvalItem(item_id=str(i), cluster="c", prompt=f"p{i}", baseline="a", candidate="a")
+        for i in range(200)
+    ]
+    for bar in (0.90, 0.99):
+        r = suite(
+            items,
+            shares={"c": 1.0},
+            issued="2026-08-12",
+            incumbent_cost=100.0,
+            monthly_cost=10.0,
+            bar=bar,
+            traffic_captures=400,
+            traffic_window="14 days",
+        )
+        saving = next(line for line in r.policy.render().splitlines() if "Saving" in line)
+        assert f"{bar * 100:.0f}% bar" in saving, saving
+
+
+def test_an_unknown_cost_is_still_refused_rather_than_guessed():
+    """The control for both: the honest wording must not have made a saving
+    appear where there is no rate to compute one from."""
+    from clickllm.prove import EvalItem, suite
+
+    items = [
+        EvalItem(item_id=str(i), cluster="c", prompt=f"p{i}", baseline="a", candidate="a")
+        for i in range(200)
+    ]
+    r = suite(items, shares={"c": 1.0}, issued="2026-08-12")
+    saving = next(line for line in r.policy.render().splitlines() if "Saving" in line)
+    assert "unknown" in saving and "no cost rate" in saving, saving

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .cost import blended, saving
 from .graders import ItemResult
 from .judge import Agreement, Calibration
 from .stats import (
@@ -333,6 +334,16 @@ class HybridPolicy:
     unproven_clusters: tuple[str, ...]
     incumbent_cost: float | None
     candidate_cost: float | None
+    #: The equivalence bar the moved clusters cleared, and the reason the saving
+    #: line can describe itself honestly. Defaulted so nothing constructing a
+    #: Policy positionally breaks.
+    bar: float = DEFAULT_EQUIVALENCE_BAR
+    #: What the moved share was measured on. Money without these is a point
+    #: estimate, and invariant 6 applies to dollars exactly as to scores — so
+    #: the policy line and the receipt say the same thing, from the same
+    #: function, or they say nothing.
+    traffic_captures: int = 0
+    traffic_window: str = ""
     #: What each unproven cluster would need to settle, already worded — see
     #: [`ClusterScore.render_need`][clickllm.prove.equivalence.ClusterScore.render_need].
     #: "Gather more evidence" without a number is an instruction nobody can follow.
@@ -345,9 +356,10 @@ class HybridPolicy:
         Returning ``None`` rather than guessing: a fabricated saving is the
         single most damaging number this report could print.
         """
-        if self.incumbent_cost is None or self.candidate_cost is None:
-            return None
-        return self.candidate_cost * self.moved_share + self.incumbent_cost * (1 - self.moved_share)
+        # One formula, in `cost`. It was about to exist here and in `Receipt`,
+        # and the fact you can least afford two answers to is what the
+        # migration saves.
+        return blended(self.incumbent_cost, self.candidate_cost, self.moved_share)
 
     @property
     def monthly_saving(self) -> float | None:
@@ -361,12 +373,33 @@ class HybridPolicy:
         if self.unproven_clusters:
             lines.append(f"  Not yet proven: {', '.join(self.unproven_clusters)}")
             lines += [f"    → {n}" for n in self.needs]
-        s = self.monthly_saving
-        if s is None:
-            lines.append("  Saving: unknown — no cost rate configured")
+        # The same `Saving` the receipt renders, from the same function. This
+        # line and the receipt's are the same claim about the same migration;
+        # computing them twice is how they come to disagree.
+        #
+        # It also said "at zero measured quality loss", which was false: a
+        # cluster moves when its whole interval clears the bar, so at a 0.90
+        # bar a cluster passing 98% [95-99] moves — four items in a 200-item run
+        # whose answers measurably differed. That was the strongest possible
+        # claim attached to the one number a reader most wants to believe. What
+        # is true is that the moved traffic met the bar they chose, and the bar
+        # is named so they can judge it.
+        money = saving(
+            self.incumbent_cost,
+            self.candidate_cost,
+            self.moved_share,
+            captures=self.traffic_captures,
+            window=self.traffic_window,
+        )
+        if not money:
+            lines.append(f"  {money.render()}")
         else:
-            pct = (s / self.incumbent_cost * 100) if self.incumbent_cost else 0
-            lines.append(f"  Saving: ${s:,.0f}/mo ({pct:.0f}%) at zero measured quality loss")
+            pct = (money.point / self.incumbent_cost * 100) if self.incumbent_cost else 0
+            lines.append(
+                f"  Saving: ${money.low:,.0f}–${money.high:,.0f}/mo (~{pct:.0f}%) on traffic "
+                f"proven at or above the {self.bar * 100:.0f}% bar"
+            )
+            lines.append(f"    {money.basis}")
         return "\n".join(lines)
 
 
@@ -378,6 +411,10 @@ class Matrix:
     agreement: Agreement | None = None
     incumbent: str = "incumbent"
     incumbent_cost: float | None = None
+    #: What the traffic mix was measured on, carried through to the saving so
+    #: the money inherits the uncertainty of the share it is derived from.
+    traffic_captures: int = 0
+    traffic_window: str = ""
     bar: float = DEFAULT_EQUIVALENCE_BAR
     #: Judge-vs-deterministic-grader agreement measured during this run. Present
     #: whenever a judge was used, because a judge that was never checked against
@@ -417,6 +454,9 @@ class Matrix:
             incumbent_cost=self.incumbent_cost,
             candidate_cost=candidate.monthly_cost,
             needs=tuple(c.render_need(self.bar) for c in actionable),
+            bar=self.bar,
+            traffic_captures=self.traffic_captures,
+            traffic_window=self.traffic_window,
         )
 
     def render(self) -> str:

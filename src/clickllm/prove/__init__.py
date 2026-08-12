@@ -212,6 +212,8 @@ def run(
     bar: float = DEFAULT_EQUIVALENCE_BAR,
     monthly_cost: float | None = None,
     incumbent_cost: float | None = None,
+    traffic_captures: int = 0,
+    traffic_window: str = "",
 ) -> Matrix:
     """Score one candidate against the incumbent over an eval set.
 
@@ -317,6 +319,10 @@ def run(
         agreement=agreement,
         incumbent=incumbent,
         incumbent_cost=incumbent_cost,
+        # The same denominator the receipt uses, so the two saving lines are
+        # the same claim rather than two computations that happen to agree.
+        traffic_captures=traffic_captures,
+        traffic_window=traffic_window,
         bar=bar,
         # Free, and the only calibration most runs will ever have: the items the
         # judge and the deterministic graders both scored. Measured here rather
@@ -375,6 +381,22 @@ def suite(
     Raises:
         ValueError: from :func:`run`, or if nothing could be scored at all.
     """
+    # Decided once, above both consumers. `len(items)` stands in for the capture
+    # count, and it stops standing for anything once `shares` names traffic the
+    # eval set never covered: every item comes from the clusters that *were*
+    # covered, so "drawn from 45 captured requests" would attribute the whole
+    # traffic distribution to a sample that never saw part of it. The receipt is
+    # the proof artifact, and fabricated provenance in it is worse than none —
+    # so the default is withheld and the line simply does not print. An explicit
+    # `traffic_captures` is still honoured: the caller knows the real number and
+    # this cannot second-guess it.
+    #
+    # It is also the denominator of the saving's interval, which is the reason
+    # it is computed here rather than twice: the policy and the receipt must
+    # derive their money from the same sample size or they are two claims.
+    uncovered = _uncovered(shares, {i.cluster for i in items})
+    captures = traffic_captures or (0 if uncovered else len(items))
+
     matrix = run(
         items,
         shares=shares,
@@ -387,6 +409,8 @@ def suite(
         bar=bar,
         monthly_cost=monthly_cost,
         incumbent_cost=incumbent_cost,
+        traffic_captures=captures,
+        traffic_window=traffic_window,
     )
     best = matrix.best()
     if best is None:
@@ -406,17 +430,6 @@ def suite(
             f"{', '.join(sorted(shares)) or 'nothing'}. The eval set and the "
             f"share map describe different clusters."
         )
-    # `len(items)` stands in for the capture count, and it stops standing for
-    # anything once `shares` names traffic the eval set never covered: every
-    # item comes from the clusters that *were* covered, so "drawn from 45
-    # captured requests" would attribute the whole traffic distribution to a
-    # sample that never saw part of it. The receipt is the proof artifact, and
-    # fabricated provenance in it is worse than none — so the default is
-    # withheld and the line simply does not print. An explicit
-    # `traffic_captures` is still honoured: the caller knows the real number
-    # and this cannot second-guess it.
-    uncovered = _uncovered(shares, {i.cluster for i in items})
-    captures = traffic_captures or (0 if uncovered else len(items))
     return SuiteResult(
         matrix=matrix,
         receipt=issue(
@@ -429,6 +442,12 @@ def suite(
             calibration=matrix.calibration,
             traffic_captures=captures,
             traffic_window=traffic_window,
+            # The rates the caller gave, carried into the artifact. Without
+            # this the receipt — the thing a stakeholder actually receives —
+            # was the one surface that could not state what the migration
+            # saves, while the policy above it could.
+            incumbent_cost=incumbent_cost or 0.0,
+            candidate_cost=monthly_cost or 0.0,
             redacted=redacted,
             fingerprints=fingerprints,
             tool_version=tool_version,
