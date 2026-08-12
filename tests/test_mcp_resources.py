@@ -240,3 +240,91 @@ def test_the_tools_are_still_read_only():
         assert not any(
             w in name for w in ("deploy", "apply", "promote", "cutover", "write", "delete")
         )
+
+
+# --- the transport the spec actually defines -------------------------------------
+
+
+def _serve(payload: bytes) -> bytes:
+    """Run the real stdio server over a byte stream, as a client would."""
+    import io
+
+    from clickllm.mcp import serve
+
+    out = io.BytesIO()
+    serve(stdin=io.BytesIO(payload), stdout=out)
+    return out.getvalue()
+
+
+def _line(*messages: dict) -> bytes:
+    return b"".join(json.dumps(m).encode() + b"\n" for m in messages)
+
+
+def _header(*messages: dict) -> bytes:
+    parts = []
+    for m in messages:
+        body = json.dumps(m).encode()
+        parts.append(b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+    return b"".join(parts)
+
+
+def test_it_speaks_newline_delimited_json_because_that_is_the_transport():
+    """The MCP stdio transport says: "Messages are delimited by newlines, and
+    MUST NOT contain embedded newlines."
+
+    This server spoke Content-Length framing — which is LSP — and *only* that,
+    so no conforming client could talk to it at all. It did not error; it
+    returned nothing, which is the failure that looks like a hung server. The
+    README calls this surface the flagship, and it was unreachable.
+    """
+    out = _serve(_line({"jsonrpc": "2.0", "id": 1, "method": "initialize"}))
+    assert out, "a conforming client got no reply at all"
+    reply = json.loads(out.splitlines()[0])
+    assert reply["id"] == 1
+    assert set(reply["result"]["capabilities"]) == {"tools", "resources", "prompts"}
+
+
+def test_no_reply_contains_an_embedded_newline():
+    """The same sentence of the spec, on the way out. A pretty-printed reply
+    would break every conforming client while looking perfectly fine in a
+    terminal."""
+    out = _serve(
+        _line(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 3, "method": "prompts/list"},
+        )
+    )
+    lines = [x for x in out.split(b"\n") if x.strip()]
+    assert len(lines) == 3, f"expected one line per reply, got {len(lines)}"
+    for line in lines:
+        json.loads(line)  # each line is independently parseable
+
+
+def test_the_old_framing_still_works_and_is_answered_in_kind():
+    """Accepting both costs one branch. Trading one broken set of clients for
+    another would be a strange way to fix an interop bug."""
+    out = _serve(_header({"jsonrpc": "2.0", "id": 1, "method": "initialize"}))
+    assert out.startswith(b"Content-Length:")
+    body = out.split(b"\r\n\r\n", 1)[1]
+    assert json.loads(body)["id"] == 1
+
+
+def test_a_malformed_line_costs_one_message_not_the_session():
+    """The loop that owns this treats `None` as EOF, so a bad line must not be
+    reported as one — every later call in that session would be lost."""
+    # Both shapes of bad input, and they take different paths: a line that is
+    # not a message at all is ignored, while a line that *looks* like one and
+    # will not parse hits the decode branch. The first version of this test only
+    # sent `not json`, which never reaches the decode branch — so the control
+    # that makes a malformed message end the session did not fire.
+    for bad in (b"not json\n", b'{"jsonrpc": "2.0", "id": \n', b"\n", b"garbage\n"):
+        out = _serve(bad + _line({"jsonrpc": "2.0", "id": 7, "method": "initialize"}))
+        assert out, f"{bad!r} ended the session"
+        assert json.loads(out.splitlines()[0])["id"] == 7
+
+
+def test_several_requests_on_one_connection_each_get_a_reply():
+    out = _serve(_line(*[{"jsonrpc": "2.0", "id": i, "method": "tools/list"} for i in range(1, 6)]))
+    ids = [json.loads(line)["id"] for line in out.splitlines() if line.strip()]
+    assert ids == [1, 2, 3, 4, 5], ids
