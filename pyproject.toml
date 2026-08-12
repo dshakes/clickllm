@@ -10,12 +10,24 @@ clickllm = "clickllm.cli:main"
 clickllm-mcp = "clickllm.mcp:serve"
 
 [project.optional-dependencies]
-# No `core` extra yet, deliberately. The compiled bindings ship as their own
-# distribution (`clickllm-core`, built from clickllm-py/), and until that is on
-# PyPI an extra naming it makes THIS package unresolvable — uv solves every
-# extra before it will run anything, so a forward reference breaks `uv run` for
-# people who never wanted the extension. Neither name is on PyPI yet, so build the
-# bindings from the checkout instead: `maturin develop` in clickllm-py/.
+# No `full` extra yet, deliberately, and the ordering matters: uv solves every
+# extra before it will run anything, so naming a distribution that is not on
+# PyPI makes THIS package unresolvable for people who never wanted it. A
+# forward reference here breaks `uv run` for everyone.
+#
+# `release.yml` now builds and publishes both compiled distributions
+# (`clickllm-core` from clickllm-py/, `clickllm-gateway` from
+# clickllm-gateway/). Once a release has actually put them on PyPI — check,
+# do not assume — add:
+#
+#     full = ["clickllm-core==<version>", "clickllm-gateway==<version>"]
+#
+# pinned exactly, because all three ship from one tag and `core.COMPATIBLE`
+# refuses an extension whose version is not the package's own; a range would
+# resolve to a combination the code rejects at import.
+#
+# Until then, build from the checkout: `maturin develop` in clickllm-py/, and
+# `cargo build --release -p clickllm-gateway`.
 # The extra goes back the day the wheel is published. See ADR-0009.
 dev = ["pytest>=8", "ruff>=0.6", "pyyaml>=6"]  # pyyaml: tests/test_workflows.py
 

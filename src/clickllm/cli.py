@@ -704,7 +704,8 @@ def cmd_observe(args: argparse.Namespace) -> int:
     if binary is None:
         print(
             "\n  No gateway binary found.\n\n"
-            "  Build it:      cargo build --release -p clickllm-gateway\n"
+            "  Install it:    pip install clickllm-gateway\n"
+            "  From source:   cargo build --release -p clickllm-gateway\n"
             "  Or point at one: CLICKLLM_GATEWAY_BIN=/path/to/clickllm-gateway\n\n"
             "  `clickllm fit` needs none of this — the gateway is only for capture.\n"
         )

@@ -423,3 +423,50 @@ def test_the_cli_exposes_both_halves_and_neither_can_promote():
     assert observe_block
     for verb in ("percent", "cutover", "promote", "advance"):
         assert verb not in observe_block.group(0), f"observe must not expose --{verb}"
+
+
+def test_the_gateway_is_found_beside_the_running_interpreter(tmp_path, monkeypatch):
+    """`pip install clickllm-gateway` puts the binary in the same `bin/` as the
+    `clickllm` script that is running — and a venv's `bin/` is only on PATH once
+    activated, so a `shutil.which` lookup found nothing while the binary sat
+    next to it. That is not a corner case: it is what happened the first time
+    this was installed from a wheel.
+    """
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "python").write_text("")
+    gw = fake_bin / "clickllm-gateway"
+    gw.write_text("")
+    gw.chmod(0o755)
+
+    monkeypatch.setattr(observe.sys, "executable", str(fake_bin / "python"))
+    monkeypatch.delenv("CLICKLLM_GATEWAY_BIN", raising=False)
+    # Nothing on PATH, which is the situation the old lookup failed in.
+    monkeypatch.setattr(observe.shutil, "which", lambda _n: None)
+    assert observe.find_gateway() == gw
+
+
+def test_the_missing_gateway_message_names_a_way_that_exists():
+    """It offered only `cargo build`, so the whole capture chain required a Rust
+    toolchain — for a product whose README leads with that chain."""
+    src = (ROOT / "src" / "clickllm" / "cli.py").read_text()
+    block = re.search(r'"\\n  No gateway binary found\.\\n\\n"(?:.|\n)*?\)', src)
+    assert block, "the message moved"
+    assert "pip install clickllm-gateway" in block.group(0), (
+        "the first option offered must be one that needs no toolchain"
+    )
+
+
+def test_the_release_publishes_every_distribution_the_code_tells_users_to_install():
+    """`core.py` says `pip install clickllm-core`; `cli.py` now says
+    `pip install clickllm-gateway`. Both were instructions to install something
+    that had never been published — `clickllm-core` returned 404 from PyPI on
+    the day 1.0.0 shipped.
+    """
+    wf = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    for dist, where in (
+        ("clickllm-core", "clickllm-py/Cargo.toml"),
+        ("clickllm-gateway", "clickllm-gateway/Cargo.toml"),
+    ):
+        assert where in wf, f"the release never builds {dist} (expected -m {where})"
+    assert "publish-compiled" in wf, "nothing publishes the compiled distributions"

@@ -61,6 +61,20 @@ def find_gateway() -> Path | None:
             raise FileNotFoundError(f"CLICKLLM_GATEWAY_BIN={override} is not a file")
         return p
 
+    # Beside this interpreter, before `PATH`. `pip install clickllm-gateway`
+    # puts the binary in the same `bin/` as the `clickllm` script that is
+    # running, and that is the one the user meant — not whichever other
+    # environment happens to be earlier on `PATH`.
+    #
+    # It also has to come before `PATH` for a reason that is easy to miss: a
+    # venv's `bin/` is only on `PATH` once activated, so invoking the console
+    # script by absolute path (or through `uvx`) found nothing at all, while
+    # the binary sat next to it. That is not a corner case — it is what
+    # happened the first time this was installed from a wheel.
+    beside = Path(sys.executable).parent / "clickllm-gateway"
+    if beside.is_file():
+        return beside
+
     found = shutil.which("clickllm-gateway")
     if found:
         return Path(found)
