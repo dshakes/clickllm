@@ -44,6 +44,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, replace
 
+from ..events import event
 from .equivalence import (
     DEFAULT_EQUIVALENCE_BAR,
     CandidateReport,
@@ -430,6 +431,16 @@ def suite(
             f"{', '.join(sorted(shares)) or 'nothing'}. The eval set and the "
             f"share map describe different clusters."
         )
+    event(
+        "prove.suite",
+        items=len(items),
+        clusters=len({i.cluster for i in items}),
+        bar=bar,
+        candidate=candidate,
+        captures=captures,
+        movable=round(matrix.hybrid_for(best).moved_share, 4),
+        judge=judge_model or None,
+    )
     return SuiteResult(
         matrix=matrix,
         receipt=issue(
