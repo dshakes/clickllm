@@ -270,6 +270,107 @@ jobs:
   # `needs: publish-pypi` is load-bearing: the shim pins an exact PyPI version,
   # so publishing it first would ship a package pointing at something that does
   # not exist yet.
+
+  # The two compiled distributions, without which half the README is unreachable.
+  #
+  # `clickllm fit` is pure Python and must stay installable with nothing else —
+  # that promise is why these are separate distributions rather than
+  # dependencies. But `clickllm observe` needs the gateway binary and
+  # `clickllm distill` needs the compiled extension, and neither was ever
+  # published. A user who ran `pip install clickllm-cli` got the sizing half of
+  # the product and, for the evidence half, an instruction to install a Rust
+  # toolchain and run `cargo build`. CI has built the extension on every PR
+  # since the seam job existed and thrown it away each time.
+  #
+  # manylinux via the action's container: a plain `maturin build` on ubuntu tags
+  # the wheel `linux_x86_64`, which PyPI rejects outright.
+  build-compiled:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64,  tag: manylinux }
+          - { os: macos-latest,  target: aarch64, tag: macos-arm64 }
+          - { os: macos-13,      target: x86_64,  tag: macos-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the compiled extension (clickllm-core)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist -m clickllm-py/Cargo.toml
+          manylinux: ${{ matrix.os == 'ubuntu-latest' && '2_28' || 'auto' }}
+
+      - name: Build the gateway binary wheel (clickllm-gateway)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist -m clickllm-gateway/Cargo.toml
+          manylinux: ${{ matrix.os == 'ubuntu-latest' && '2_28' || 'auto' }}
+
+      # A wheel that installs but whose binary will not run is worse than no
+      # wheel: it fails at the moment someone puts it in their request path.
+      # Skipped when cross-built, where the artifact cannot run on this host.
+      - name: The gateway wheel must produce a runnable binary
+        if: matrix.os != 'macos-13'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/checkwheel
+          /tmp/checkwheel/bin/pip install --quiet dist/clickllm_gateway-*.whl
+          /tmp/checkwheel/bin/clickllm-gateway --help | head -1
+          # And the CLI must FIND it — `find_gateway` looks beside the running
+          # interpreter, which is the case a PATH-based lookup misses.
+          /tmp/checkwheel/bin/pip install --quiet .
+          /tmp/checkwheel/bin/python -c "
+          from clickllm.observe import find_gateway
+          p = find_gateway()
+          assert p is not None, 'the CLI cannot find the gateway it just installed'
+          print('found', p)
+          "
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v5
+        with:
+          name: compiled-${{ matrix.tag }}
+          path: dist/*.whl
+
+  # Separate job for the same reason `publish-pypi` is: `id-token: write` — the
+  # credential that publishes under our name — is held by a job that downloads
+  # an artifact and uploads it, and by nothing that runs shell against a
+  # checkout.
+  #
+  # NOTE FOR THE FIRST RUN: `clickllm-core` and `clickllm-gateway` do not exist
+  # on PyPI, so trusted publishing has nothing to trust yet. Create a *pending
+  # publisher* for each on PyPI (owner `dshakes`, repo `clickllm`, workflow
+  # `release.yml`, environment `pypi`) before this can succeed. It fails loudly
+  # until then rather than silently skipping, because a release that quietly
+  # ships one of three distributions is what this whole job exists to end.
+  publish-compiled:
+    needs: [build, build-compiled]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: compiled-*
+          merge-multiple: true
+          path: dist
+      - name: What is about to be published
+        run: ls -la dist
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+          attestations: true
+          # Same reasoning as the wheel job: a re-run of an already-published
+          # version is a no-op, not a failure.
+          skip-existing: true
+
   publish-npm:
     needs: [build, publish-pypi]
     runs-on: ubuntu-latest
