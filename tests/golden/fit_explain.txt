@@ -1,0 +1,19 @@
+
+Llama 3.1 8B @ q8, 32,768 ctx, concurrency 1
+
+  weights   8.03B params x 8 bits / 8           =    7.5 GB
+  kv cache  131,072 B/tok x 32,768 tok x 1   =    4.0 GB   (GQA)
+  overhead  8% of weights + 1.5 GB floor      =    2.1 GB
+  --------------------------------------------------------------
+  required                                            13.6 GB
+  usable                                              96.0 GB
+  headroom                                            82.4 GB
+
+  decode is bandwidth-bound, and reads both:
+    weights    7.5 GB/token  (8.03B active)
+    kv cache   4.0 GB/token  (the whole cache, every token)
+    total     11.5 GB/token at 72% of peak
+  ~32 tok/s single-stream  (roofline estimate, not measured)
+
+  verdict: FITS
+

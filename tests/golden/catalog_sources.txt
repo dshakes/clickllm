@@ -1,0 +1,6 @@
+
+  built-in  /Users/shakes/workspace/clickllm/src/clickllm/models.json
+
+  14 models · later files override earlier ones by id
+  drop new ones into /Users/shakes/.config/clickllm/models.d/ — no reinstall
+

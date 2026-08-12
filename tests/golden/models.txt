@@ -1,0 +1,18 @@
+
+  id                       params   active       ctx  license
+  ------------------------------------------------------------------
+  llama-3.1-8b              8.03B        -   131,072  Llama 3.1 !
+  phi-4-14b                 14.7B        -    16,384  MIT OK
+  mistral-small-24b         23.6B        -    32,768  Apache-2.0 OK
+  gemma-3-27b               27.4B        -   131,072  Gemma !
+  qwen3-30b-a3b             30.5B     3.3B   131,072  Apache-2.0 OK
+  qwen3-32b                 32.8B        -   131,072  Apache-2.0 OK
+  llama-3.3-70b             70.6B        -   131,072  Llama 3.3 !
+  qwen3-235b-a22b            235B      22B   131,072  Apache-2.0 OK
+  glm-5.2                    355B      32B 1,000,000  MIT OK
+  minimax-m3                 456B      46B 1,000,000  MIT OK
+  deepseek-v3                671B      37B   131,072  MIT OK
+  kimi-k2.7-code            1000B      32B   262,144  Modified MIT !
+  deepseek-v4-pro           1600B      45B 1,040,000  MIT OK
+  kimi-k3                   2800B      50B 1,000,000  Modified MIT !
+
