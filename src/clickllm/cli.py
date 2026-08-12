@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from . import catalog, engine, fit, hardware
+from .events import ENV as EVENTS_ENV
 
 if TYPE_CHECKING:  # imported lazily at the call sites — `clickllm fit` must stay cheap
     from .prove.collect import Collection
@@ -1708,6 +1709,12 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     from . import __version__
+    from .events import configure
+
+    # Reads CLICKLLM_LOG and does nothing if it is unset, which is the default.
+    # Here rather than in each command, because the interesting runs are the
+    # ones that failed somewhere between two commands.
+    configure()
 
     p = argparse.ArgumentParser(
         prog="clickllm",
@@ -2145,6 +2152,17 @@ def main(argv: list[str] | None = None) -> int:
         # nonzero exit with a sentence, never a traceback. `json.JSONDecodeError`
         # is a `ValueError`, so malformed input is covered here too.
         print(f"error: {e}", file=sys.stderr)
+        # The one moment a user needs to know diagnostics exist. There is no
+        # env-var section in the docs to find it in, and pointing at it from a
+        # failure costs a line and lands exactly when it is useful. Suppressed
+        # when they already have it on, so the advice is never "do what you are
+        # doing".
+        if not os.environ.get(EVENTS_ENV):
+            print(
+                f"  for a trace of what ran, re-run with {EVENTS_ENV}=debug "
+                f"(or {EVENTS_ENV}=/path/to/file.log). Nothing leaves this machine.",
+                file=sys.stderr,
+            )
         return 2
 
 

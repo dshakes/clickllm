@@ -60,9 +60,16 @@ def fit(
     beneath it. ADR-0011 — the constraint belongs to the thing it protects, not
     to whichever surface happened to reach it.
     """
+    from .events import span
     from .sdk import fit as _fit
 
-    return _fit(context=context, concurrency=concurrency, hw=hw)
+    with span("engine.fit", context=context, concurrency=concurrency) as extra:
+        report = _fit(context=context, concurrency=concurrency, hw=hw)
+        extra["machine"] = report.hardware.name
+        extra["feasible"] = len(report.feasible)
+        extra["chosen"] = report.feasible[0].model_id if report.feasible else None
+        extra["runtime"] = report.runtime
+        return report
 
 
 def demo() -> None:
