@@ -40,32 +40,39 @@ GB = 1024**3
 
 def _fit(context: str = "32k", concurrency: int = 1) -> dict[str, Any]:
     """What runs on this machine, at this context and concurrency."""
-    from .cli import _parse_size
+    from . import engine
 
-    hw = hardware.detect()
-    ctx = _parse_size(context)
-    feasible, rejected = fit.rank(hw, ctx, concurrency)
-    name, why = fit.recommend_runtime(hw, ctx, concurrency)
+    # One computation, rendered. This used to call `fit.rank()` and assemble a
+    # dict itself, which is how four surfaces came to spell the same answer four
+    # ways — and how `clickllm fit --json` came to omit the roofline disclosure
+    # that this one carried. ADR-0016.
+    #
+    # The *wire spelling* below is unchanged on purpose: `id` and
+    # `recommended_runtime` have been what agents receive since 1.0.0, and
+    # renaming them is a versioned change with a deprecation note, not a
+    # side effect of a refactor. What changed is that this is now a rendering
+    # of the engine's result rather than a second computation of it.
+    report = engine.fit(context=context, concurrency=concurrency)
     return {
-        "hardware": hw.to_dict(),
-        "context": ctx,
-        "concurrency": concurrency,
+        "hardware": report.hardware.to_dict(),
+        "context": report.context,
+        "concurrency": report.concurrency,
         "feasible": [
             {
-                "id": f.model.id,
-                "quant": f.quant,
-                "total_gb": round(f.total_bytes / GB, 1),
-                "headroom_gb": round(f.headroom_bytes / GB, 1),
-                "tokens_per_sec_estimate": (round(f.tokens_per_sec) if f.tokens_per_sec else None),
-                "estimate_basis": "memory-bandwidth roofline, not measured",
-                "license": f.model.license,
-                "license_clean_commercial": f.model.license_ok,
-                "architecture_verified": f.model.verified,
+                "id": c.model_id,
+                "quant": c.quant,
+                "total_gb": c.total_gb,
+                "headroom_gb": c.headroom_gb,
+                "tokens_per_sec_estimate": c.tokens_per_sec_estimate,
+                "estimate_basis": c.estimate_basis,
+                "license": c.license,
+                "license_clean_commercial": c.license_clean_commercial,
+                "architecture_verified": c.architecture_verified,
             }
-            for f in feasible
+            for c in report.feasible
         ],
-        "rejected": [{"id": m.id, "reason": why} for m, why in rejected],
-        "recommended_runtime": {"name": name, "why": why},
+        "rejected": [{"id": r.model_id, "reason": r.reason} for r in report.rejected],
+        "recommended_runtime": {"name": report.runtime, "why": report.runtime_reason},
     }
 
 

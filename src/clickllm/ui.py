@@ -40,7 +40,12 @@ def _hardware() -> dict:
 
 
 def _fit(ctx: str, conc: int) -> dict:
-    report = sdk.fit(context=ctx, concurrency=conc)
+    from . import engine
+
+    # Through the engine, like every other surface — ADR-0016. This was
+    # already one computation (it called the SDK) rather than a second
+    # one; entering by the same door is what keeps it that way.
+    report = engine.fit(context=ctx, concurrency=conc)
     return report.to_dict()
 
 
