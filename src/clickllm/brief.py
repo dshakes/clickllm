@@ -147,7 +147,17 @@ def render(receipt: Receipt, *, title: str = "Migration briefing") -> str:
         # from an unmeasured `judge_trustworthy is None`, only from a measured
         # `False`. `receipt.py`'s own `render()` has the same guard.
         if receipt.judge_agreement:
-            trust = "" if receipt.judge_trustworthy else " This judge is NOT trustworthy on this set."
+            # `is False`, not falsiness, even inside this branch. Reaching here
+            # means an agreement line exists, and through `issue()` that implies
+            # a measured boolean — but `from_json` is the disk-ingest path, and
+            # a receipt on disk can carry an agreement string with
+            # `judge_trustworthy: null`. Truthiness then calls an unmeasured
+            # judge untrustworthy again, one construction path over.
+            trust = (
+                " This judge is NOT trustworthy on this set."
+                if receipt.judge_trustworthy is False
+                else ""
+            )
             judge = (
                 f"Judged by <code>{_e(receipt.judge_model)}</code>. "
                 + _e(receipt.judge_agreement)
@@ -207,7 +217,8 @@ def render(receipt: Receipt, *, title: str = "Migration briefing") -> str:
     else:
         parts.append(
             "<section aria-labelledby='move'>"
-            f"<h2 id='move' class='warn'>Nothing yet proven safe to move to {_e(receipt.candidate)}</h2>"
+            "<h2 id='move' class='warn'>Nothing yet proven safe to move to "
+            f"{_e(receipt.candidate)}</h2>"
             '<p class="headline">0% of captured traffic</p>'
             f"<p>No kind of request has cleared the {receipt.bar:.0%} bar across its whole "
             "confidence interval. <strong>Nothing yet.</strong></p>"

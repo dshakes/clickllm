@@ -280,3 +280,41 @@ def test_every_state_is_named_in_words_not_only_in_colour():
         assert phrase in page
     # The classes exist, but never alone.
     assert 'class="bad"' in page or "class='bad'" in page
+
+
+def test_an_unmeasured_judge_survives_the_disk_ingest_path_too():
+    """The same defect, one construction path over.
+
+    The first fix branched on `judge_agreement` being present, mirroring
+    `receipt.render()`. Through `issue()` that is sound: both fields come from
+    the same `Agreement`, so an agreement line implies a measured boolean. But
+    `from_json` is the disk-ingest path, and a receipt on disk can carry an
+    agreement string with `judge_trustworthy: null` — and truthiness inside the
+    branch called that judge untrustworthy again.
+
+    Fixing where the reviewer pointed rather than where the rule lives is how
+    the same defect ships twice.
+    """
+    from clickllm.prove.receipt import Receipt
+
+    r = Receipt(
+        incumbent="a",
+        candidate="b",
+        issued="2026-08-12",
+        eval_set="x" * 64,
+        bar=0.9,
+        proven=(),
+        regret=(),
+        unproven=(),
+        judge_model="claude-sonnet-5",
+        judge_agreement="judge claude-sonnet-5 agreed with humans on 18/20",
+        judge_trustworthy=None,
+    )
+    page = render(r)
+    assert "NOT trustworthy" not in page, "unmeasured reported as untrustworthy"
+    assert "18/20" in page, "the agreement it does have was dropped"
+
+    # A measured failure still says so, through the same path.
+    from dataclasses import replace
+
+    assert "NOT trustworthy" in render(replace(r, judge_trustworthy=False))
