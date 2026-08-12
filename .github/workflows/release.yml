@@ -319,9 +319,37 @@ jobs:
             exit 1
           fi
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
-          # --provenance ties the tarball to this workflow run, the same property
-          # PEP 740 attestations give the wheel.
-          npm publish --access public --provenance
+
+          # npm's equivalent of PyPI's `skip-existing`, which npm has no flag
+          # for. This workflow's header says "idempotent (safe to re-run)" and
+          # every other job is — `build` skips an existing tag, the Release is
+          # idempotent, PyPI skips an existing version, and the formula step
+          # exits early when it is already current. This one was not: a re-run
+          # of an already-published version died with
+          #
+          #     npm error 403 - You cannot publish over the previously
+          #     published versions: 1.0.0
+          #
+          # which turned a green release into a red one on a second run that had
+          # nothing left to do. A documented property that nothing enforces is
+          # the defect this repo keeps finding; here the document was the
+          # workflow's own header.
+          if npm view "clickllm@${VERSION#v}" version >/dev/null 2>&1; then
+            printf '::notice::npm already has clickllm@%s — nothing to publish\n' "${VERSION#v}"
+          else
+            # --provenance ties the tarball to this workflow run, the same
+            # property PEP 740 attestations give the wheel.
+            npm publish --access public --provenance
+          fi
+
+          # Whether it was just published or already there, the registry must
+          # actually serve it — the same reason PyPI's publish is followed by a
+          # verification step. A skip that hid a never-published package would
+          # be worse than the failure it replaced.
+          if ! npm view "clickllm@${VERSION#v}" version >/dev/null 2>&1; then
+            printf '::error::npm does not serve clickllm@%s after publishing\n' "${VERSION#v}"
+            exit 1
+          fi
 
       - name: Say so when npm was NOT published
         if: steps.npm.outputs.present != 'true'
