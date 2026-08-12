@@ -351,3 +351,47 @@ def test_an_unknown_format_is_still_rejected():
 def test_claim_is_importable_here():
     """Guards the fixture above from drifting out of the real type."""
     assert Claim.__name__ == "Claim"
+
+
+@pytest.mark.parametrize(
+    "name,mutate",
+    [
+        (
+            "downgrade keeping the cost",
+            lambda b: b["receipt"].update(format="clickllm.receipt/v1"),
+        ),
+        (
+            "downgrade and strip the cost",
+            lambda b: b["receipt"].update(
+                format="clickllm.receipt/v1", incumbent_cost=0.0, candidate_cost=0.0
+            ),
+        ),
+        (
+            "drop the cost keys entirely",
+            lambda b: [b["receipt"].pop(k) for k in ("incumbent_cost", "candidate_cost")],
+        ),
+    ],
+)
+def test_a_v2_receipt_cannot_be_downgraded_to_hide_its_money(name, mutate):
+    """The attack the version split invites, and the reason it is checked here
+    rather than assumed from the three reviewers' clean verdicts.
+
+    A v1 document is digested over fewer fields. So the obvious move against a
+    receipt whose saving you dislike is to relabel it v1 — which either drops
+    the money out of the seal, or hides it entirely. All three shapes are
+    refused: relabelling trips the construction guard, and stripping changes the
+    payload the stated digest was computed over.
+    """
+    r = suite(
+        _items(),
+        shares={"c": 1.0},
+        issued="2026-08-12",
+        incumbent_cost=2847.0,
+        monthly_cost=317.0,
+        traffic_captures=400,
+        traffic_window="14 days",
+    ).receipt
+    blob = json.loads(r.to_json())
+    mutate(blob)
+    with pytest.raises(ValueError):
+        Receipt.from_json(json.dumps(blob))
