@@ -1,0 +1,21 @@
+
+  M4 Max · mlx
+
+  WORTH CHANGING
+
+  [high] Measure prefix sharing before accepting this plan.
+    because: prefix_sharing is 0.00, so prefix reuse is off. An agent or chat deployment with a fixed system prompt is commonly 0.8+, and that prefix is being recomputed on every request.
+    expect:  if sharing is real, a large cut in prefill cost — the saving scales with the shared fraction. Estimate, not measured: measure it.
+
+  [medium] Check whether 131,072 tokens of context is really needed.
+    because: KV cache scales linearly with context, and interactive traffic rarely approaches a long ceiling. Serving a limit nobody reaches costs memory that could hold concurrency instead.
+    expect:  halving context roughly halves KV memory, which buys either more concurrent requests or a better quantisation. Roofline, not measured.
+
+  [medium] Benchmark speculative decoding at your real concurrency before keeping it.
+    because: it is on at concurrency 16. Published EAGLE figures are single-stream; the win narrows as batch grows and published numbers turn negative around batch 32, which is why this plan switches it off above 16 rather than at the crossover.
+    expect:  either a confirmed latency win or a throughput regression you would otherwise have shipped. Measure both, at batch, not at 1.
+
+  [low] State a TTFT or ITL budget.
+    because: interactive traffic with no stated budget cannot be checked against reality — the planner has nothing to warn about and the guard has nothing to detect a regression from.
+    expect:  warnings when the hardware cannot meet the budget, instead of silence.
+

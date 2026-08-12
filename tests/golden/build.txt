@@ -1,0 +1,37 @@
+
+Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB, 7 candidates fit. Engine: mlx.
+
+  understood:
+    · workload = interactive   (from "chat")
+    · concurrency = 4   (from "20 agents — about a fifth in flight at once, since people read and think between requests")
+    · prefix_sharing = 0.7   (from "agents — implies requests share a long prefix, which changes which engine is correct")
+
+  assuming:
+    · concurrency = 4
+    · context = 32768
+
+  ? How many requests will be in flight at once?
+
+MODEL     Qwen3 30B-A3B (MoE) @ q8   (44.2 GB)
+MACHINE   M4 Max   (detected locally)
+ENGINE    mlx   Apple silicon: the CUDA engines cannot run here at all. MLX has the better batching story of the two Metal options.
+
+RUN
+  mlx_lm.server --model Qwen/Qwen3-30B-A3B --decode-concurrency 32 --prompt-concurrency 32 --prefill-step-size 2048
+
+NOT EXPRESSED
+  · context_length: mlx_lm.server takes no context-length flag; context is bounded by the model config and by unified memory
+  · speculative: --draft-model needs a draft model repo (org/name), not 'eagle3'; mlx has no method-name speculative flag
+  · memory_fraction: unified memory: there is no separate VRAM pool to reserve a fraction of
+  · quantization: mlx bakes precision into the weights: serve an -q8 repo rather than converting at start-up
+
+WORTH CHANGING
+  [medium] Try a higher-precision quantisation, or more context.
+  [low] State a TTFT or ITL budget.
+
+THEN PROVE IT
+  clickllm prove evalset.json --candidate qwen3-30b-a3b --incumbent <your-current-model>
+
+Nothing above has been run. Deployment is yours to trigger, and no
+eval result moves production traffic without a human.
+

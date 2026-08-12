@@ -1,0 +1,31 @@
+
+  Llama 3.1 8B · 8.03B · Llama 3.1 !
+  at 32,768 context, concurrency 1
+
+  hardware                  quant     total  ~tok/s    $/hr   $/Mtok
+  ------------------------------------------------------------------
+  NVIDIA L4                 q8        13.6G      18    0.28     4.44
+  NVIDIA RTX 4090           q8        13.6G      59    0.35     1.65
+  NVIDIA RTX 5090           q8        13.6G     105    0.55     1.46
+  NVIDIA L40S               q8        13.6G      50    0.80     4.40
+  NVIDIA A100 40 GB         q8        13.6G      91    1.10     3.36
+  NVIDIA A100 80 GB         q8        13.6G     119    1.80     4.20
+  AMD MI300X 192 GB         q8        13.6G     310    2.50     2.24
+  NVIDIA H100 80 GB SXM     q8        13.6G     196    2.90     4.12
+  NVIDIA H200 141 GB        q8        13.6G     280    3.60     3.57
+  NVIDIA B200 192 GB        q8        13.6G     467    5.50     3.27
+  2× NVIDIA H100            q8        13.6G     362    5.80     4.45
+  TPU v5e (8 chips)         q8        13.6G     349    9.60     7.65
+  4× NVIDIA H100            q8        13.6G     695   11.60     4.64
+  TPU v5p (4 chips)         q8        13.6G     573   16.80     8.14
+  TPU v6e Trillium (8 chip  q8        13.6G     665   21.60     9.02
+  8× NVIDIA H200            q8        13.6G    1949   28.80     4.11
+  Apple M3 Ultra 512 GB     q8        13.6G      48       -        -
+  Apple M4 Max 128 GB       q8        13.6G      32       -        -
+  Apple M4 Pro 48 GB        q8        13.6G      16       -        -
+  CPU only (64 GB DDR5)     q8        13.6G       4       -        - slow
+
+  $/Mtok assumes the machine is busy at the requested concurrency;
+  a box at 10% utilisation costs about ten times this per token.
+  Throughput figures are roofline estimates, not measurements.
+

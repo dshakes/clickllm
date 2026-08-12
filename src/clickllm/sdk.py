@@ -66,6 +66,16 @@ class Rejection:
 
     model_id: str
     reason: str
+    #: The display name, as `Candidate` carries one.
+    #:
+    #: Absent at first, and the omission was only visible once a surface tried
+    #: to render from this type instead of from the raw solver output: the CLI
+    #: prints "Gemma 3 27B" in its NOT FEASIBLE list, and an id would have
+    #: silently become "gemma-3-27b" there. A domain model that cannot express
+    #: what its own surfaces display is not yet the domain model.
+    #:
+    #: Defaulted so nothing constructing a Rejection positionally breaks.
+    name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,11 +111,36 @@ class FitReport:
             "hardware": self.hardware.to_dict(),
             "context": self.context,
             "concurrency": self.concurrency,
-            "feasible": [{k: getattr(c, k) for k in Candidate.__slots__} for c in self.feasible],
+            # This dict is a *rendering*, so it applies its own display
+            # precision — the same 2dp/1dp it has always emitted. `Candidate`
+            # now carries the raw values, because a model that rounds cannot
+            # reproduce what a renderer printed.
+            "feasible": [
+                {k: _display(k, getattr(c, k)) for k in Candidate.__slots__} for c in self.feasible
+            ],
             "rejected": [{"id": r.model_id, "reason": r.reason} for r in self.rejected],
             "runtime": {"name": self.runtime, "why": self.runtime_reason},
             "warnings": self.warnings,
         }
+
+
+#: How this dict has always shown each number. Kept in one place so a new
+#: field cannot quietly arrive at full float precision beside these.
+_DISPLAY_DP = {
+    "weights_gb": 2,
+    "kv_gb": 2,
+    "total_gb": 2,
+    "headroom_gb": 2,
+    "tokens_per_sec_estimate": 1,
+}
+
+
+def _display(field: str, value: object) -> object:
+    """Round a value the way this wire format has always rounded it."""
+    dp = _DISPLAY_DP.get(field)
+    if dp is None or not isinstance(value, float):
+        return value
+    return round(value, dp)
 
 
 def parse_size(value: str | int) -> int:
@@ -166,11 +201,21 @@ def fit(
                 model_id=f.model.id,
                 name=f.model.name,
                 quant=f.quant,
-                weights_gb=round(f.weight_bytes / GB, 2),
-                kv_gb=round(f.kv_bytes / GB, 2),
-                total_gb=round(f.total_bytes / GB, 2),
-                headroom_gb=round(f.headroom_bytes / GB, 2),
-                tokens_per_sec_estimate=(round(f.tokens_per_sec, 1) if f.tokens_per_sec else None),
+                # Full precision. Rounding is *formatting*, and a domain model
+                # that rounds cannot reproduce what its renderers printed:
+                # `tokens_per_sec` of 14.538 pre-rounded to 14.5 renders as 14,
+                # where the surfaces that rounded the raw value printed 15. That
+                # is how migrating the MCP surface onto this type silently moved
+                # the numbers an agent receives, while the field names — the
+                # thing being carefully preserved — stayed identical.
+                #
+                # `to_dict` below applies this type's own display precision, and
+                # every other renderer applies its own.
+                weights_gb=f.weight_bytes / GB,
+                kv_gb=f.kv_bytes / GB,
+                total_gb=f.total_bytes / GB,
+                headroom_gb=f.headroom_bytes / GB,
+                tokens_per_sec_estimate=f.tokens_per_sec,
                 estimate_basis=ESTIMATE_BASIS,
                 license=f.model.license,
                 license_clean_commercial=f.model.license_ok,
@@ -179,7 +224,7 @@ def fit(
             )
             for f in feasible
         ],
-        rejected=[Rejection(model_id=m.id, reason=r) for m, r in rejected],
+        rejected=[Rejection(model_id=m.id, reason=r, name=m.name) for m, r in rejected],
         runtime=name,
         runtime_reason=why,
         warnings=warnings,

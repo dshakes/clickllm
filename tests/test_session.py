@@ -391,3 +391,66 @@ def test_a_configured_lora_fleet_survives_a_resume():
 
     # Control: a session with no fleet resumes with none, not with an empty one.
     assert Session.from_json(Session().to_json()).requirements.lora is None
+
+
+def test_turn_does_not_spend_questions_on_intermediate_states():
+    """`step()` *commits* a question by adding it to `asked`, and a question
+    once asked is never asked again.
+
+    So two `step()`s in one external turn spend one on a half-built state. The
+    first draft of this test asserted the visible question would differ — it
+    does not, for this input, because `concurrency` outranks `context` and is
+    what gets shown either way. The damage is in the commit set: the chained
+    session has silently marked `context` as asked, so it can never raise it
+    later, while the single-turn session still can.
+
+    That is the quiet failure — the answer stays correct, and a question the
+    user should have been asked has been thrown away.
+    """
+    from clickllm.session import Session
+
+    chained = Session()
+    chained.on(None)  # step #1 — has hardware, so it really does commit
+    chained.tell("a support chatbot for 20 agents")  # step #2
+
+    single = Session()
+    single.turn("a support chatbot for 20 agents", detect_hardware=True)
+
+    spent = chained.asked - single.asked
+    assert spent == {"context"}, (
+        f"expected chaining to burn 'context' on an intermediate state, spent {spent}"
+    )
+    assert single.asked, "the single-turn form committed nothing; the check is vacuous"
+
+
+def test_turn_matches_the_chain_its_callers_hand_write():
+    """`cmd_build` and `mcp._build` both do the private chain. `turn()` must be
+    the same thing, or it is a third behaviour rather than a shared one."""
+    from clickllm.session import Session
+
+    by_hand = Session()
+    by_hand._apply_text("a support chatbot for 20 agents")
+    by_hand._apply_hardware(None)
+    by_hand._apply_fields(concurrency=32)
+    expected = by_hand.step()
+
+    via_turn = Session().turn(
+        "a support chatbot for 20 agents", detect_hardware=True, concurrency=32
+    )
+    assert via_turn.stage == expected.stage
+    assert via_turn.question == expected.question
+    assert via_turn.said == expected.said
+
+
+def test_turn_does_not_touch_hardware_it_was_not_given():
+    """`machine=None` means "not supplied", not "detect the local machine".
+
+    Conflating them would make every caller that passes only a description
+    silently detect hardware, which is a filesystem and subprocess touch a
+    caller did not ask for.
+    """
+    from clickllm.session import Session
+
+    s = Session()
+    s.turn("a support chatbot")
+    assert s.hw is None, "hardware was detected without being asked for"

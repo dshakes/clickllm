@@ -40,32 +40,44 @@ GB = 1024**3
 
 def _fit(context: str = "32k", concurrency: int = 1) -> dict[str, Any]:
     """What runs on this machine, at this context and concurrency."""
-    from .cli import _parse_size
+    from . import engine
 
-    hw = hardware.detect()
-    ctx = _parse_size(context)
-    feasible, rejected = fit.rank(hw, ctx, concurrency)
-    name, why = fit.recommend_runtime(hw, ctx, concurrency)
+    # One computation, rendered. This used to call `fit.rank()` and assemble a
+    # dict itself, which is how four surfaces came to spell the same answer four
+    # ways — and how `clickllm fit --json` came to omit the roofline disclosure
+    # that this one carried. ADR-0016.
+    #
+    # The *wire spelling* below is unchanged on purpose: `id` and
+    # `recommended_runtime` have been what agents receive since 1.0.0, and
+    # renaming them is a versioned change with a deprecation note, not a
+    # side effect of a refactor. What changed is that this is now a rendering
+    # of the engine's result rather than a second computation of it.
+    report = engine.fit(context=context, concurrency=concurrency)
     return {
-        "hardware": hw.to_dict(),
-        "context": ctx,
-        "concurrency": concurrency,
+        "hardware": report.hardware.to_dict(),
+        "context": report.context,
+        "concurrency": report.concurrency,
         "feasible": [
             {
-                "id": f.model.id,
-                "quant": f.quant,
-                "total_gb": round(f.total_bytes / GB, 1),
-                "headroom_gb": round(f.headroom_bytes / GB, 1),
-                "tokens_per_sec_estimate": (round(f.tokens_per_sec) if f.tokens_per_sec else None),
-                "estimate_basis": "memory-bandwidth roofline, not measured",
-                "license": f.model.license,
-                "license_clean_commercial": f.model.license_ok,
-                "architecture_verified": f.model.verified,
+                "id": c.model_id,
+                "quant": c.quant,
+                "total_gb": round(c.total_gb, 1),
+                "headroom_gb": round(c.headroom_gb, 1),
+                # Rounded here, not in the model: this is what agents have
+                # received since 1.0.0, and migrating onto a pre-rounded
+                # `Candidate` silently turned 15 into 14.5.
+                "tokens_per_sec_estimate": (
+                    round(c.tokens_per_sec_estimate) if c.tokens_per_sec_estimate else None
+                ),
+                "estimate_basis": c.estimate_basis,
+                "license": c.license,
+                "license_clean_commercial": c.license_clean_commercial,
+                "architecture_verified": c.architecture_verified,
             }
-            for f in feasible
+            for c in report.feasible
         ],
-        "rejected": [{"id": m.id, "reason": why} for m, why in rejected],
-        "recommended_runtime": {"name": name, "why": why},
+        "rejected": [{"id": r.model_id, "reason": r.reason} for r in report.rejected],
+        "recommended_runtime": {"name": report.runtime, "why": report.runtime_reason},
     }
 
 
@@ -99,21 +111,22 @@ def _build(
     from .session import Session
 
     s = Session.from_json(_json.dumps(state)) if state else Session()
-    # Mutate state directly rather than calling tell()/on()/set() (which each
-    # call step() internally) — a worth-asking question gets committed to
-    # `s.asked` inside step(), and if that commit fires on an intermediate
-    # call whose Turn is then discarded, the single most valuable question is
-    # silently lost before it ever reaches whoever is having this conversation.
-    # One step() call at the end means exactly one commit, in priority order.
-    if description:
-        s._apply_text(description)
-    if machine or s.hw is None:
-        s._apply_hardware(machine or None)
+    # `Session.turn()` rather than the hand-written chain this used to be — and
+    # rather than tell()/on()/set(), which each end in their own step(). A
+    # worth-asking question is *committed* inside step(), so a commit that fires
+    # on an intermediate call whose Turn is discarded silently throws away the
+    # single most valuable question. One step per external turn is now the
+    # method's job instead of every caller's.
     known = {k: v for k, v in overrides.items() if v is not None}
-    if known:
-        s._apply_fields(**known)
-
-    turn = s.step()
+    turn = s.turn(
+        description=description,
+        machine=machine or None,
+        # This surface detects the local machine on the first turn, when the
+        # session has none yet — preserved exactly, because `machine=None` means
+        # "not supplied" and would otherwise stop detecting.
+        detect_hardware=s.hw is None,
+        **known,
+    )
     return {
         "stage": turn.stage.value,
         "said": turn.said,
