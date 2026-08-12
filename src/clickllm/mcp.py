@@ -61,9 +61,14 @@ def _fit(context: str = "32k", concurrency: int = 1) -> dict[str, Any]:
             {
                 "id": c.model_id,
                 "quant": c.quant,
-                "total_gb": c.total_gb,
-                "headroom_gb": c.headroom_gb,
-                "tokens_per_sec_estimate": c.tokens_per_sec_estimate,
+                "total_gb": round(c.total_gb, 1),
+                "headroom_gb": round(c.headroom_gb, 1),
+                # Rounded here, not in the model: this is what agents have
+                # received since 1.0.0, and migrating onto a pre-rounded
+                # `Candidate` silently turned 15 into 14.5.
+                "tokens_per_sec_estimate": (
+                    round(c.tokens_per_sec_estimate) if c.tokens_per_sec_estimate else None
+                ),
                 "estimate_basis": c.estimate_basis,
                 "license": c.license,
                 "license_clean_commercial": c.license_clean_commercial,

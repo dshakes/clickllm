@@ -10,7 +10,7 @@ import pathlib
 import sys
 from typing import TYPE_CHECKING
 
-from . import catalog, fit, hardware
+from . import catalog, engine, fit, hardware
 
 if TYPE_CHECKING:  # imported lazily at the call sites — `clickllm fit` must stay cheap
     from .prove.collect import Collection
@@ -92,7 +92,12 @@ def cmd_fit(args: argparse.Namespace) -> int:
         print(f"  verdict: {'FITS' if f.feasible else 'DOES NOT FIT'}\n")
         return 0 if f.feasible else 1
 
-    feasible, rejected = fit.rank(hw, ctx, conc)
+    # Through the engine — ADR-0016. This called `fit.rank()` and assembled its
+    # own shape, which is how the CLI's JSON came to omit the roofline
+    # disclosure every other surface carried. The wire format below is
+    # unchanged; only the source of the numbers moved.
+    report = engine.fit(context=ctx, concurrency=conc, hw=hw)
+    feasible, rejected = report.feasible, report.rejected
 
     if args.json:
         print(
@@ -103,24 +108,28 @@ def cmd_fit(args: argparse.Namespace) -> int:
                     "concurrency": conc,
                     "feasible": [
                         {
-                            "id": f.model.id,
-                            "quant": f.quant,
-                            "verified": f.model.verified,
-                            "weights_gb": round(f.weight_bytes / GB, 1),
-                            "kv_gb": round(f.kv_bytes / GB, 1),
-                            "total_gb": round(f.total_bytes / GB, 1),
-                            "headroom_gb": round(f.headroom_bytes / GB, 1),
+                            "id": c.model_id,
+                            "quant": c.quant,
+                            "verified": c.architecture_verified,
+                            "weights_gb": round(c.weights_gb, 1),
+                            "kv_gb": round(c.kv_gb, 1),
+                            "total_gb": round(c.total_gb, 1),
+                            "headroom_gb": round(c.headroom_gb, 1),
+                            # This surface has always rounded to a whole
+                            # number here, and rounding is formatting.
                             "tokens_per_sec": (
-                                round(f.tokens_per_sec) if f.tokens_per_sec else None
+                                round(c.tokens_per_sec_estimate)
+                                if c.tokens_per_sec_estimate
+                                else None
                             ),
                             # See the note on the other emission site above.
                             "estimate_basis": ROOFLINE_BASIS,
-                            "license": f.model.license,
-                            "license_ok": f.model.license_ok,
+                            "license": c.license,
+                            "license_ok": c.license_clean_commercial,
                         }
-                        for f in feasible
+                        for c in feasible
                     ],
-                    "rejected": [{"id": m.id, "reason": why} for m, why in rejected],
+                    "rejected": [{"id": r.model_id, "reason": r.reason} for r in rejected],
                     "runtime": dict(
                         zip(("name", "why"), fit.recommend_runtime(hw, ctx, conc), strict=True)
                     ),
@@ -146,28 +155,28 @@ def cmd_fit(args: argparse.Namespace) -> int:
             f"{'free':>8}{'~tok/s':>8}  license"
         )
         print(f"  {'-' * 88}")
-        for f in feasible:
-            flag = " ?" if not f.model.verified else ""
-            tps = f"{f.tokens_per_sec:.0f}" if f.tokens_per_sec else "-"
-            slow = " slow" if f.slow else ""
+        for c in feasible:
+            flag = " ?" if not c.architecture_verified else ""
+            tps = f"{c.tokens_per_sec_estimate:.0f}" if c.tokens_per_sec_estimate else "-"
+            slow = " slow" if c.slow else ""
             print(
-                f"  {f.model.name[:24] + flag:<26}{f.quant:<7}"
-                f"{f.weight_bytes / GB:>7.1f}G{f.kv_bytes / GB:>7.1f}G"
-                f"{f.total_bytes / GB:>7.1f}G{f.headroom_bytes / GB:>7.1f}G"
-                f"{tps:>8}{slow}  {_lic(f.model)}"
+                f"  {c.name[:24] + flag:<26}{c.quant:<7}"
+                f"{c.weights_gb:>7.1f}G{c.kv_gb:>7.1f}G"
+                f"{c.total_gb:>7.1f}G{c.headroom_gb:>7.1f}G"
+                f"{tps:>8}{slow}  {c.license} {'OK' if c.license_clean_commercial else '!'}"
             )
 
     if rejected and not args.quiet:
         print("\n  NOT FEASIBLE\n")
-        for m, why in rejected:
-            print(f"  {m.name[:24]:<26}{why}")
+        for r in rejected:
+            print(f"  {r.name[:24]:<26}{r.reason}")
 
     name, why = fit.recommend_runtime(hw, ctx, conc)
     print(f"\n  runtime -> {name}")
     for line in _wrap(why, 76):
         print(f"             {line}")
 
-    unverified = [f for f in feasible if not f.model.verified]
+    unverified = [c for c in feasible if not c.architecture_verified]
     if unverified:
         print(
             f"\n  ? = architecture unverified; KV figures are estimates ({len(unverified)} shown)"

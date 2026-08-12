@@ -62,6 +62,22 @@ CASES: tuple[tuple[str, list[str]], ...] = (
 )
 
 
+#: MCP tool calls, goldened for the same reason the CLI is — and added after a
+#: refactor changed what agents receive without a single test noticing.
+#:
+#: `mcp._fit` moved onto the shared engine, its field names were preserved
+#: carefully, and its *values* silently changed: `tokens_per_sec_estimate` 15 →
+#: 14.5, `total_gb` 84.1 → 84.06. The CLI was protected by its golden; the agent
+#: surface had nothing, and the conformance test compared field presence rather
+#: than values. This is the missing half.
+MCP_CASES: tuple[tuple[str, str, dict], ...] = (
+    ("mcp_fit", "clickllm_fit", {"context": "32k", "concurrency": 8}),
+    ("mcp_where", "clickllm_where", {"model": "llama-3.1-8b", "context": "32k"}),
+    ("mcp_explain", "clickllm_explain", {"model_id": "llama-3.1-8b"}),
+    ("mcp_catalog", "clickllm_catalog", {}),
+)
+
+
 def _run(argv: list[str], monkeypatch: pytest.MonkeyPatch, config_home: Path) -> str:
     """Run one command in-process against the synthetic machine."""
     monkeypatch.setattr(hardware, "detect", lambda: MACHINE)
@@ -147,3 +163,44 @@ def test_the_synthetic_machine_is_actually_used(monkeypatch, tmp_path):
     out = _run(["fit", "--context", "32k", "--concurrency", "8"], monkeypatch, tmp_path)
     assert "M4 Max" in out
     assert "128 GB" in out or "96 GB" in out
+
+
+@pytest.mark.parametrize("name,tool,args", MCP_CASES, ids=[n for n, _, _ in MCP_CASES])
+def test_mcp_tool_output_is_unchanged(name, tool, args, monkeypatch, tmp_path):
+    """The agent surface, byte-for-byte.
+
+    An agent cannot notice that a number moved. It has no golden of its own to
+    compare against and no human reading the diff — which is exactly how
+    `tokens_per_sec_estimate` went from 15 to 14.5 in a change whose commit
+    message said the wire format was unchanged. It was: the *names* were.
+    """
+    import json
+
+    from clickllm import mcp
+
+    monkeypatch.setattr(hardware, "detect", lambda: MACHINE)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("CLICKLLM_CATALOG", raising=False)
+
+    reply = mcp.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": args},
+        }
+    )
+    got = reply["result"]["content"][0]["text"] + "\n"
+    path = GOLDEN / f"{name}.txt"
+
+    if os.environ.get("CLICKLLM_REGENERATE_GOLDEN"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(got)
+        pytest.skip(f"regenerated {path.name}")
+
+    assert path.exists(), f"no golden for {name}; record with CLICKLLM_REGENERATE_GOLDEN=1"
+    assert got == path.read_text(), (
+        f"the {tool} tool no longer returns what it returned before. If intended, "
+        "re-record — after reading the diff, because an agent will not."
+    )
+    json.loads(got)  # and it must still be JSON an agent can parse
