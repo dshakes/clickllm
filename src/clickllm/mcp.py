@@ -5,9 +5,11 @@ Deliberately **read/plan-heavy, write-light**. `cutover_advance` and
 and recommend a migration; a human presses the button that moves production
 traffic. That is a trust boundary, not friction.
 
-Speaks MCP over stdio using JSON-RPC 2.0 framed by Content-Length headers, with
-no third-party dependency — the CLI must stay installable with nothing but the
-standard library.
+Speaks MCP over stdio: newline-delimited JSON-RPC 2.0, which is what the
+transport specifies and what every conforming client sends. Content-Length
+framing is also accepted on the way in, and answered in kind, because this
+server spoke only that for its first release. No third-party dependency — the
+CLI must stay installable with nothing but the standard library.
 """
 
 from __future__ import annotations
@@ -685,36 +687,75 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
 # --------------------------------------------------------------------------- #
 
 
-def _read_message(stream: BinaryIO) -> dict[str, Any] | None:
-    """Read one Content-Length framed JSON-RPC message. None at clean EOF."""
-    length = None
+#: How a message was framed on the wire. `"line"` is what the MCP stdio
+#: transport actually specifies — *"Messages are delimited by newlines, and MUST
+#: NOT contain embedded newlines"* — and it is what every conforming client
+#: sends. `"header"` is the LSP-style `Content-Length` framing this server spoke
+#: exclusively, and which no conforming client speaks.
+#:
+#: Both are read, and each reply goes back in the framing its request arrived in.
+#: Reading both costs one branch; guessing wrong costs the entire agent surface,
+#: silently — a mismatched client gets no reply at all, which is exactly what
+#: this looked like when it was found.
+LINE, HEADER = "line", "header"
+
+
+def _read_message(stream: BinaryIO) -> tuple[dict[str, Any] | None, str]:
+    """Read one JSON-RPC message. Returns (message, framing); None at clean EOF.
+
+    Newline-delimited is the default and the spec. Content-Length is accepted so
+    that anything built against the old behaviour keeps working, rather than
+    trading one broken set of clients for another.
+    """
     while True:
         line = stream.readline()
         if not line:
-            return None
-        line = line.strip()
-        if not line:
-            break  # end of headers
-        if line.lower().startswith(b"content-length:"):
+            return None, LINE
+        stripped = line.strip()
+        if not stripped:
+            continue  # blank line between messages, or a stray header terminator
+
+        if stripped.startswith(b"{"):
             try:
-                length = int(line.split(b":", 1)[1])
+                return json.loads(stripped), LINE
+            except json.JSONDecodeError:
+                # A malformed line is one bad message, not a dead session. The
+                # loop that owns this treats None as EOF, so skip and read on.
+                continue
+
+        if stripped.lower().startswith(b"content-length:"):
+            try:
+                length = int(stripped.split(b":", 1)[1])
             except ValueError:
-                return None
-    if length is None:
-        return None
-    body = stream.read(length)
-    if not body:
-        return None
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError:
-        return None
+                return None, HEADER
+            # Drain the rest of the headers.
+            while True:
+                header = stream.readline()
+                if not header or not header.strip():
+                    break
+            body = stream.read(length)
+            if not body:
+                return None, HEADER
+            try:
+                return json.loads(body), HEADER
+            except json.JSONDecodeError:
+                return None, HEADER
+        # Anything else on stdin is not a message. Ignore it and keep reading.
 
 
-def _write_message(stream: BinaryIO, payload: dict[str, Any]) -> None:
-    body = json.dumps(payload).encode()
-    stream.write(b"Content-Length: %d\r\n\r\n" % len(body))
-    stream.write(body)
+def _write_message(stream: BinaryIO, payload: dict[str, Any], framing: str = LINE) -> None:
+    """Reply in the framing the request arrived in.
+
+    `separators` is not cosmetic here: the spec says a message MUST NOT contain
+    embedded newlines, and the default `json.dumps` spacing is fine but an
+    `indent=` added later would silently break every conforming client.
+    """
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    if framing == HEADER:
+        stream.write(b"Content-Length: %d\r\n\r\n" % len(body))
+        stream.write(body)
+    else:
+        stream.write(body + b"\n")
     stream.flush()
 
 
@@ -1038,7 +1079,7 @@ def serve(stdin: BinaryIO | None = None, stdout: BinaryIO | None = None) -> int:
     rx = stdin if stdin is not None else sys.stdin.buffer
     tx = stdout if stdout is not None else sys.stdout.buffer
     while True:
-        request = _read_message(rx)
+        request, framing = _read_message(rx)
         if request is None:
             return 0
         # Belt and braces: `handle` now contains tool failures, but a defect in
@@ -1054,7 +1095,7 @@ def serve(stdin: BinaryIO | None = None, stdout: BinaryIO | None = None) -> int:
                 "error": {"code": -32603, "message": f"internal error: {type(e).__name__}: {e}"},
             }
         if response is not None:
-            _write_message(tx, response)
+            _write_message(tx, response, framing)
 
 
 def demo() -> None:
