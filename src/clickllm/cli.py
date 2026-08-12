@@ -1537,6 +1537,26 @@ def cmd_prove(args: argparse.Namespace) -> int:
     return 0 if result.policy.moved_share > 0 else 1
 
 
+def cmd_brief(args: argparse.Namespace) -> int:
+    """Render a receipt as a page a stakeholder can be sent."""
+    from .atomicio import atomic_write
+    from .brief import render
+    from .prove.receipt import Receipt
+
+    r = Receipt.from_json(pathlib.Path(args.receipt).read_text())
+    page = render(r, title=args.title)
+    if args.out:
+        out = pathlib.Path(args.out)
+        atomic_write(out, page)
+        print(f"\n  wrote {out} · {len(page):,} bytes · receipt {r.digest()[:12]}")
+        print("  self-contained: no script, no network, opens offline.\n")
+    else:
+        # To stdout, so it pipes. The status line above would corrupt that, which
+        # is why it is only printed when writing to a file.
+        sys.stdout.write(page)
+    return 0
+
+
 def cmd_receipt(args: argparse.Namespace) -> int:
     """Render or verify a receipt someone handed you."""
     from .prove.receipt import _NON_EVIDENTIARY, Receipt, verify
@@ -2091,6 +2111,15 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("receipt", help="path to a receipt JSON file")
     rc.add_argument("--against", help="a second receipt to verify this one against")
     rc.set_defaults(fn=cmd_receipt)
+
+    br = sub.add_parser(
+        "brief",
+        help="render a receipt as a page you can send to someone who did not run it",
+    )
+    br.add_argument("receipt", help="path to a receipt JSON file")
+    br.add_argument("--out", help="write to this file instead of stdout")
+    br.add_argument("--title", default="Migration briefing", help="heading for the page")
+    br.set_defaults(fn=cmd_brief)
 
     d = sub.add_parser("desktop", help="install a double-clickable launcher")
     d.add_argument("--port", type=int, default=7171)
