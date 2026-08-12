@@ -73,6 +73,8 @@
   .why{font-size:12.5px;color:var(--ink3);margin-top:10px;padding-left:11px;border-left:2px solid var(--line2)}
 
   .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:10px 0 4px}
+  .evid{font-size:12.5px;color:var(--ink2);font-family:var(--mono);padding:3px 0}
   .sug{font-size:12.5px;color:var(--ink2);background:var(--panel);border:1px solid var(--line2);
        border-radius:999px;padding:5px 13px;cursor:pointer;font-family:var(--sans);transition:.12s}
   .sug:hover{border-color:var(--cyan);color:var(--ink)}
@@ -178,7 +180,7 @@ async function ask(text) {
   const turn = addBot();
   try {
     const hit = INTENTS.find(i => i.re.test(text));
-    if (!hit) { return unknownTurn(turn, text); }
+    if (!hit) { return await buildTurn(turn, text); }
     await hit.fn(text.match(hit.re), turn);
   } catch (e) {
     turn.innerHTML = `<div class="say"><b class="bad">Couldn't answer that.</b> ${esc(e.message)}</div>`;
@@ -318,10 +320,50 @@ function helpTurn(_m, turn) {
     </div></div>` + chips('what can I run?', 'where can I run deepseek-v3?', 'explain qwen3-30b-a3b');
 }
 
-function unknownTurn(turn, text) {
-  turn.innerHTML = `<div class="say">I don't have a computation for that, and I'd rather say so
-    than answer with something that sounds right.</div>` +
-    chips('help', 'what can I run?', 'where can I run glm-5.2?');
+// The build conversation, carried in this tab.
+//
+// This replaced a canned refusal: anything the six patterns above missed got
+// a polite dead end — including the one sentence a real user is most likely to
+// type, which is a description of their actual workload. (The refusal's own
+// wording is deliberately not quoted here: a test greps this file for it, and
+// a comment that repeats it would keep that test green over a live dead end.)
+// `session.py` was sitting on the same machine the whole time,
+// understanding exactly that and asking the single most useful follow-up, and
+// the browser was the only surface that never called it.
+//
+// The session state lives here, in the page, and is handed back on each turn.
+// The server keeps nothing, which is what lets `/api/build` stay a GET and the
+// workbench stay read-only.
+let buildState = '';
+
+async function buildTurn(turn, text) {
+  const r = await api('/api/build', {
+    say: text,
+    state: buildState,
+    // Only on the first turn: the workbench is bound to localhost, so the
+    // browser and the hardware are the same machine and asking "what are you
+    // deploying on?" of someone sitting at it is a wasted question.
+    machine: buildState ? '' : 'detect',
+  });
+  buildState = r.state;
+
+  const bits = [`<div class="say">${esc(r.said)}</div>`];
+  if (r.evidence.length) {
+    bits.push('<div class="lbl">understood</div>' +
+      r.evidence.map(e => `<div class="evid">${esc(e)}</div>`).join(''));
+  }
+  if (r.assuming.length) {
+    // Assumptions are always visible, never silent — the same rule the CLI
+    // follows, for the same reason.
+    bits.push('<div class="lbl">assuming</div>' +
+      r.assuming.map(a => `<div class="evid">${esc(a)}</div>`).join(''));
+  }
+  if (r.question) {
+    // One question. Never a list: a list is a form.
+    bits.push(`<div class="say"><strong>${esc(r.question)}</strong></div>`);
+  }
+  turn.innerHTML = bits.join('') +
+    (r.done ? chips('what can I run?', 'help') : '');
 }
 
 const sizeLabel = s => s;
