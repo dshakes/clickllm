@@ -221,7 +221,8 @@ def render(receipt: Receipt, *, title: str = "Migration briefing") -> str:
             f"{_e(receipt.candidate)}</h2>"
             '<p class="headline">0% of captured traffic</p>'
             f"<p>No kind of request has cleared the {receipt.bar:.0%} bar across its whole "
-            "confidence interval. <strong>Nothing yet.</strong></p>"
+            "confidence interval. <strong>That is a result, not an error</strong> — the "
+            "measurement ran, and on this evidence there is nothing to migrate.</p>"
             "</section>"
         )
 
