@@ -67,13 +67,16 @@ is caught by the swap and reported as position bias.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 from typing import Any
 
 from .graders import EvalItem
@@ -425,6 +428,53 @@ class Progress:
         return f"  {self.done}/{self.total} replies{failed}{tail}"
 
 
+#: Binds a cached reply to the exact question it answers. `item_id` alone is not
+#: enough — the same id against a different model, endpoint, side or prompt is a
+#: different question, and reusing an answer across any of those would silently
+#: score one model's replies as another's. That is the failure a cache has to be
+#: built to make impossible, because it is invisible in the result.
+def _cache_key(*, base: str, model: str, side: str, item: EvalItem) -> str:
+    return hashlib.sha256(
+        json.dumps([base, model, side, item.item_id, item.prompt]).encode()
+    ).hexdigest()
+
+
+def _load_resume(path: Path) -> dict[str, Collected]:
+    """Replies already paid for, keyed by question.
+
+    A partially-written final line is expected, not exceptional: the run this
+    file exists for is one that was killed. That line is dropped and the rest
+    kept — the alternative, refusing the whole ledger because its last line is
+    torn, throws away the 380 answers to protect the 381st.
+
+    Failures are not loaded. An item that failed is an item to retry; caching a
+    failure would make a transient 503 permanent.
+    """
+    if not path.exists():
+        return {}
+    out: dict[str, Collected] = {}
+    for line in path.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+            key = row.pop("key")
+            got = Collected(**row)
+        except (ValueError, TypeError, KeyError):
+            # Torn or foreign line. Skipping beats failing: this file is only
+            # ever an optimisation, and a corrupt one must degrade to "collect
+            # it again", never to "lose the run".
+            continue
+        # The second door. The writer already refuses to append a failure, so
+        # this is unreachable through this tool's own ledgers — and it is here
+        # anyway, because the file is on a disk a human can edit and a cached
+        # failure is a transient outage made permanent.
+        if got.ok:
+            out[key] = got
+    return out
+
+
 def collect(
     items: list[EvalItem],
     *,
@@ -439,6 +489,7 @@ def collect(
     retries: int = DEFAULT_RETRIES,
     backoff: float = DEFAULT_BACKOFF,
     sleep: Callable[[float], None] = time.sleep,
+    resume: Path | None = None,
     on_progress: Callable[[Progress], None] | None = None,
 ) -> Collection:
     """Send every item's prompt to one OpenAI-compatible endpoint and collect the replies.
@@ -460,6 +511,13 @@ def collect(
             default applies rather than a cap invented here.
         retries: extra attempts on 429/5xx only. A 4xx is never retried.
         sleep: injected so tests do not spend the backoff.
+        resume: append each reply to this JSONL ledger as it lands, and skip
+            items it already holds. A run that dies at 380 of 400 otherwise
+            re-buys all 380 — the one failure mode here that costs real money.
+            Explicit by design: nothing is written unless a path is given
+            (NFR-2), and the file holds the same prompts and replies the eval
+            set on disk already holds, so it inherits its redaction and no new
+            class of data reaches the disk.
 
     Returns:
         A :class:`Collection`. Items that failed are in `failures`, not in
@@ -494,7 +552,102 @@ def collect(
     request_headers = _headers(headers)
 
     started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
+
+    # What was already paid for. Keyed by the whole question, so a rerun against
+    # a different model or endpoint reuses nothing.
+    keys = [_cache_key(base=base, model=model, side=side, item=i) for i in items]
+    cached = _load_resume(resume) if resume else {}
+    todo = [(n, item) for n, item in enumerate(items) if keys[n] not in cached]
+
+    ordered: list[Collected | None] = [cached.get(k) for k in keys]
+    # Cached replies are already done. Starting the counter at zero would make
+    # a resumed run report "1/400" when 380 are in hand, and the ETA with it.
+    done = len(items) - len(todo)
+    if resume and done:
+        _emit(on_progress, done=done, total=len(items), failed=0, started=started)
+
+    ledger = resume.open("a", encoding="utf-8") if resume else None
+    try:
+        if todo:
+            _run(
+                todo,
+                keys=keys,
+                ordered=ordered,
+                url=url,
+                payload_of=payload_of,
+                request_headers=request_headers,
+                timeout=timeout,
+                retries=retries,
+                backoff=backoff,
+                sleep=sleep,
+                workers=workers,
+                on_progress=on_progress,
+                started=started,
+                total=len(items),
+                done=done,
+                ledger=ledger,
+            )
+    finally:
+        if ledger is not None:
+            ledger.close()
+
+    replies = tuple(r for r in ordered if r is not None)
+
+    return Collection(
+        base=base,
+        model=model,
+        side=side,
+        replies=replies,
+        items=tuple(_filled(i, c, side) for i, c in zip(items, replies, strict=True) if c.ok),
+        seconds=time.monotonic() - started,
+    )
+
+
+def _emit(
+    on_progress: Callable[[Progress], None] | None,
+    *,
+    done: int,
+    total: int,
+    failed: int,
+    started: float,
+) -> None:
+    """Report progress, and never let reporting it cost a reply.
+
+    A progress callback is decoration on work that may have cost real money. A
+    broken terminal, a closed pipe or a bug in someone's UI must not discard
+    replies already paid for, so this swallows deliberately — the failure it
+    prevents is losing a collection, not a missing line.
+    """
+    if on_progress is None:
+        return
+    with contextlib.suppress(Exception):  # see the docstring
+        on_progress(
+            Progress(done=done, total=total, failed=failed, seconds=time.monotonic() - started)
+        )
+
+
+def _run(
+    todo: list[tuple[int, EvalItem]],
+    *,
+    keys: list[str],
+    ordered: list[Collected | None],
+    url: str,
+    payload_of: Callable[[str], bytes],
+    request_headers: dict[str, str],
+    timeout: float,
+    retries: int,
+    backoff: float,
+    sleep: Callable[[float], None],
+    workers: int,
+    on_progress: Callable[[Progress], None] | None,
+    started: float,
+    total: int,
+    done: int,
+    ledger: Any,
+) -> None:
+    """Ask for everything not already in hand, filling `ordered` in place."""
+    failed = 0
+    with ThreadPoolExecutor(max_workers=min(workers, len(todo))) as pool:
         futures = {
             pool.submit(
                 _ask,
@@ -508,48 +661,32 @@ def collect(
                 backoff=backoff,
                 sleep=sleep,
             ): i
-            for i, item in enumerate(items)
+            for i, item in todo
         }
         # `as_completed` rather than `pool.map`, so a caller can see replies land
         # instead of waiting for all of them. Results are then put back in the
         # order they were asked: a `Collection` whose replies came back in
         # whatever order the server finished them would make two runs of the
         # same eval set diff against each other for no reason.
-        ordered: list[Reply | None] = [None] * len(items)
-        failed = 0
-        for done, future in enumerate(as_completed(futures), start=1):
+        for future in as_completed(futures):
             i = futures[future]
             reply = future.result()
             ordered[i] = reply
+            done += 1
             if not reply.ok:
                 failed += 1
-            if on_progress is not None:
-                try:
-                    on_progress(
-                        Progress(
-                            done=done,
-                            total=len(items),
-                            failed=failed,
-                            seconds=time.monotonic() - started,
-                        )
-                    )
-                except Exception:  # noqa: BLE001 - see below
-                    # A progress callback is decoration on work that may have
-                    # cost real money. A broken terminal, a closed pipe or a
-                    # bug in someone's UI must not discard replies already paid
-                    # for, so this swallows deliberately and once — the failure
-                    # it prevents is losing a collection, not a missing line.
-                    on_progress = None
-        replies = tuple(r for r in ordered if r is not None)
-
-    return Collection(
-        base=base,
-        model=model,
-        side=side,
-        replies=replies,
-        items=tuple(_filled(i, c, side) for i, c in zip(items, replies, strict=True) if c.ok),
-        seconds=time.monotonic() - started,
-    )
+            elif ledger is not None:
+                # Written as it lands, not at the end: a ledger flushed only on
+                # success would be empty in exactly the case it exists for. One
+                # line per reply, appended from this thread alone, so no lock is
+                # needed and a torn tail costs one item.
+                #
+                # ponytail: flush, not fsync. This survives the process being
+                # killed, which is the failure that happens; surviving a power
+                # cut would cost an fsync per item and buy a rarer case.
+                ledger.write(json.dumps({"key": keys[i], **asdict(reply)}) + "\n")
+                ledger.flush()
+            _emit(on_progress, done=done, total=total, failed=failed, started=started)
 
 
 # --------------------------------------------------------------------------- #

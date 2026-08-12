@@ -1253,6 +1253,21 @@ def _add_collection_flags(parser: argparse.ArgumentParser) -> None:
         default=120.0,
         help="seconds to wait for one reply",
     )
+    # On the shared block, not on `prove` alone. `_collect_replies` reads this
+    # for every command that collects, and a flag declared on one parser is an
+    # AttributeError on the other — which is the exact failure this block's
+    # docstring already records having happened once.
+    parser.add_argument(
+        "--resume",
+        metavar="PREFIX",
+        default="",
+        help=(
+            "record each reply to PREFIX.<side>.jsonl as it lands, and reuse "
+            "what is already there. Collection is the only thing here that "
+            "spends real money, and a run killed at 380 of 400 otherwise "
+            "re-buys all 380. Nothing is written without this flag."
+        ),
+    )
 
 
 def _collect_replies(
@@ -1285,6 +1300,11 @@ def _collect_replies(
             workers=args.collect_workers,
             timeout=args.collect_timeout,
             on_progress=_progress_line(side, quiet=getattr(args, "json", False)),
+            # One ledger per side. Sharing a file across sides would be safe —
+            # the cache key covers `side` — but two files make "delete the
+            # baseline's replies and re-collect" a thing a human can do with
+            # `rm`, which is the whole interface this feature needs.
+            resume=(pathlib.Path(f"{args.resume}.{side}.jsonl") if args.resume else None),
         )
         # Leave the finished count on its own line, so the report that follows
         # does not land on top of a half-drawn progress line.
