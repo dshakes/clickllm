@@ -72,7 +72,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -380,6 +380,51 @@ def _filled(item: EvalItem, got: Collected, side: str) -> EvalItem:
     return replace(item, baseline=got.text, baseline_tool_calls=got.tool_calls)
 
 
+@dataclass(frozen=True, slots=True)
+class Progress:
+    """How far a collection has got. Passed to `on_progress` as each reply lands.
+
+    Exists because a `prove` run is the longest thing this tool does — the
+    docstring below says serial collection over a real eval set takes hours —
+    and it printed nothing at all until it finished. Silence and a hang look
+    identical, and the natural response to a tool that looks hung is to kill it,
+    which on a paid endpoint throws away everything already bought.
+    """
+
+    done: int
+    total: int
+    failed: int
+    seconds: float
+
+    @property
+    def remaining(self) -> int:
+        return self.total - self.done
+
+    @property
+    def eta_seconds(self) -> float | None:
+        """Naive: elapsed per completed item, times what is left.
+
+        Naive on purpose and labelled so. Replies do not arrive at a constant
+        rate — a cold model's first tokens are slow and a rate limit is slower
+        still — so this is a running average, not a prediction. It exists to
+        answer "is this minutes or hours", which is the only question a progress
+        line is really asked.
+        """
+        if self.done < 1 or self.remaining < 1:
+            return None
+        return (self.seconds / self.done) * self.remaining
+
+    def render(self) -> str:
+        eta = self.eta_seconds
+        tail = (
+            f" · ~{eta / 60:.0f}m left"
+            if eta and eta >= 90
+            else (f" · ~{eta:.0f}s left" if eta else "")
+        )
+        failed = f" · {self.failed} failed" if self.failed else ""
+        return f"  {self.done}/{self.total} replies{failed}{tail}"
+
+
 def collect(
     items: list[EvalItem],
     *,
@@ -394,6 +439,7 @@ def collect(
     retries: int = DEFAULT_RETRIES,
     backoff: float = DEFAULT_BACKOFF,
     sleep: Callable[[float], None] = time.sleep,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> Collection:
     """Send every item's prompt to one OpenAI-compatible endpoint and collect the replies.
 
@@ -449,22 +495,52 @@ def collect(
 
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
-        replies = tuple(
-            pool.map(
-                lambda item: _ask(
-                    item.item_id,
-                    item.prompt,
-                    url=url,
-                    payload_of=payload_of,
-                    headers=request_headers,
-                    timeout=timeout,
-                    retries=retries,
-                    backoff=backoff,
-                    sleep=sleep,
-                ),
-                items,
-            )
-        )
+        futures = {
+            pool.submit(
+                _ask,
+                item.item_id,
+                item.prompt,
+                url=url,
+                payload_of=payload_of,
+                headers=request_headers,
+                timeout=timeout,
+                retries=retries,
+                backoff=backoff,
+                sleep=sleep,
+            ): i
+            for i, item in enumerate(items)
+        }
+        # `as_completed` rather than `pool.map`, so a caller can see replies land
+        # instead of waiting for all of them. Results are then put back in the
+        # order they were asked: a `Collection` whose replies came back in
+        # whatever order the server finished them would make two runs of the
+        # same eval set diff against each other for no reason.
+        ordered: list[Reply | None] = [None] * len(items)
+        failed = 0
+        for done, future in enumerate(as_completed(futures), start=1):
+            i = futures[future]
+            reply = future.result()
+            ordered[i] = reply
+            if not reply.ok:
+                failed += 1
+            if on_progress is not None:
+                try:
+                    on_progress(
+                        Progress(
+                            done=done,
+                            total=len(items),
+                            failed=failed,
+                            seconds=time.monotonic() - started,
+                        )
+                    )
+                except Exception:  # noqa: BLE001 - see below
+                    # A progress callback is decoration on work that may have
+                    # cost real money. A broken terminal, a closed pipe or a
+                    # bug in someone's UI must not discard replies already paid
+                    # for, so this swallows deliberately and once — the failure
+                    # it prevents is losing a collection, not a missing line.
+                    on_progress = None
+        replies = tuple(r for r in ordered if r is not None)
 
     return Collection(
         base=base,

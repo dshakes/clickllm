@@ -908,3 +908,101 @@ def test_a_hostile_retry_after_does_not_kill_the_whole_collection():
     for v in ("-1", "nan", "86400", "2.5", "garbage"):
         got = C._retry_after({"Retry-After": v})
         assert got is None or (got >= 0 and got == got)
+
+
+# --- progress -------------------------------------------------------------------
+
+
+def _items(n: int):
+    from clickllm.prove import EvalItem
+
+    return [
+        EvalItem(item_id=f"i{k}", cluster="c", prompt=f"p{k}", baseline="", candidate="")
+        for k in range(n)
+    ]
+
+
+def test_replies_come_back_in_the_order_they_were_asked(monkeypatch):
+    """`as_completed` yields in *finishing* order, so the results are put back
+    by index.
+
+    Without that, a `Collection` would carry replies in whatever order the
+    server happened to finish them — and two runs of the same eval set would
+    diff against each other for no reason, which is the one thing a reproducible
+    proof cannot do.
+    """
+    from clickllm.prove import collect as C
+
+    # Finish in reverse: the last item asked returns first.
+    order = {f"i{k}": (len(_items(6)) - k) * 0.01 for k in range(6)}
+
+    def fake_ask(item_id, prompt, **kw):
+        time.sleep(order[item_id])
+        return C.Collected(item_id=item_id, text=f"answer-{item_id}")
+
+    monkeypatch.setattr(C, "_ask", fake_ask)
+    got = C.collect(_items(6), base="http://x/v1", model="m", workers=6)
+    assert [r.item_id for r in got.replies] == [f"i{k}" for k in range(6)]
+
+
+def test_progress_is_reported_as_replies_land(monkeypatch):
+    """The point: a `prove` run printed nothing until it finished, and silence
+    is indistinguishable from a hang."""
+    from clickllm.prove import collect as C
+
+    monkeypatch.setattr(
+        C, "_ask", lambda item_id, prompt, **kw: C.Collected(item_id=item_id, text="a")
+    )
+    seen: list[C.Progress] = []
+    C.collect(_items(5), base="http://x/v1", model="m", workers=2, on_progress=seen.append)
+
+    assert len(seen) == 5, f"expected one update per reply, got {len(seen)}"
+    assert [p.done for p in seen] == [1, 2, 3, 4, 5], "progress must be monotonic"
+    assert all(p.total == 5 for p in seen)
+    assert seen[-1].remaining == 0
+    assert "5/5 replies" in seen[-1].render()
+
+
+def test_a_broken_progress_callback_does_not_discard_paid_for_replies(monkeypatch):
+    """Collection may have cost real money by the time a UI bug fires.
+
+    A closed pipe, a dead terminal or someone's broken renderer must not throw
+    away replies already bought — so the callback is decoration and its failure
+    is swallowed, once.
+    """
+    from clickllm.prove import collect as C
+
+    monkeypatch.setattr(
+        C, "_ask", lambda item_id, prompt, **kw: C.Collected(item_id=item_id, text="a")
+    )
+
+    def explode(_p):
+        raise RuntimeError("the terminal went away")
+
+    got = C.collect(_items(4), base="http://x/v1", model="m", workers=2, on_progress=explode)
+    assert len(got.replies) == 4, "a broken callback lost replies"
+
+
+def test_progress_counts_failures_without_hiding_them(monkeypatch):
+    from clickllm.prove import collect as C
+
+    def half_fail(item_id, prompt, **kw):
+        ok = item_id in {"i0", "i2"}
+        # `ok` is derived from `reason` — a Collected with a reason is a failure.
+        return C.Collected(item_id=item_id, text="a" if ok else "", reason=None if ok else "boom")
+
+    monkeypatch.setattr(C, "_ask", half_fail)
+    seen: list[C.Progress] = []
+    C.collect(_items(4), base="http://x/v1", model="m", workers=1, on_progress=seen.append)
+    assert seen[-1].failed == 2, seen[-1]
+    assert "2 failed" in seen[-1].render()
+
+
+def test_the_eta_says_nothing_when_it_would_be_a_guess():
+    """A running average over one sample is not an estimate."""
+    from clickllm.prove.collect import Progress
+
+    assert Progress(done=0, total=10, failed=0, seconds=0.0).eta_seconds is None
+    assert Progress(done=10, total=10, failed=0, seconds=5.0).eta_seconds is None
+    mid = Progress(done=5, total=10, failed=0, seconds=10.0)
+    assert mid.eta_seconds == pytest.approx(10.0)
