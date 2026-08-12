@@ -11,8 +11,14 @@ name: release
 # name is scoped to the one job that needs it and is unreachable from the steps that run
 # shell against the checkout.
 #
-# The formula bump lands as a PR (main is branch-protected) — merge it to point
+# The formula bump lands as a PR — merge it to point
 # `brew install` at the new tag. Mirrors scripts/release.sh; idempotent (safe to re-run).
+#
+# It lands as a PR because that is the reviewable shape, NOT because main is
+# protected — it is not, and this comment used to say it was. Several other
+# comments here describe what would hold *if* protection existed; they are
+# intent, and `tools/release_preflight.py` reports the actual setting rather
+# than leaving anyone to infer it from prose.
 
 on:
   # Pushing a version tag releases. This was `workflow_dispatch` only, and the

@@ -1642,3 +1642,28 @@ def test_every_intra_workspace_dependency_pin_matches_the_workspace_version():
             if pin != want:
                 wrong.append(f"{manifest.name}: {dep} pinned {pin}, workspace is {want}")
     assert not wrong, "cargo will refuse to resolve these:\n  " + "\n  ".join(wrong)
+
+
+def test_no_workflow_asserts_a_branch_protection_it_cannot_check():
+    """`release.yml` stated "main is branch-protected" as a bare fact. It was
+    not, and had not been for the whole project.
+
+    The claim mattered: the surrounding design leans on it — a review check
+    named to satisfy protection, a policy-gated auto-approve, a formula bump
+    that "lands as a PR". A reader met an assertion and got a guarantee that
+    was convention.
+
+    Statements about what protection *would* enforce are fine; asserting it
+    exists is not, because nothing in this repo can verify it.
+    """
+    root = Path(__file__).resolve().parents[1]
+    bad = []
+    for wf in sorted((root / ".github" / "workflows").glob("*.yml")):
+        for i, line in enumerate(wf.read_text().splitlines(), 1):
+            if re.search(r"main is branch-?protected|main is protected", line):
+                bad.append(f"{wf.name}:{i}")
+    assert not bad, (
+        "these assert a branch protection nothing here can check: "
+        + ", ".join(bad)
+        + " — say what protection would enforce, or point at tools/release_preflight.py"
+    )
