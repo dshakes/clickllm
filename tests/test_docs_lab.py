@@ -1667,3 +1667,49 @@ def test_no_workflow_asserts_a_branch_protection_it_cannot_check():
         + ", ".join(bad)
         + " — say what protection would enforce, or point at tools/release_preflight.py"
     )
+
+
+def test_the_readme_saving_example_is_reproducible():
+    """The README prints a specific dollar range. It has to be the one the code
+    produces, from the inputs shown beside it.
+
+    A worked example in a README is a claim, and this is the claim a reader is
+    least able to check and most likely to repeat. It is also the exact figure
+    that was wrong before — the line used to say "at zero measured quality loss"
+    over a run where four items measurably differed.
+    """
+    import pathlib
+    import re
+
+    from clickllm.prove import EvalItem, suite
+
+    readme = (pathlib.Path(__file__).parent.parent / "README.md").read_text()
+    shown = re.search(r"^\s*(Saving: \$[\d,]+–\$[\d,]+/mo .+)$", readme, re.M)
+    assert shown, "the README no longer shows a saving example"
+
+    # The inputs the README shows beside it: $2,847 incumbent, $317 candidate,
+    # 400 captures over 14 days, a 90% bar, and 4 of 200 items differing.
+    items = [
+        EvalItem(
+            item_id=str(i),
+            cluster="c",
+            prompt=f"p{i}",
+            baseline="a",
+            candidate="a" if i >= 4 else f"x{i}",
+        )
+        for i in range(200)
+    ]
+    got = suite(
+        items,
+        shares={"c": 1.0},
+        issued="2026-08-12",
+        incumbent_cost=2847.0,
+        monthly_cost=317.0,
+        bar=0.90,
+        traffic_captures=400,
+        traffic_window="14 days",
+    )
+    produced = next(x.strip() for x in got.policy.render().splitlines() if "Saving" in x)
+    assert produced == shown.group(1).strip(), (
+        f"README shows {shown.group(1).strip()!r}\n but the code produces {produced!r}"
+    )
