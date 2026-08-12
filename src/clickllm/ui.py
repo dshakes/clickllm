@@ -111,6 +111,49 @@ def _catalog() -> dict:
     }
 
 
+def _build(say: str, state: str = "", machine: str = "") -> dict:
+    """One turn of the build conversation, without the server remembering anything.
+
+    `session.py` is a complete multi-turn engine — one question at a time by
+    construction, and a computable relevance filter that suppresses any question
+    whose answer would not change the plan. The workbench reimplemented
+    "understand the user" with six client-side regexes and never imported it, so
+    the browser was the one surface that could not ask a follow-up.
+
+    **The session lives in the browser, not here.** `state` arrives as the JSON
+    the last turn handed back and leaves the same way. That keeps this route a
+    GET with no side effect, which is what lets the workbench stay read-only
+    (`demo()` asserts there are no write routes) — and it means two tabs, a
+    reload, or ten users are ten independent conversations with no server-side
+    store to grow, expire or leak between them.
+    """
+    from .session import Session
+
+    session = Session.from_json(state) if state else Session()
+    # The machine is passed, not parsed out of the sentence. `Session.turn`
+    # takes it as its own argument for a reason — "on an M4 Max" in free text
+    # would need a hardware-name parser that does not exist, and inventing one
+    # here would put a second, worse copy of the catalogue in the surface layer.
+    # `detect` is honest on this route specifically: the workbench is bound to
+    # localhost, so the browser and the hardware are the same machine.
+    turn = session.turn(
+        say,
+        machine=None if machine in ("", "detect") else machine,
+        detect_hardware=machine == "detect",
+    )
+    return {
+        "said": turn.said,
+        "question": turn.question,
+        "evidence": list(turn.evidence),
+        "assuming": list(turn.assuming),
+        "stage": str(turn.stage),
+        "done": turn.done,
+        # Handed straight back to the next call. Opaque to the page on purpose:
+        # the browser carries it, it does not interpret it.
+        "state": session.to_json(),
+    }
+
+
 #: Read-only, all of it. The workbench shows and explains; it does not deploy,
 #: promote or move traffic. Same boundary the MCP server enforces.
 ROUTES = {
@@ -119,6 +162,11 @@ ROUTES = {
     "/api/fit": lambda q: _fit(q.get("context", ["32k"])[0], int(q.get("concurrency", ["1"])[0])),
     "/api/where": lambda q: _where(
         q["model"][0], q.get("context", ["32k"])[0], int(q.get("concurrency", ["1"])[0])
+    ),
+    # A conversation turn is still a GET: it computes an answer from what the
+    # caller sent and stores nothing. See `_build`.
+    "/api/build": lambda q: _build(
+        q.get("say", [""])[0], q.get("state", [""])[0], q.get("machine", [""])[0]
     ),
     "/api/explain": lambda q: _explain(
         q["model"][0], q.get("context", ["32k"])[0], int(q.get("concurrency", ["1"])[0])
