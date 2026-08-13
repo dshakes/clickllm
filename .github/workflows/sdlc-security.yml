@@ -32,6 +32,13 @@ jobs:
           # Subscription token (no API credits); for a pay-per-use key use:
           #   anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The Homebrew formula-bump PR is opened by app/github-actions, and
+          # claude-code-action refuses bot-initiated runs unless told otherwise.
+          # Without this the two checks the main ruleset requires (classify, qa's
+          # sibling security) never produce a result, so that PR can never merge —
+          # it sat BLOCKED with `action_required` until someone noticed. Matches
+          # sdlc-review.yml / sdlc-fix.yml, which already allow bots.
+          allowed_bots: "*"
           # claude-code-action v1.0.134+ does an app-token exchange that requires a token
           # (or a workflow matching the default branch); pass the built-in one explicitly.
           github_token: ${{ github.token }}
