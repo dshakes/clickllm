@@ -1776,3 +1776,47 @@ def test_the_readme_fit_table_is_what_the_solver_prints():
     assert not wrong, "the README publishes figures the solver does not produce: " + "; ".join(
         f"{k}: README {r!r} vs actual {a!r}" for k, (r, a) in sorted(wrong.items())
     )
+
+
+def test_the_teaching_table_agrees_with_the_roofline_it_teaches():
+    """The bandwidth table taught arithmetic the tool does not do.
+
+    The paragraph under it says to divide bandwidth by model size, and calls
+    that division "what `clickllm fit` reports". Three rows shipped that
+    followed neither rule: 60 GB/s over a 30 GB model was published as ~2 tok/s
+    (raw division), while 546 and 3,350 GB/s were published as ~15 and ~90,
+    which is neither the raw ceiling (18.2, 111.7) nor the derated figure the
+    solver returns (13.1, 80.4). A reader doing the arithmetic the sentence
+    instructs got a different answer than the table printed.
+
+    The fit rows on the same page were already checked against a real solve;
+    this table was prose, so nothing looked at it. Both numbers are pinned
+    here: the ceiling is division, the real figure carries
+    BANDWIDTH_EFFICIENCY, and the page must state both.
+    """
+    from clickllm.fit import BANDWIDTH_EFFICIENCY
+
+    text = PAGE.read_text()
+    model_gb = 30.0
+    rows = re.findall(
+        r"([\d,]+) GB/s</td>\s*<td>[^<]*?~([\d.]+) tok/s ceiling, ~([\d.]+) real",
+        text,
+    )
+    assert len(rows) == 3, (
+        f"the teaching table no longer publishes three ceiling/real pairs "
+        f"(found {len(rows)}); this guard is watching nothing, which is worse "
+        f"than it failing"
+    )
+    wrong = []
+    for bw_s, ceiling_s, real_s in rows:
+        bw = float(bw_s.replace(",", ""))
+        ceiling, real = float(ceiling_s), float(real_s)
+        want_ceiling = bw / model_gb
+        want_real = bw * BANDWIDTH_EFFICIENCY / model_gb
+        if abs(ceiling - want_ceiling) > max(1.0, want_ceiling * 0.05):
+            wrong.append(f"{bw:g} GB/s ceiling: page {ceiling} vs {want_ceiling:.1f}")
+        if abs(real - want_real) > max(1.0, want_real * 0.05):
+            wrong.append(f"{bw:g} GB/s real: page {real} vs {want_real:.1f}")
+    assert not wrong, (
+        "the teaching table publishes throughput the roofline does not produce: " + "; ".join(wrong)
+    )
