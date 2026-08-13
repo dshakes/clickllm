@@ -17,8 +17,8 @@ name = "_clickllm_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-clickllm-core = { path = "../clickllm-core", version = "1.1.1" }
-clickllm-gateway = { path = "../clickllm-gateway", version = "1.1.1" }
+clickllm-core = { path = "../clickllm-core", version = "1.1.2" }
+clickllm-gateway = { path = "../clickllm-gateway", version = "1.1.2" }
 serde_json.workspace = true
 # abi3-py311 matches the project's requires-python: one wheel per platform for
 # every supported interpreter, rather than one per platform per minor version.
