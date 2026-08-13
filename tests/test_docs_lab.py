@@ -1713,3 +1713,66 @@ def test_the_readme_saving_example_is_reproducible():
     assert produced == shown.group(1).strip(), (
         f"README shows {shown.group(1).strip()!r}\n but the code produces {produced!r}"
     )
+
+
+def test_the_readme_fit_table_is_what_the_solver_prints():
+    """The README's headline example, regenerated and compared.
+
+    It claimed 119 tok/s for Qwen3 30B-A3B at 32k context and concurrency 8. The
+    solver produces 60, and 119 is not reachable at *any* setting on that
+    machine — the highest is 116. Phi-4 was published at 27 against an actual 18.
+    The memory figures were all correct, which is what made it survive: the
+    numbers that drifted were the ones a calibration constant moves, and the
+    prose was hand-transcribed once and never regenerated.
+
+    Throughput is the number a reader most cares about and least able to check.
+    Pinning it to real output is the only thing that keeps a marketing page
+    honest as the model changes underneath it.
+    """
+    import io
+    import re
+    from contextlib import redirect_stdout
+
+    from clickllm import cli, hardware
+    from clickllm.hardware import Hardware
+
+    gb = 1024**3
+    machine = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * gb,
+        usable_bytes=96 * gb,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    original = hardware.detect
+    hardware.detect = lambda: machine
+    try:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["fit", "--context", "32k", "--concurrency", "8"])
+        printed = buf.getvalue()
+    finally:
+        hardware.detect = original
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+
+    def rows(text: str) -> dict[str, str]:
+        found = {}
+        for line in text.splitlines():
+            m = re.match(r"\s{2}([A-Za-z][\w\s.\-()]+?)\s{2,}(q\d|fp\d+|bf16)\s{2,}(.+)", line)
+            if m:
+                found[m.group(1).strip()] = " ".join(m.group(3).split())
+        return found
+
+    printed_rows, readme_rows = rows(printed), rows(readme)
+    assert printed_rows, "the solver printed no table — this test would be vacuous"
+    shared = set(printed_rows) & set(readme_rows)
+    assert shared, f"the README publishes no row the solver prints: {sorted(readme_rows)[:3]}"
+
+    wrong = {
+        k: (readme_rows[k], printed_rows[k]) for k in shared if readme_rows[k] != printed_rows[k]
+    }
+    assert not wrong, "the README publishes figures the solver does not produce: " + "; ".join(
+        f"{k}: README {r!r} vs actual {a!r}" for k, (r, a) in sorted(wrong.items())
+    )

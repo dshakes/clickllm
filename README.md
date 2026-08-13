@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-2221-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-2222-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
 
@@ -39,11 +39,37 @@ memory maths that must saturate rather than silently wrap. clickllm does that
 and prints the arithmetic, so you can check it rather than trust it.
 
 ```
-  M4 Max · 16 cores · 128 GB · 546 GB/s          usable for inference: 96 GB
+
+  M4 Max · 16 cores · 128 GB · 546 GB/s
+  usable for inference: 96 GB
+
+  FEASIBLE at 32,768 context, concurrency 8
 
   model                     quant   weights      kv   total    free  ~tok/s  license
-  Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0
-  Llama 3.1 8B              q8         7.5G   32.0G   41.6G   54.4G      49  Llama 3.1 !
+  ----------------------------------------------------------------------------------------
+  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      15 slow  Apache-2.0 OK
+  Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G      60  Apache-2.0 OK
+  Mistral Small 24B         q8        22.0G   40.0G   65.2G   30.8G      14 slow  Apache-2.0 OK
+  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      18  MIT OK
+  Llama 3.1 8B              q8         7.5G   32.0G   41.6G   54.4G      32  Llama 3.1 !
+
+  NOT FEASIBLE
+
+  Gemma 3 27B               weights fit (14 GB) but KV at 32,768 ctx x8 (124 GB) puts it 45 GB over the 96 GB available
+  Llama 3.3 70B             weights fit (37 GB) but KV at 32,768 ctx x8 (80 GB) puts it 25 GB over the 96 GB available
+  Qwen3 235B-A22B (MoE)     weights alone need 123 GB at q4 — MoE sparsity (22B of 235B active) cuts compute, not memory
+  DeepSeek V3 (MoE, MLA)    weights alone need 352 GB at q4 — MoE sparsity (37B of 671B active) cuts compute, not memory
+  GLM-5.2                   weights alone need 186 GB at q4 — MoE sparsity (32B of 355B active) cuts compute, not memory
+  Kimi K2.7 Code            weights alone need 524 GB at q4 — MoE sparsity (32B of 1000B active) cuts compute, not memory
+  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity (50B of 2800B active) cuts compute, not memory
+  DeepSeek V4 Pro           weights alone need 838 GB at q4 — MoE sparsity (45B of 1600B active) cuts compute, not memory
+  MiniMax M3                weights alone need 239 GB at q4 — MoE sparsity (46B of 456B active) cuts compute, not memory
+
+  runtime -> mlx
+             Apple silicon: the CUDA engines cannot run here at all. MLX has the better
+             batching story of the two Metal options.
+
+  clickllm fit --explain <model-id>   # show the arithmetic
 ```
 
 It refuses rather than guesses. A model that will not fit says how far short and
@@ -154,16 +180,37 @@ $ clickllm
 <img src="docs/assets/conversation.svg" alt="A replay of a bare clickllm session. The user describes a support chatbot for 20 agents; the tool answers with the model, quantisation and memory it would use, shows the evidence it read and the assumptions it made, and asks one follow-up question — how long the prompts are. The user answers, and it hands over the command. Each question is asked only when the answer would change the plan. In a script or a CI step the same invocation stays a usage error rather than waiting on input." width="100%">
 
 ```
-  M4 Max · 16 cores · 128 GB · 546 GB/s          usable for inference: 96 GB
+
+  M4 Max · 16 cores · 128 GB · 546 GB/s
+  usable for inference: 96 GB
+
+  FEASIBLE at 32,768 context, concurrency 8
 
   model                     quant   weights      kv   total    free  ~tok/s  license
-  ----------------------------------------------------------------------------------
-  Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G     119  Apache-2.0
-  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      27  MIT
+  ----------------------------------------------------------------------------------------
+  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      15 slow  Apache-2.0 OK
+  Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G      60  Apache-2.0 OK
+  Mistral Small 24B         q8        22.0G   40.0G   65.2G   30.8G      14 slow  Apache-2.0 OK
+  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      18  MIT OK
+  Llama 3.1 8B              q8         7.5G   32.0G   41.6G   54.4G      32  Llama 3.1 !
 
   NOT FEASIBLE
-  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity
-                            (50B of 2800B active) cuts compute, not memory
+
+  Gemma 3 27B               weights fit (14 GB) but KV at 32,768 ctx x8 (124 GB) puts it 45 GB over the 96 GB available
+  Llama 3.3 70B             weights fit (37 GB) but KV at 32,768 ctx x8 (80 GB) puts it 25 GB over the 96 GB available
+  Qwen3 235B-A22B (MoE)     weights alone need 123 GB at q4 — MoE sparsity (22B of 235B active) cuts compute, not memory
+  DeepSeek V3 (MoE, MLA)    weights alone need 352 GB at q4 — MoE sparsity (37B of 671B active) cuts compute, not memory
+  GLM-5.2                   weights alone need 186 GB at q4 — MoE sparsity (32B of 355B active) cuts compute, not memory
+  Kimi K2.7 Code            weights alone need 524 GB at q4 — MoE sparsity (32B of 1000B active) cuts compute, not memory
+  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity (50B of 2800B active) cuts compute, not memory
+  DeepSeek V4 Pro           weights alone need 838 GB at q4 — MoE sparsity (45B of 1600B active) cuts compute, not memory
+  MiniMax M3                weights alone need 239 GB at q4 — MoE sparsity (46B of 456B active) cuts compute, not memory
+
+  runtime -> mlx
+             Apple silicon: the CUDA engines cannot run here at all. MLX has the better
+             batching story of the two Metal options.
+
+  clickllm fit --explain <model-id>   # show the arithmetic
 ```
 
 Then ask the inverse — *what would I need to run this?*
@@ -741,10 +788,10 @@ setting that adds one; a test fails if anything networked is even imported.
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1972 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1973 Python
 ```
 
-**2221 tests.** 1972 Python, 249 Rust. Eighteen of the Python tests skip on a
+**2222 tests.** 1973 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
