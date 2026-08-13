@@ -176,15 +176,37 @@ class Session:
     requirements: Requirements = field(
         default_factory=lambda: Requirements(workload=Workload.INTERACTIVE)
     )
-    #: Fields the user set explicitly. Everything else is inferred or defaulted,
-    #: and the distinction is what stops the session re-asking something answered.
+    #: Fields set outright, through `set()`/`turn(**fields)` — never through
+    #: prose. `_worth_asking` and the "assuming" list read this to stop asking
+    #: about something already answered. A field read out of prose is not
+    #: added here; it lands in `answered` instead, precisely because it must
+    #: NOT lock a value across a re-read the way this set does. `stated` and
+    #: `explicit` are populated together and mean the same thing today — kept
+    #: distinct because they answer different questions ("skip this question"
+    #: vs. "protect this value from `_apply_text`") even though every caller
+    #: that sets one sets the other.
     stated: set[str] = field(default_factory=set)
+    #: Fields the user set outright, through `set()`/`turn(**fields)`. A later
+    #: sentence must not talk the session out of an answer given this way — "8
+    #: users" said once stays 8 — so `_apply_text` keeps only these across a
+    #: re-read. A field merely read out of prose is in neither this set nor
+    #: `stated` — it is in `answered` instead — so a correction in a later
+    #: sentence ("actually batch scoring...") replaces it instead of being
+    #: silently discarded by the fresher `read()`.
+    explicit: set[str] = field(default_factory=set)
     hw: Hardware | None = None
     hw_source: str = ""
     model_id: str = ""
     #: Questions already put to the user. Asked once, then assumed — a session
     #: that repeats itself is one nobody finishes.
     asked: set[str] = field(default_factory=set)
+    #: Fields answered in prose. Distinct from `explicit`, which additionally
+    #: *locks* a value against a re-read, and from `asked`, which records that
+    #: a question was put to someone. A prose answer must stop the question
+    #: without pinning the value: "a few thousand tokens" then "actually make
+    #: that 16000 tokens" has to land on 16384, and putting the field in
+    #: `explicit` silently kept 4096. Nothing reads this back into requirements.
+    answered: set[str] = field(default_factory=set)
     evidence: tuple[str, ...] = ()
 
     # --- input ---------------------------------------------------------------
@@ -252,9 +274,44 @@ class Session:
         read = intent.read(self.text)
         # An explicit answer outranks a re-reading of the prose: the user said
         # "8 users" once and must not be talked out of it by a later sentence.
-        kept = {f: getattr(self.requirements, f) for f in self.stated}
+        # `explicit`, not `stated` — a field only ever read out of prose has no
+        # such override standing. It must keep taking whatever the freshest
+        # `read()` over the full accumulated text says, or a correction like
+        # "actually batch scoring 4 million tickets overnight" could never
+        # reach `requirements` once the first sentence had already been read.
+        kept = {f: getattr(self.requirements, f) for f in self.explicit}
         self.requirements = replace(read.requirements, **kept)
         self.evidence = tuple(i.render() for i in read.inferred)
+        # A question answered in prose must stop being asked — but must NOT
+        # lock its value. `stated` does both jobs: `_worth_asking` skips a
+        # stated field, and `kept` above pins it against a re-read. Prose needs
+        # only the first. Putting prose fields in `stated` made a later
+        # correction unreachable: "a few thousand tokens" then "actually make
+        # that 16000 tokens" kept 4096, silently discarding the correction,
+        # because `kept` restored the older value over the fresh parse. Caught
+        # by review before merge.
+        #
+        # Inferences carry the words they came from, so anything with evidence
+        # in the text is an answer, not a default.
+        # Only fields the user *said*, not fields derived from what they said.
+        # A stated field's evidence QUOTE — everything before " — ", the part
+        # `Inference.evidence` promises is the user's own words — is a literal
+        # substring of the text either way; what tells the two apart is
+        # `i.guess`. "20 agents" implies a headcount, but concurrency = 4 is a
+        # divide-by-5 guess built on top of it, and a guess is exactly what is
+        # worth still asking about. "agents" implying `prefix_sharing` is not a
+        # guess in that sense — the phrase determines the field through a
+        # lookup, not an arithmetic estimate — so it is stated once read, the
+        # same as `workload` or `context`.
+        lowered = self.text.lower()
+        self.answered |= {
+            i.field
+            for i in read.inferred
+            if not i.guess
+            and i.evidence
+            and i.evidence.split(" — ", 1)[0].strip().lower() in lowered
+            and hasattr(self.requirements, i.field)
+        }
         if self.stage is Stage.UNDERSTAND:
             self.stage = Stage.HARDWARE
 
@@ -303,6 +360,7 @@ class Session:
                 raise ValueError(f"{key} must be {want.__name__}, got {value!r}") from e
         self.requirements = replace(self.requirements, **coerced)
         self.stated |= set(fields)
+        self.explicit |= set(fields)
 
     def on(self, machine: str | Hardware | None = None) -> Turn:
         """Pick the hardware. A profile id, a `Hardware`, or None to detect local."""
@@ -391,7 +449,7 @@ class Session:
             ),
         ]
         for field_name, question, alternative in probes:
-            if field_name in self.stated or field_name in self.asked:
+            if field_name in self.stated or field_name in self.asked or field_name in self.answered:
                 continue
             if self._outcome_differs(alternative):
                 self.asked.add(field_name)
@@ -757,7 +815,9 @@ class Session:
                     else None
                 ),
                 "stated": sorted(self.stated),
+                "explicit": sorted(self.explicit),
                 "asked": sorted(self.asked),
+                "answered": sorted(self.answered),
                 "model_id": self.model_id,
                 "hw": self.hw.to_dict() if self.hw else None,
                 "hw_source": self.hw_source,
@@ -796,7 +856,16 @@ class Session:
             stage=Stage(d["stage"]),
             requirements=Requirements(**r),
             stated=set(d["stated"]),
+            # .get, falling back to `stated`: a session serialised before this
+            # field existed had no `explicit`/`stated` split — every stated
+            # field was locked the same way `explicit` locks one now, so
+            # treating old `stated` as the resumed `explicit` reproduces that
+            # behaviour instead of silently dropping the lock on resume and
+            # letting a later sentence talk a direct answer out of the plan.
+            explicit=set(d.get("explicit", d["stated"])),
             asked=set(d["asked"]),
+            # .get: a session serialised before this field existed still resumes.
+            answered=set(d.get("answered", ())),
             model_id=d["model_id"],
             hw=hw,
             hw_source=d.get("hw_source", ""),

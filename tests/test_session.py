@@ -217,8 +217,24 @@ def test_a_session_survives_a_restart_and_answers_identically():
     again = Session.from_json(s.to_json())
     assert again.answer() == s.answer()
     assert again.stated == s.stated
+    assert again.explicit == s.explicit
     assert again.asked == s.asked
     assert again.hw is not None and again.hw.name == s.hw.name
+
+
+def test_a_direct_answer_survives_a_resume_and_a_later_correction():
+    """`explicit` protects a direct answer from a later re-read of the prose —
+    but only if it round-trips through `to_json`/`from_json`. It did not: a
+    resumed session had an empty `explicit`, so `tell()` on the next process
+    silently overwrote a value the user set outright with whatever the fresh
+    parse of the accumulated text produced.
+    """
+    s = started()
+    s.set(concurrency=32)
+    resumed = Session.from_json(s.to_json())
+    assert resumed.requirements.concurrency == 32
+    resumed.tell("also for 10 engineers")
+    assert resumed.requirements.concurrency == 32, "a resumed direct answer must survive a re-read"
 
 
 # --- the boundary ----------------------------------------------------------------
@@ -685,3 +701,60 @@ def test_the_nothing_fits_turn_names_the_change_rather_than_gesturing_at_it():
     assert turn.stage == Stage.CHOOSE
     assert "Nothing in the catalogue fits" in turn.said
     assert "fits" in turn.said.split("not a failure.")[1], turn.said
+
+
+def test_every_question_has_an_answer_that_stops_it_being_asked():
+    """A question the tool asks must be answerable in the words it suggests.
+
+    `? How long are the prompts — a few thousand tokens, or tens of thousands?`
+    invited exactly the phrasings `intent._context` could not read: it required
+    a `k` suffix, so "a few thousand tokens" and "about 2000 tokens" left the
+    field at its default with no provenance and the question was asked again.
+    Found by recording a real session, not by the suite — every existing test
+    used the `k` form the parser handles.
+
+    This is the general control rather than a fix for that one phrasing: for
+    each question the session can raise, at least one natural answer must both
+    set the field and stop the question. A new probe with no readable answer
+    fails here.
+    """
+    answers = {
+        "How many requests will be in flight at once?": ("about 12 at once", "concurrency"),
+        "How long are the prompts — a few thousand tokens, or tens of thousands?": (
+            "a few thousand tokens",
+            "context",
+        ),
+        "Do your requests share a long system prompt? (an agent fleet usually does)": (
+            "yes, they share a long system prompt",
+            "prefix_sharing",
+        ),
+    }
+
+    s = Session()
+    turn = s.turn("a support chatbot for 20 agents", detect_hardware=False, machine=_machine())
+    asked_any = False
+    # Bounded, not `while turn.question is not None`: a regression where an
+    # answer fails to settle its field would hang CI instead of failing, and a
+    # test that can hang is worse than one that can fail. `+ 1` so one question
+    # too many is caught by the final assertion rather than by exhausting the
+    # range, which would read as a pass.
+    for _ in range(len(answers) + 1):
+        if turn.question is None:
+            break
+        asked_any = True
+        assert turn.question in answers, (
+            f"the session asks {turn.question!r} and this test has no answer for it — "
+            "add one, or the question has no phrasing a reader would produce"
+        )
+        reply, field = answers[turn.question]
+        previous = turn.question
+        turn = s.turn(reply)
+        assert field in s.stated or field in s.answered, (
+            f"answering {previous!r} with {reply!r} recorded {field} in neither "
+            "`stated` nor `answered`, so the question will be asked again"
+        )
+        assert turn.question != previous, (
+            f"{previous!r} was asked again in the turn that consumed its answer"
+        )
+    assert asked_any, "no question was asked at all — this test would be vacuous"
+    assert turn.question is None, f"left with unanswered question: {turn.question}"
