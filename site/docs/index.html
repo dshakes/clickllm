@@ -377,14 +377,17 @@ eval result moves production traffic without a human.</pre>
 <div class="tablewrap"><table>
   <thead><tr><th>Hardware</th><th>Bandwidth</th><th>What that means</th></tr></thead>
   <tbody>
-    <tr><td>Typical desktop CPU + DDR5</td><td>~60 GB/s</td><td>a 30 GB model → ~2 tok/s</td></tr>
-    <tr><td>Apple M4 Max (unified)</td><td>546 GB/s</td><td>same model → ~15 tok/s</td></tr>
-    <tr><td>NVIDIA H100</td><td>~3,350 GB/s</td><td>same model → ~90 tok/s</td></tr>
+    <tr><td>Typical desktop CPU + DDR5</td><td>~60 GB/s</td><td>a 30 GB model → ~2 tok/s ceiling, ~1 real</td></tr>
+    <tr><td>Apple M4 Max (unified)</td><td>546 GB/s</td><td>same model → ~18 tok/s ceiling, ~13 real</td></tr>
+    <tr><td>NVIDIA H100</td><td>~3,350 GB/s</td><td>same model → ~112 tok/s ceiling, ~80 real</td></tr>
   </tbody>
 </table></div>
-<p class="lede" style="font-size:15px">Divide bandwidth by model size and you have a ceiling nobody
-  can beat. That single division is what <code>clickllm fit</code> reports, and why it calls the
-  number an <em>estimate</em>: reality lands below the ceiling, never above it.</p>
+<p class="lede" style="font-size:15px">Divide bandwidth by model size and you have a ceiling nobody can beat.
+  <code>clickllm fit</code> reports that division derated by a <strong>0.72</strong>
+  efficiency factor — the second figure in each row above — because no real engine
+  achieves its rated bandwidth. That factor is a calibration knob, not a measurement,
+  which is why the tool calls its output an <em>estimate</em>: reality lands below the
+  ceiling, never above it.</p>
 
 <h2 id="edu-memory">Learn: where the memory goes</h2>
 <figure>
