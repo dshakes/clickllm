@@ -27,16 +27,37 @@ answers per cluster with confidence intervals instead of a shrug.**
 
 </div>
 
----
+## The problem
 
-## Two things, done properly
+Your team pays a closed-model API. An open model would cost a fraction of
+that, and the quality gap has closed — roughly 17.5 points of MMLU between
+the best closed and best open model at the end of 2023, effectively zero on
+knowledge benchmarks by 2026, with cost still running 6–62x apart.
 
-**1 — Deploy open models without the project.** Between "the weights are on
-Hugging Face" and "it is serving" sits a specialist skill: KV cache arithmetic
-that goes wrong three different ways, seven engines with incompatible flag
-dialects, quantisation that means something different on MLX than on vLLM,
-memory maths that must saturate rather than silently wrap. clickllm does that
-and prints the arithmetic, so you can check it rather than trust it.
+So why is anyone still paying? Two questions nobody can answer for you:
+
+1. **Will it even run on our hardware?** Between "the weights are on Hugging
+   Face" and "it is serving" sits a specialist skill: KV cache arithmetic
+   that goes wrong three separate ways, seven engines with incompatible flag
+   dialects, quantisation that means something different on MLX than on vLLM,
+   and memory maths that must saturate rather than silently wrap.
+2. **Is it good enough for *our* traffic?** Benchmarks are someone else's
+   exam. The model that tops MMLU may fail your extraction schema, and the
+   one ranked fortieth may be perfect at your four tasks.
+
+clickllm answers both — on your hardware, on your traffic — and prints the
+arithmetic so you can check it rather than trust it.
+
+<img src="docs/assets/gap-map.svg" alt="Bar chart: tools that solve each of six migration steps. Deployment has six; hardware fit has one; four steps have none." width="100%">
+
+## Try it in ten seconds
+
+```bash
+uvx --from clickllm-cli clickllm fit
+```
+
+No install, no config file, no account, no telemetry. It reads the machine
+it is running on and tells you what fits:
 
 ```
 
@@ -72,15 +93,41 @@ and prints the arithmetic, so you can check it rather than trust it.
   clickllm fit --explain <model-id>   # show the arithmetic
 ```
 
-It refuses rather than guesses. A model that will not fit says how far short and
-in what unit. A flag the installed engine does not accept is a refusal, not a
-command that fails on start-up. A repo it has not confirmed exists is never
-printed as though it does.
+Every number carries its arithmetic. `clickllm fit --explain <model-id>`
+shows the derivation for any row — weights, KV, overhead, headroom.
 
-**2 — Know where open is good enough.** Benchmarks are someone else's exam: the
-model that tops MMLU may fail your extraction schema, and the one ranked
-fortieth may be perfect at your four tasks. So the comparison runs on *your*
-captured requests, per task, against the closed model you use today:
+### Ask it in English instead
+
+Run `clickllm` bare and describe what you are building. It asks a question
+only when the answer would change the plan, and in a script or a CI step the
+same invocation stays a usage error rather than waiting on input:
+
+<img src="docs/assets/conversation.gif" alt="A real recording of a bare clickllm session: the user describes a support chatbot for 20 agents, the tool answers with model, quantisation and memory, shows which inference came from which words, states its assumptions, and asks one follow-up question. The user answers 32k token prompts and the context is understood with its provenance." width="100%">
+
+## The three ways sizing goes wrong
+
+This is the arithmetic the tool exists to get right, and all three errors
+are common in the wild:
+
+<img src="docs/assets/sizing-three-ways.svg" alt="Three ways KV cache sizing goes wrong. Mixture-of-experts sizing on active parameters instead of total understates memory ninefold, in the dangerous direction that says a model fits when it does not. Grouped-query attention counted with attention heads instead of key-value heads overstates fourfold. Multi-head latent attention sized with the grouped-query formula overstates sixty-fourfold. The last two waste money; the first causes an out-of-memory crash." width="100%">
+
+- **MoE** sizes on *total* parameters. Kimi K3 activates 50B of 2.8T per
+  token, so people assume it needs 50B resident. All 2.8T must be. Sparsity
+  cuts compute, not memory.
+- **GQA** uses `kv_heads`, not attention heads — up to an 8× overestimate.
+  The model fits; the naive tool says it does not.
+- **MLA** (DeepSeek family) stores one compressed latent, not per-head K/V.
+  Applying the GQA formula overestimates KV by ~50×.
+
+And one that costs money in the other direction: **speculative decoding
+turns negative past batch ~32.** EAGLE-3's headline "2–3×" is a
+single-stream figure.
+
+## Then: is it good enough for your traffic?
+
+Sizing tells you what *runs*. The harder question is whether it is good
+enough — and that is answered on your own captured requests, per task,
+against the closed model you use today:
 
 ```
                     Arithmetic  Ticket classific  Structured extra  One-line summari
@@ -88,209 +135,108 @@ llama-3.1-8b      98% [87–100]       90% [77–96]     100% [91–100]      98
 gpt-4o-mini               100%              100%              100%              100%
 ```
 
-Structured extraction is a solved problem for an 8B model you host — 40 of 40,
-whole interval above the bar. Classification is not: 90% looks fine and the
-interval says 77–96, which is not a number to run production on. Arithmetic
-scored 98% and still does not clear, because 40 items is not enough evidence at
-that rate — and the report says how many would be.
+Every cell is a Wilson score interval, and a task counts as proven only when
+its **whole interval** clears the bar — so a small sample cannot promote
+itself by getting lucky. At a perfect score you need 35 flawless items to
+clear 90%, and no fewer, however clean 12 looks. A cell with too little
+evidence prints `?` rather than a fabricated score, and the judge model and
+human-agreement rate are disclosed in every report.
 
-That is the whole answer: **which of your tasks an open model already does, with
-a number you can defend.** What you do with it is yours.
+**Where the candidate loses is printed first.** The honest failure is what
+makes the wins credible.
 
-**Estimates say so, and measurements have to earn the name.** Every throughput
-figure here is a memory-bandwidth roofline until something measures it;
-`clickllm measure` is the thing that can. It refuses more readily than it
-reports — identical inputs on an idle-looking laptop have produced 46.9 and 33.7
-tok/s — because a measured number 30% low is *worse* than the estimate it
-replaces: it carries more authority and outlives the browser tab that caused it.
-[#80](https://github.com/dshakes/clickllm/issues/80) filed that constraint
-before the code existed.
+<img src="docs/assets/e2e.svg" alt="End-to-end: request path through the gateway and the control loop that decides what it may hit" width="100%">
 
-**Why the interval and not the average.** 90% over 20 items and 90% over 400 are
-the same number and completely different decisions. Every cell is a Wilson score
-interval, and a task is proven only when its *whole* interval clears the bar —
-so a small sample cannot promote itself by getting lucky. At a perfect score
-that takes 35 flawless items, however clean 12 looks.
+### The eval suite, and why it refuses more than it reports
 
-**Why now.** The quality gap has closed — ~17.5 points of MMLU between the best
-closed and open model at the end of 2023, effectively zero by 2026, with cost
-still 6–62x apart. Running them well is still a specialist skill, and knowing
-*where* they are good enough is still guesswork.
+Evals are the half of this product that decides whether you move at all, so
+they are built to disappoint you honestly:
 
-<sub>Sources: benchmark convergence and the 6–62x cost spread — published 2026
-comparisons of the Artificial Analysis index against provider pricing.
-Promptfoo/OpenAI — announced 9 March 2026 by both parties with a commitment to
-keep the project open source. Third-party facts, dated on purpose: if one has
-changed since, this paragraph is wrong.</sub>
+- **Your traffic, not a benchmark.** Eval items are distilled from captured
+  requests and clustered into task shapes. A model is scored on the work you
+  actually send, per shape, because a model that is excellent at one of your
+  tasks and useless at another must not be averaged into "fine".
+- **Confidence intervals, never bare scores.** Wilson intervals throughout.
+  A task is proven only when its whole interval clears the bar.
+- **`?` beats a fabricated number.** Too little evidence prints `?`. Never a
+  number the sample cannot support.
+- **The judge is disclosed.** Judge model and human-agreement rate appear in
+  every report — an unlabelled judge is an unfalsifiable claim.
+- **Failures are cached as failures.** `--resume` re-buys only what is
+  missing; an item that failed is an item to retry, never a cached success.
+- **A judge alone never promotes.** Nothing authorises a cutover except
+  shadow mode against live traffic.
 
-## What it is not
+## What it costs, and how sure you can be
 
-Naming this is faster than a feature matrix.
+The same migration, costed three times at different evidence levels — the
+interval narrows as the sample grows, and the saving is stated with it:
 
-| | |
-|---|---|
-| **Not an inference engine.** | vLLM, SGLang and MLX exist and are excellent. clickllm chooses among them and configures them; it never competes with them. |
-| **Not an eval platform.** | Braintrust and LangSmith watch production after you ship. clickllm answers one question before you ship, then gets out of the way. Promptfoo is the closest thing to this and it is good software — it was also acquired by OpenAI in March 2026. clickllm is independent and Apache-2.0, and has no model to sell you. |
-| **Not hosted inference.** | Nothing runs on our machines. There is no account, no telemetry, and no egress you did not ask for. |
-| **Not a load balancer.** | clickllm is in your request path *only while a migration is in flight*, and leaving is the terminal state rather than an afterthought — at 100% cut over there is nothing left to compare, and balancing is handed to GAIE/llm-d. While it is there it does three things no balancer does: mirrors traffic to a candidate that is **scored but never served**, splits deterministically so a retry lands the same way, and applies per-cluster policy so the tasks where the open model loses keep going to the incumbent. `fit`, `where`, `prove` and the receipt path never touch the datapath at all. [ADR-0015](docs/adr/0015-in-the-path-only-while-migrating.md). |
+<img src="docs/assets/money-range.svg" alt="The same migration costed three times, at 4,000, 400 and 40 captured requests. The incumbent costs $2,847 a month and the candidate $317, and those rates never change. The dollar range widens as the sample shrinks, because the share of traffic that moves was measured rather than assumed. Less evidence is a wider claim, not a rounder number." width="100%"> Without a rate, a capture
 
-The join between those categories is the product: **your traffic → which model →
-will it fit → what it costs → is it good enough → deploy → roll back.** Nothing
-else walks that whole line.
-
-## Try it in ten seconds
-
-> **The distribution is `clickllm-cli`; the command is `clickllm`.** PyPI refused the
-> bare name as too similar to the existing `click-llm`, so `pip install clickllm` and
-> `uvx clickllm` both fail — the `--from` is not optional. `uvx` runs it without
-> installing anything. The bare `clickllm …` commands further down assume it is on
-> your PATH; [Install](#install) puts it there.
+Give it what the incumbent costs and it prices the migration — with the
+saving stated as a range, because the evidence is a range:
 
 ```bash
-uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8
+clickllm prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
+    --traffic-window '14 days'
+
+  Saving: $2,506–$2,530/mo (~89%) on traffic proven at or above the 90% bar
+    100% [99–100] of traffic moved, measured on 400 captured requests
+    over 14 days; Wilson score, 95%
 ```
 
-Or say nothing at all and let it ask. `clickllm` with no arguments opens a
-conversation — one question at a time, asked only when the answer would change
-the plan, with the evidence it read and the assumptions it made shown beside
-every answer. `q`, `^D` and `^C` all hand over the best answer so far. In a
-script or a CI step it stays a usage error rather than waiting on input.
+## The whole loop, on one machine
 
-```
-$ clickllm
+Everything above is one chain, and it runs on a laptop. This is a real run:
 
-  Describe what you are building. `q` to stop with the answer so far.
+<img src="docs/assets/chain-real-run.svg" alt="One real run of the whole chain on a single laptop. Fifteen requests pass through the capture gateway to an upstream provider; the log on disk holds no readable prompt text; the distiller finds two task shapes and writes fifteen eval items with the traffic shares eighty and twenty percent; and the prover, with every single item matching the incumbent exactly, still returns move zero percent — because fifteen items cannot clear a ninety percent bar. The verdict refusing to promote a perfect score is the system working, not failing." width="100%">
 
-  > a support chatbot for 20 agents
-
-  Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB. Engine: mlx.
-    understood:
-      · concurrency = 4   (from "20 agents — about a fifth in flight at once")
-    ? How many requests will be in flight at once?
-```
-
-<img src="docs/assets/conversation.svg" alt="A replay of a bare clickllm session. The user describes a support chatbot for 20 agents; the tool answers with the model, quantisation and memory it would use, shows the evidence it read and the assumptions it made, and asks one follow-up question — how long the prompts are. The user answers, and it hands over the command. Each question is asked only when the answer would change the plan. In a script or a CI step the same invocation stays a usage error rather than waiting on input." width="100%">
-
-It prints [the same table as above](#try-it-in-ten-seconds), for the machine it
-is running on.
-
-Then ask the inverse — *what would I need to run this?*
+Capture starts with an explicit command, in your request path, until Ctrl-C:
 
 ```bash
-uvx --from clickllm-cli clickllm where deepseek-v3 --context 16k
+clickllm observe --upstream https://api.openai.com/v1
+
+  In your request path from now until Ctrl-C, and not after (ADR-0015).
+  capture   ~/.clickllm/captures.log (key: ~/.clickllm/capture.key)
+  upstream  https://api.openai.com/v1
+  listening http://127.0.0.1:8787
+  point your base_url here and nothing else changes.
 ```
 
-```
-  hardware                  quant     total  ~tok/s    $/hr   $/Mtok
-  ------------------------------------------------------------------
-  8× NVIDIA H200            fp8      677.4G     649   28.80    12.32
-  Apple M3 Ultra 512 GB     q4       382.1G      28       -        -
+Redaction runs *inside* the write path, so there is no code path that
+appends a record which skipped it — and a redaction failure drops the
+capture rather than writing it. Zero telemetry and zero egress by default:
+captured traffic is the most sensitive data a customer has, so export is an
+explicit command, never a background sync.
 
-  WILL NOT RUN
-  NVIDIA H100 80 GB SXM     weights alone need 352 GB at q4, 72 GB usable
-```
+Nothing authorises a cutover except shadow mode. An LLM judge alone never
+moves production traffic.
 
-Every number answers `--explain`, which prints the arithmetic that produced it.
+### The receipt
 
-Then run it. One command, no config file, no login:
+A proof you cannot audit is a rumour. Every verdict emits a receipt — what
+was compared, on how much evidence, under which judge, and what would
+invalidate it:
 
-```bash
-clickllm run llama-3.1-8b --quant q4
-```
+<img src="docs/assets/receipt-anatomy.svg" alt="Anatomy of a migration receipt. A file, not a dashboard: it leads with what must stay on the incumbent model, then what is not proven either way, then what is proven above the bar, and ends with the movable share, the coverage gaps, and which judge was used. Four properties make it defensible: the bad news is printed first, every number carries a confidence interval, the eval set is identified by digest so the questions can be re-asked, and every field is derived from the counts so a forged copy contradicts itself." width="100%">
 
-```
-  MODEL     Llama 3.1 8B @ q4   (22.0 GB of 96.0 GB usable)
-  WEIGHTS   mlx-community/Llama-3.1-8B-Instruct-4bit   (confirmed; 4 candidates checked)
-  ENGINE    mlx   Apple silicon: the CUDA engines cannot run here at all
-  ENDPOINT  http://127.0.0.1:8000/v1
-  SPEED     ~45 tok/s single-stream   (roofline estimate, not measured)
+A receipt goes stale on its own terms: `clickllm guard` voids it when the
+model fingerprint changes behind its name, or when traffic drifts into
+shapes that were never scored.
 
-  NOT EXPRESSED
-    · context_length: mlx_lm.server takes no context-length flag
-    · quantization: mlx bakes precision into the weights — serve a -q4 repo
-```
+<img src="docs/assets/brief-anatomy.svg" alt="The five blocks of a migration briefing, in the order they are read: what must stay on the incumbent model, what is not proven either way, what is safe to move, what it saves, and the receipt's own JSON so the page need not be trusted. The order is the argument — a document built to persuade would put the good news first." width="100%">
 
-The weights repo is **confirmed to exist before it is used**, never constructed from a
-pattern: `mlx-community/Llama-3.1-8B-Instruct-8bit` is a 404 while the 4-bit repo of the
-same name is real, and the 8-bit one carries a `Meta-` prefix the base repo never had. A
-name we have not checked is a name we do not print.
+### Resume, because a killed run should not be bought twice
 
-`NOT EXPRESSED` is the part most tools omit. Every flag emitted is verified against the
-installed engine's own `--help`; anything the planner wanted that the engine cannot say
-is reported rather than silently dropped or guessed at.
-
-When it does not fit your machine, that is a routing decision, not a dead end:
-
-```bash
-clickllm host deepseek-v3 --context 128k
-```
-
-```
-  provider              shape                quant     total  ~tok/s     $/hr   $/Mtok
-  ------------------------------------------------------------------------------------
-  Hugging Face Endpts   8x H200 1128 GB      fp8      706.9G     649   $40.00   $17.12
-
-  NOT AVAILABLE
-  Hugging Face Spaces   FREE TIER — 86 GB usable, needs 412 GB. Short by 325 GB
-  RunPod (Pods)         largest shape is B200 180 GB. Short by 239 GB
-  Google Colab (free)   excluded by Colab's own terms, not by its memory: the free
-                        tier disallows "web service offerings not related to
-                        interactive compute" — a tunnelled endpoint is that shape
-
-  Prices read 2026-07-28 from each provider's own page. They move. Re-read the
-  source before committing spend — nothing here checks it for you.
-```
-
-Free tiers are ranked first and excluded **with a reason**. Prices carry the date and
-the URL they came from; an unpublished rate renders as `?` rather than a guess. clickllm
-never touches your credentials — it writes the deploy artifact and prints the command
-for you to run.
-
----
-
-## Or just say what you're building
-
-```bash
-clickllm build "coding assistant for about 20 engineers, needs to feel snappy"
-```
-```
-  Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB, 7 candidates fit. Engine: mlx.
-
-  understood:
-    · workload = interactive   (from "assistant")
-    · concurrency = 4   (from "20 engineers — about a fifth in flight at once,
-                         since people read and think between requests")
-
-  assuming:
-    · context = 32768
-
-  ? How long are the prompts — a few thousand tokens, or tens of thousands?
-```
-
-It detects the machine, sizes it, picks the model, chooses the engine, critiques
-its own plan, and ends with a command plus the eval to run against it.
-
-**It asks one question, and only when the answer would change the deployment.**
-That is computed, not curated — it re-plans under each candidate answer and stays
-silent when they agree. A form that asks about concurrency when every candidate
-fits at every concurrency is spending the only thing you brought: attention.
-
-**It never blocks.** There is a usable answer before you answer anything, with
-the assumptions listed. Questions refine; they do not gate. And when nothing
-fits, it says what *would* — this context at that concurrency, or a machine that
-is genuinely bigger on the same measure and actually solves the problem.
-
-`--save` and `--resume` carry a session across restarts. An agent drives the
-same flow over MCP by passing `state` back each turn.
-
----
+<img src="docs/assets/resume-ledger.svg" alt="Three bars comparing a killed collection run. The first run reaches 380 of 400 replies before being killed. Without --resume, a second run buys all 400 again. With --resume, it buys only the missing 20. A failure is never cached, because an item that failed is an item to retry." width="100%">
 
 ## Agent-first, by construction
 
-Most tools ship a CLI and bolt on an agent wrapper. Here the CLI, the MCP server,
-the Python SDK and the agent skill are **four faces of one implementation** — an
-agent gets the same answer you do, with the same arithmetic attached, because it
-is calling the same code.
+The same engine is a CLI, an MCP server, a Python SDK and a workbench —
+one core, four surfaces, no wrapper around a subprocess:
+
+<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: nine read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
 
 ```jsonc
 // clickllm-mcp — JSON-RPC over stdio, zero dependencies
@@ -305,397 +251,60 @@ clickllm_receipt   // read a proof: what is proven, what must stay, what is unkn
 clickllm_guard     // does that proof still hold — and if not, which of three ways
 ```
 
-`clickllm_where` exists because of what an agent does next after a *no*. When
-`clickllm_fit` says nothing on this machine runs it, an agent without this tool
-has one move left: guess a box. A guessed box is how people buy the wrong GPU.
-
-`clickllm_prove`, `clickllm_receipt` and `clickllm_guard` take a path from the
-caller, and the file's contents land in the agent's context — while the agent
-may itself have been steered by captured traffic. So they are confined to an
-eval root the *operator* sets, via an environment variable rather than a tool
-argument or a flag: for an MCP server started by an agent harness, whoever
-composes the command may be the agent, and a boundary the confined party can
-widen is not a boundary. [ADR-0014](docs/adr/0014-an-eval-root-for-agent-named-paths.md).
-
-**The read-only boundary is a test, not a promise.** The suite asserts that no
-exposed tool name contains `cutover`, `apply`, `promote`, `advance`, `rollout`,
-`deploy`, `serve` or `route` — so an agent can size, compare, *run the whole
-evaluation* and recommend a migration, and **structurally cannot** be the thing
-that moves production traffic. Add such a tool and the build fails. The
-vocabulary is deliberately broad: the failure it guards against is someone
-adding a helpful-looking `clickllm_promote` and nothing objecting.
-
-**It tells you what you didn't ask.** A planner that only answers the question
-asked is a form. Somebody deploys an agent fleet with a 2,000-token system prompt
-on every request, never sets a prefix-sharing figure because no form demanded one,
-and pays to recompute the same prefix a million times. The plan was correct — and
-40% more expensive than it needed to be, with nothing saying so.
-
-```bash
-clickllm advise --context 128k --concurrency 16 --seen-concurrency 40
-```
-```
-  PRODUCTION DIVERGED FROM THE PLAN
-
-  [high] Re-plan for concurrency 40.
-    because: the plan assumes 16 in-flight requests; production is running 40.
-             KV cache, batch limits and the speculative decision were all
-             derived from the smaller number.
-    expect:  settings that match the traffic.
-```
-
-Feed it real telemetry and it reconciles what production *did* against what the
-plan *assumed* — the self-healing seam. Every item carries the observation that
-triggered it, so a wrong suggestion is dismissible rather than mysterious, and
-every effect is labelled an estimate. It proposes; it never applies.
-
-**You never write a config.** Not a YAML you fill in, not a template you fork —
-you state the intent and it derives the engine and the flags. What it emits is a
-real `vllm serve` or a real `InferencePool` that **runs with clickllm uninstalled**.
-Abstraction that would trap you isn't abstraction, it's a dependency.
-
-**Nothing leaves the machine.** Zero telemetry, zero egress, no account. Your
-production prompts are the most sensitive data you have; export is a command you
-run, never a sync that happens.
-
----
-
-## Why this exists
-
-The ecosystem is excellent at the last mile and absent at the first. vLLM and SGLang
-serve brilliantly *once you know what to serve, on what, with which flags* — and
-every one of those is a research task the docs assume you've already done. So the
-work falls to whoever on the team has time, and it gets done from half-remembered
-blog posts.
-
-Ask any staff engineer whether an open model could handle most of their traffic and
-they'll say yes. Ask them to bet the product on it and they'll stop — correctly.
-**Nothing turns that instinct into evidence.**
-
-| What you'd need | Closest tool | Why it stops short |
-|---|---|---|
-| To know what your hardware can run | spreadsheets, vibes | MoE, GQA and MLA each size differently; getting MLA wrong overestimates by ~50×. |
-| A benchmark of *your* workload | promptfoo, Inspect AI | Both start from a test set you hand-write. Yours doesn't exist. |
-| A verdict you'd act on | LM Studio side-by-side | One prompt at a time, judged by eye. |
-| Your traffic, analysed | LiteLLM | Proxies every request. Does nothing with them. |
-| A safe cutover | Any gateway | Canaries on **errors**. Not one gates on **quality**. |
-| To stay current | — | You find out on Twitter, then redo the work by hand. |
-
-<img src="docs/assets/gap-map.svg" alt="Bar chart: tools that solve each of six migration steps. Deployment has six; hardware fit has one; four steps have none." width="100%">
-
-Everyone builds the one column that was already finished.
-
----
-
-## The output is a decision, not a dashboard
-
-```
-REGRET — keep the incumbent for these:
-  long-ctx refactor  (15% of traffic)  30% [22–40]
-
-                        codegen  long-ctx refacto      rare-json
-                          (60%)             (15%)          (25%)
-  ──────────────────────────────────────────────────────────────
-  glm-5.2           96% [90–98]       30% [22–40]  100% [44–100] ⚠   87% weighted
-  ──────────────────────────────────────────────────────────────
-  gpt-5 (incumbent)        100%              100%           100%
-
-judge: claude-opus-5, position-swapped · human agreement 0.90 (n=40)
-⚠ underpowered clusters (too few samples to conclude): rare-json
-⚠ 2 items had no applicable grader and are excluded, not counted as passes
-
-Move 60% of traffic to glm-5.2.
-  Keep the incumbent for: long-ctx refactor
-  Not yet proven (gather more evidence): rare-json
-  Saving: $1,582/mo (56%) at zero measured quality loss
-```
-
-That output is one command over an eval set you never wrote:
-
-```bash
-clickllm prove evalset.json --candidate glm-5.2 --incumbent gpt-5 --out receipt.json
-```
-
-The eval set comes from your own captured traffic, clustered by task shape — which
-is the whole reason it exists. Every other tool starts from a test set you author,
-and nobody has one, because writing it *is* the work you were trying to avoid.
-
-Four things there are deliberate, and each corrects how these comparisons usually get presented:
-
-- **`100% [44–100] ⚠`** — a perfect score on three samples is not certainty. Wilson intervals, so a 95% gate can't open on noise.
-- **Regret above the fold** — where the candidate loses is printed *first*. The honest failure is what makes the wins credible.
-- **"Not yet proven" ≠ "regressed"** — thin evidence means *gather more*, not *give up*. Conflating them strands traffic on the incumbent forever.
-- **No cost rate → no saving printed.** A fabricated saving is the most damaging number this report could contain.
-
-And two the suite enforces underneath:
-
-- **35 clean samples before a cluster can move.** A 0.90 bar needs the whole Wilson
-  interval above it, and 34 perfect items do not clear it. The exact boundary is
-  pinned by a test, because it is the number that decides whether traffic moves.
-- **The judge is the last resort, not the first.** Deterministic graders run first,
-  and an item they *disqualify* never reaches the judge — paying a model to
-  re-confirm that malformed JSON is malformed is spend with no information in it.
-  It also means a judge outage costs you graded items, not the run.
-
----
+No tool in that registry can move production traffic, and adding one fails
+the build. The vocabulary is deliberately broad: the failure it guards
+against is an agent promoting a model because a helpful-looking
+`clickllm_promote` existed and nothing objected.
 
 ## What runs today
 
-| | Capability | |
-|---|---|---|
-| ① | **Observe** — `clickllm observe`: capture, redaction that fails closed, encrypted store | ✅ |
-| ② | **Distill** — `clickllm distill`: structural clustering, representative sampling, eval set out | ✅ |
-| ③ | **Fit** — MoE/GQA/MLA-correct sizing, 17 hardware classes, `--explain` | ✅ |
-| — | **Plan** — engine *and* flags derived from what the deployment is for | ✅ |
-| — | **Advise** — `clickllm advise`: what to change unprompted, and drift against real telemetry | ✅ |
-| — | **Intent** — a sentence in, a plan out; asks about what it cannot infer | ✅ |
-| — | **Build** — `clickllm build`: the whole flow multi-turn, resumable, agent-drivable | ✅ |
-| ④ | **Prove** — `clickllm prove`: grader stack, position-swapped judge, equivalence matrix | ✅ |
-| — | **Receipt** — a portable, reproducible proof you can hand to an auditor | ✅ |
-| ⑤ | **Deploy** — native vLLM / SGLang / llm-d config, standalone by construction | ✅ |
-| — | **Run** — `clickllm run`: resolve weights, start the engine, hand back an endpoint | ✅ |
-| — | **Box** — `clickllm box`: ADR-0005's OCI artifact — manifest, weights lock, per-target launch specs | ✅ |
-| — | **Host** — `clickllm host`: cost-ranked external hosting when the machine cannot fit it | ✅ |
-| — | **Cache** — `clickllm cache`: budgeted weight cache with pinning, so a sweep cannot evict the incumbent | ✅ |
-| ⑥ | **Gateway** — SSE streaming, metering, router, real shadow dispatch | ✅ |
-| — | **Gate** — automatic rollback, human-gated advance, live control surface | ✅ |
-| — | **Telemetry** — KV pressure, prefill/decode split, plan-vs-reality check | ✅ |
-| — | **Measure** — `clickllm measure`: real decode throughput, and a refusal when the machine is too busy to take one | ✅ |
-| ⑦ | **Guard** — model drift, traffic drift, re-prove proposals | ✅ |
-| — | **Post-training** — distil from your own captured incumbent output | ✅ |
-| — | **Surfaces** — CLI · MCP · Python SDK · agent skill · local console · native launcher | ✅ |
-| — | **Targets** — systemd unit · `docker run` · Kubernetes Deployment, each standalone | ✅ |
-| — | **Silicon** — NVIDIA · AMD · Apple · **TPU v5e/v6e/v5p**, sized per host | ✅ |
-| — | **Host stats** — foreign GPU memory the engine cannot see | ✅ |
-| — | **Kernel seam** — scaffold a vLLM plugin, and a plan that *proves* it helped | ✅ |
-
-Every row names the command that reaches it, on purpose. Two of them said ✅ for
-a while with no way to run them — the capability existed, the gateway had its own
-test suite, and nothing on the command line could start it. A capability you
-cannot reach is not shipped, so the table now has to name its door.
-
-Full acceptance criteria and risk gates: **[implementation plan](docs/80-implementation-plan.md)**.
-
----
-
-## Prove it, then move it
-
-The motto is the control flow. Nothing skips a step, and each step can say *no*.
+Pre-alpha, and honest about which parts are real:
 
 <img src="docs/assets/in-a-box.svg" alt="One artifact landing on three machines and producing three outcomes: run as packed, re-solved with the changes reported, or refused" width="100%">
 
-**Proof is an artifact, not a dashboard.** A receipt is a file: every claim with
-its confidence interval, the bar it was measured against, the judge and how much
-it agreed with humans, and — required, never optional — the clusters that did
-*not* pass. Re-run the same eval set and the digest must match, which is a
-stronger claim than a signature. A signature says *we said this*; reproduction
-says *and it is true*, and anyone holding the eval set can check it.
+Full acceptance criteria and risk gates: **[implementation plan](docs/80-implementation-plan.md)**.
 
-<img src="docs/assets/receipt-anatomy.svg" alt="Anatomy of a migration receipt. A file, not a dashboard: it leads with what must stay on the incumbent model, then what is not proven either way, then what is proven above the bar, and ends with the movable share, the coverage gaps, and which judge was used. Four properties make it defensible: the bad news is printed first, every number carries a confidence interval, the eval set is identified by digest so the questions can be re-asked, and every field is derived from the counts so a forged copy contradicts itself." width="100%">
+## What it is not
 
-**Moving is asymmetric.** Rollback is automatic and deliberately easy to trigger.
-Advancing is only ever a proposal — the gate says the evidence supports 25%, a
-human moves it. The control surface re-derives that rule from the numbers alone,
-so the automation can be wrong or bypassed and traffic still cannot escalate
-unattended.
+**Not a load balancer.** Not an inference engine, not a chat UI, not a RAG
+framework, not hosted inference. Those have incumbents and none of them is
+the gap.
 
-**Then it keeps checking.** The guard separates three things every other tool
-collapses into one "stale" flag: the model changed behind its name (your proof is
-void), your traffic moved (the eval set answers questions nobody asks now), or
-something new was released (your proof is still true). Only the first two mean
-you no longer know whether production is adequate.
+The gateway is in your request path only while you are migrating, and not
+after — reasoning in
+[ADR-0015](docs/adr/0015-in-the-path-only-while-migrating.md).
 
----
+Generated config is **native and standalone** — a real `vllm serve` or a
+real `InferencePool` that runs with clickllm uninstalled. Never a wrapper.
 
-## The whole loop, on your own traffic
-
-Everything above is one chain, and it runs on one machine. This is a real run —
-the commands, and the output they printed.
-
-<img src="docs/assets/chain-real-run.svg" alt="One real run of the whole chain on a single laptop. Fifteen requests pass through the capture gateway to an upstream provider; the log on disk holds no readable prompt text; the distiller finds two task shapes and writes fifteen eval items with the traffic shares eighty and twenty percent; and the prover, with every single item matching the incumbent exactly, still returns move zero percent — because fifteen items cannot clear a ninety percent bar. The verdict refusing to promote a perfect score is the system working, not failing." width="100%">
-
-**① Point your client at clickllm instead of your provider.** One line changes:
-`base_url`. Nothing else about your app moves.
-
-```bash
-clickllm observe --upstream https://api.openai.com/v1
-
-  In your request path from now until Ctrl-C, and not after (ADR-0015).
-  capture   ~/.clickllm/captures.log (key: ~/.clickllm/capture.key)
-  upstream  https://api.openai.com/v1
-  listening http://127.0.0.1:8787
-  point your base_url here and nothing else changes.
-```
-
-Redaction runs *inside* the write path, so there is no code path that appends a
-record which skipped it — and a redaction failure drops the capture rather than
-storing it. After 15 requests through the proxy, the log on disk contained zero
-readable prompt bytes.
-
-**② Turn what it saw into an eval set.** No prompt engineering, no fixture
-writing — the questions are the ones your users actually asked.
-
-```bash
-clickllm distill
-
-  15 captures  →  2 task shapes  →  15 eval items
-
-  free text · <=1k context                    12 sampled   80.0% of traffic
-  tool-calling (1 tool) · empty response ·      3 sampled   20.0% of traffic
-```
-
-`clickllm distill --name-endpoint <url> --name-model <id>` turns those labels
-into `Refund requests` and `Multi-step tool calls`, keeping the structure
-underneath as the evidence. Opt-in per run, because naming is the only step that
-sends captured prompts anywhere. A name is a label and never a claim: it cannot
-move a share, a score or a verdict, and a reply that is not a short line of
-plain text is refused in favour of the structural description.
-
-Those two shapes were **found, not configured**. A request that offers tools is
-a different workload from one that does not, and a candidate can pass one and
-fail the other — so they are never averaged together. The share is share of
-*traffic*, not of the sample, so a small cluster sampled up to the floor cannot
-claim a bigger slice of the verdict than it holds of your workload.
-
-**③ Score a candidate against the incumbent, per cluster.**
-
-```bash
-clickllm prove evalset.json --candidate-endpoint http://localhost:8000/v1 --candidate qwen3-30b-a3b
-```
-
-**④ Read the verdict — including when it refuses.** In this run every single
-item matched the incumbent exactly, and the answer was still *no*:
-
-```
-weighted verdict 100% [81–100]
-  multiplicity: 2 clusters scored against the same 90% bar; the intervals
-  above are UNADJUSTED. Under Bonferroni (α=0.05/2, z=2.24), none of them
-  clears it even unadjusted.
-
-Move 0% of traffic to candidate.
-  Not yet proven: tool-calling (1 tool) · empty response, free text
-    → needs 35 graded items to clear the 90% bar at its observed 100%
-      (has 3, 32 to go)
-```
-
-**A perfect score that refuses to promote itself is the entire point.** 100%
-over 15 items and 100% over 400 are the same number and completely different
-decisions. A cluster counts as proven only when its *whole* interval clears the
-bar — and the report tells you how many more items would settle it, rather than
-leaving you to guess. It also volunteers that two clusters against one bar means
-the intervals are unadjusted, which is not a thing a tool trying to look good
-would mention.
-
-Give it your bill and it costs the migration — as a range, never a point:
-
-```bash
-clickllm prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
-    --traffic-window '14 days'
-
-  Saving: $2,506–$2,530/mo (~89%) on traffic proven at or above the 90% bar
-    100% [99–100] of traffic moved, measured on 400 captured requests
-    over 14 days; Wilson score, 95%
-```
-
-The share that moves is *measured*, so the dollars inherit its uncertainty — 60%
-on 40 requests is not the claim 60% on 4,000 is.
-
-<img src="docs/assets/money-range.svg" alt="The same migration costed three times, at 4,000, 400 and 40 captured requests. The incumbent costs $2,847 a month and the candidate $317, and those rates never change. The dollar range widens as the sample shrinks, because the share of traffic that moves was measured rather than assumed. Less evidence is a wider claim, not a rounder number." width="100%"> Without a rate, a capture
-count, or a window of at least a week, it says the saving is unknown and names
-what would fix it. It will not extrapolate three days to a month.
-
-Long runs are resumable: `--resume run` writes each reply as it lands, so a
-collection killed at 380 of 400 does not re-buy the 380.
-
-<img src="docs/assets/resume-ledger.svg" alt="Three bars comparing a killed collection run. The first run reaches 380 of 400 replies before being killed. Without --resume, a second run buys all 400 again. With --resume, it buys only the missing 20. A failure is never cached, because an item that failed is an item to retry." width="100%">
-
-Then `clickllm receipt` makes it a file someone else can re-check, `clickllm
-guard` tells you when it stops being true, and `clickllm brief receipt.json
---out brief.html` turns it into one self-contained page you can send to whoever
-signs off — no network, no script, opens offline in six months, and leading with
-what is *not* proven. A reader who stops after the first screen stops having
-read the caveats.
-
-<img src="docs/assets/brief-anatomy.svg" alt="The five blocks of a migration briefing, in the order they are read: what must stay on the incumbent model, what is not proven either way, what is safe to move, what it saves, and the receipt's own JSON so the page need not be trusted. The order is the argument — a document built to persuade would put the good news first." width="100%">
-
-## Three things everyone gets wrong
-
-The docs teach the whole inference stack from first principles — [start here](https://dshakes.github.io/clickllm/docs/#edu-why) if you've never sized a KV cache. The short version:
-
-**① MoE sizes on *total* parameters.** Kimi K3 activates 50B of 2.8T per token, so people assume it needs 50B of memory. All 2.8T must be resident. *Sparsity cuts compute, not memory.*
-
-**② GQA uses `kv_heads`, not attention heads.** Using attention heads overestimates KV cache by up to 8×.
-
-**③ MLA has a different formula entirely.** DeepSeek-family models compress K and V into one low-rank latent. Applying the GQA formula overestimates by ~50×.
-
-And one that costs money in the other direction: **speculative decoding turns negative past batch ~32.** EAGLE-3's headline "2–3×" is a single-stream figure.
-
-<img src="docs/assets/sizing-three-ways.svg" alt="Three ways KV cache sizing goes wrong. Mixture-of-experts sizing on active parameters instead of total understates memory ninefold, in the dangerous direction that says a model fits when it does not. Grouped-query attention counted with attention heads instead of key-value heads overstates fourfold. Multi-head latent attention sized with the grouped-query formula overstates sixty-fourfold. The last two waste money; the first causes an out-of-memory crash." width="100%">
-
-### Why any of this matters, on the silicon
+## Why this exists
 
 <img src="docs/assets/edu-silicon.svg" alt="An H100 die with 132 SM squares, one lit, fed by a memory bus carrying all 32.8 GB of weights for every token; the arithmetic beside it — 65.6 GFLOP per token, 2.00 FLOP per byte read against the 295 the chip needs to break even; and a memory budget showing 18 concurrent sequences fitting in 72.0 GiB with 1.51 GiB spare while a 19th goes 0.49 GiB over and is refused" width="100%">
 
-A decode step reads every weight once and does two operations with each, per sequence in the batch.
-An H100 balances compute and memory at 295 operations per byte — so saturating its tensor cores
-needs a batch of ~295. **At batch 1 you are using 0.3% of them: one lit square out of 132.**
-
-Batching buys that back, and then stops: the KV cache fills the HBM at batch 18, or 6.1% of peak.
-The other 94% is not idle because nobody batched hard enough — it is **unreachable** until something
-gives up memory. That is why "will it fit" and "will it be fast" are the same question, and why
-getting the three formulas above wrong costs hardware rather than just accuracy.
-
----
+Every layer of this stack has a good incumbent. The gap is the seam between
+them: nobody proves an open model is good enough for *your* traffic and
+then moves you across with a rollback button.
 
 ## Architecture
 
-<img src="docs/assets/e2e.svg" alt="End-to-end: request path through the gateway and the control loop that decides what it may hit" width="100%">
-
-Purple is the live request. Green is the control loop deciding what it's allowed to hit. **They never cross.**
-
 **Rust** for the datapath — no GC pauses against a p95 budget, explicit accounting for GB-scale fleet memory. The budget is 15 ms added p95 (NFR-1); the measured figure is **+0.07 ms** with capture on, and the test that measures it also proves it can detect 25 ms of injected delay, because a latency check that passes by measuring nothing is the most comfortable green there is. **Python** for the control plane, where the ML ecosystem lives. Reasoning and rejected alternatives in [ADR-0007](docs/adr/0007-tech-stack.md).
-
-Weights are **not** on either path. The serving engines fetch them from the Hub
-themselves, so clickllm resolves *which* repo and then gets out of the way —
-`clickllm cache` manages the cache they fill rather than keeping a second one.
-That reversed an earlier decision; [ADR-0010](docs/adr/0010-retire-the-weights-crate.md) records why.
-
----
 
 ## Install
 
 ```bash
-uvx --from clickllm-cli clickllm fit      # run it, install nothing
-npx clickllm fit                          # same, if node is what you have
-uv tool install clickllm-cli              # or put clickllm on your PATH
-pipx install clickllm-cli                 # same, via pipx
-pip install clickllm-cli                  # into the current environment
+uvx --from clickllm-cli clickllm fit           # no install, no deps
+pip install clickllm-cli                       # or install it
+npx clickllm@1.1.0 fit                        # same build, via npm
+clickllm version                              # what you have, and where it came from
 ```
 
-All five give you the `clickllm` command. **The distribution is `clickllm-cli`, the
-command is `clickllm`**, and that split is not cosmetic: PyPI refused the bare name as
-too similar to the existing `click-llm`, so `pip install clickllm` and `uvx clickllm`
-will never work. `--from` is what bridges the two names, which is why every `uvx` line
-here carries one.
+The commands above are unpinned and fetch the newest release — currently **1.1.0**.
 
-**`npx clickllm` works.** npm allowed the bare name PyPI refused, so there the package
-*and* the command are both `clickllm` — three names in total. The npm package is a shim
-rather than a second implementation: it execs `uvx --from clickllm-cli==<version>
-clickllm`, falling back to `uv tool run` then `pipx run`. A Python runner is still
-required underneath, so `npx` saves you naming the distribution, not installing Python.
-The `==` is exact on purpose: `npx clickllm@1.1.0` runs `clickllm-cli` 1.1.0 and nothing
-else, so the two registries cannot drift apart under you.
-
-### Versions
-
-The commands above are unpinned and fetch the newest release — currently **1.1.0**. Pin
-when you need a build to stay put:
+The `==` is exact on purpose: `npx clickllm@1.1.0` runs `clickllm-cli` 1.1.0 and nothing else.
+Pin it when you need a build to stay put:
 
 ```bash
 uvx --from clickllm-cli==1.1.0 clickllm fit   # exactly this build
-npx clickllm@1.1.0 fit                        # same build, via npm
-clickllm version                              # what you have, and where it came from
-clickllm upgrade                              # how to move, for the way you installed it
 ```
 
 `clickllm version` reads the installed metadata rather than a string someone typed —
@@ -703,54 +312,10 @@ through 0.1.4 the receipts it writes were stamped `0.1.0`, because that literal 
 hand-written once and never moved. Fixed in 0.1.5, so a receipt now names the build that
 produced it.
 
-There is no Homebrew formula — `dshakes/homebrew-tap` carries `compass.rb`, `distil.rb`
-and `firstpass-proxy.rb` and nothing for clickllm. `tests/test_docs_lab.py` fails the
-build if these docs ever name a package we have not actually published.
-
-**Native launcher** — `clickllm desktop install` writes a real `.app` on macOS or a
-`.desktop` entry on Linux. It launches `clickllm ui` rather than reimplementing it,
-binds loopback only, and reopens the running instance instead of clashing if you
-double-click twice. `clickllm desktop uninstall` removes it.
-
-**Python SDK** — the same implementation the CLI and MCP server route through:
-
-```python
-from clickllm import sdk
-report = sdk.fit(context="32k", concurrency=8)
-report.best()                 # highest-capability candidate that isn't slow
-report.commercially_clean()   # permissive licence AND verified architecture
-
-result = sdk.prove(items, shares=shares, issued="2026-07-27")
-result.policy.moved_share     # 0.75 — what the evidence supports moving
-result.policy.regret_clusters # ('rare-json',) — where it loses, always named
-result.receipt.digest()       # reproducible: same eval set, same digest
-```
-
-**MCP server** — `clickllm-mcp`, JSON-RPC over stdio, zero dependencies. Deliberately read-only: an agent may analyse and recommend a migration; a human presses the button that moves production traffic.
-
-Nine tools, plus **resources** and **prompts**. Receipts and eval sets under
-`CLICKLLM_EVAL_ROOT` are readable as `clickllm:///<path>` — confined to that
-root, resolved before comparison so a symlink cannot walk out of it, and served
-only if the file's own `format` tag says it is a clickllm artifact. Three
-prompts carry the workflows: size a model, prove a migration, check a receipt
-still holds. Each argument sits inside explicit markers and is named as data,
-because an agent-supplied argument can carry anything.
-
-<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: nine read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
-
-**Diagnostics** — nothing is emitted until `CLICKLLM_LOG` is set, and then only
-to stderr or a local file. There is no exporter, no collector endpoint, and no
-setting that adds one; a test fails if anything networked is even imported.
-
----
+`clickllm fit` has zero runtime dependencies and works under `uvx` with
+nothing installed; a test fails if anything networked is even imported.
 
 ## Verification
-
-```bash
-cargo test --all                                   # 249 Rust
-cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
-```
 
 **2225 tests.** 1976 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
@@ -763,34 +328,20 @@ Every module's `demo()` is *run* by a separate test, because that harness used
 to skip when a demo failed — which is how two of them sat broken behind a green
 tick. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint level — a sizing or licence bug must not be a panic. Gateway tests run over **real TCP** against a **real** upstream, because a test that calls the handler directly passes even when the response is buffered.
 
-**Every engine flag is verified against published docs, never recalled.** That
-rule exists because breaking it shipped a bug: `--guided-decoding-backend` had
-been renamed in vLLM, so every structured-output config this repo generated was
-unrunnable. Where a flag could not be confirmed — SGLang's grammar backend at the
-time of writing — the adapter reports a gap rather than emitting a plausible
-guess. A wrong flag fails loudly and costs an afternoon; a *right-looking* flag
-with inverted meaning succeeds and quietly costs half your throughput.
+```bash
+cargo test --all                                   # 249 Rust
+cargo clippy --all-targets -- -D warnings
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
+```
 
-Four defects caught by review or by rendering, all now regression tests:
-
-- an SSE frame cap that was *detected* but never *enforced*
-- shadow mirroring recorded and displayed without ever dispatching
-- failover that would serve **unproven candidate output during shadow mode** —
-  the phase whose entire contract is "scored, never served"
-- concurrent capture appends interleaving into a log that decrypted as garbage
-
----
-
-## Principles
-
-1. **Kiosk outside, glass box inside.** One command; every number drillable to the raw prompt.
-2. **Show the arithmetic.** `--explain` on everything.
-3. **Lead with the regret.** Honest failures buy credibility for the wins.
-4. **Never a number without its confidence.** `?` beats a fabricated score.
-5. **Local-first, zero telemetry.** Your production prompts are the most sensitive data you have.
-6. **No lock-in, by construction.** Eval sets export. Generated config runs standalone. *A product about escaping lock-in cannot create lock-in.*
-
----
+Every module carries an assert-based `demo()` self-check runnable via
+`python -m clickllm.<mod>`. The Rust core denies `unwrap`/`expect`/`panic!`
+and slice-indexing at the lint level — a sizing or licence bug must not be a
+panic — and sizing arithmetic saturates, so an overflowed requirement reads
+as "too big" and refuses rather than wrapping to a small number and
+appearing to fit. Gateway tests run over **real TCP** against a **real**
+upstream, because a test that calls the handler directly passes even when
+the response is buffered.
 
 ## Docs
 
@@ -808,10 +359,10 @@ Four defects caught by review or by rendering, all now regression tests:
 | [90 — CI gating](docs/90-ci-gating.md) | Gate a deploy on a proof that still holds. |
 | [ADRs](docs/adr/) | 17 decisions, including the two later reversed. |
 
-## Prior art
-
-**[LiteLLM](https://github.com/BerriAI/litellm)** provider transport · **[Inspect AI](https://inspect.aisi.org.uk)** eval runner · **[vLLM](https://github.com/vllm-project/vllm)** · **[SGLang](https://github.com/sgl-project/sglang)** · **[llama.cpp](https://github.com/ggerganov/llama.cpp)** · **[MLX](https://github.com/ml-explore/mlx)** · **[llm-d](https://llm-d.ai)** + **[GAIE](https://github.com/kubernetes-sigs/gateway-api-inference-extension)** · **[Ollama](https://ollama.com)**, the ergonomics bar everyone should be held to.
+The docs teach the whole inference stack from first principles —
+[start here](https://dshakes.github.io/clickllm/docs/#edu-why) if you have
+never sized a KV cache.
 
 ## License
 
-Apache-2.0.
+Apache-2.0. See [LICENSE](LICENSE).
