@@ -613,16 +613,28 @@ jobs:
             exit 1
           fi
           tmp="$(mktemp -d)"
-          git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
+          # No `2>/dev/null`: it discarded the one message that says WHY a clone
+          # failed (bad token, missing scope, repo renamed), leaving a step that
+          # could only be debugged by guessing.
+          git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" \
+            || { echo "::error::could not clone dshakes/homebrew-tap — check HOMEBREW_TAP_TOKEN has contents:write on it"; exit 1; }
           mkdir -p "$tmp/tap/Formula"
           # Copy under THIS project's formula name. The tap is shared with other projects,
           # so a hardcoded name carried over from whichever repo this workflow was copied
           # from would overwrite a different tool's formula on every clickllm release.
           cp "$formula" "$tmp/tap/Formula/$(basename "$formula")"
           cd "$tmp/tap"
-          if git diff --quiet; then echo "tap already current for $VERSION"; exit 0; fi
+          # `git add` first, and `git diff --cached` after it. `git diff` alone
+          # reports only TRACKED changes, and clickllm.rb was untracked in that
+          # clone — the tap has never had it. So the check said "clean", the step
+          # exited 0, and the formula was never committed: a sync that reported
+          # success on every release while being structurally incapable of
+          # bootstrapping a formula that did not already exist. `brew install
+          # clickllm` has never resolved because of this line.
+          git add -A
+          if git diff --cached --quiet; then echo "tap already current for $VERSION"; exit 0; fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -aqm "clickllm $VERSION"
+          git commit -qm "clickllm $VERSION"
           git push
           echo "synced clickllm $VERSION into dshakes/homebrew-tap"
