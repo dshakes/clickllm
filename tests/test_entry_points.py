@@ -84,3 +84,57 @@ def test_the_two_shipped_names_are_the_ones_documented():
         f"the shipped command names changed to {sorted(scripts)}; the README, the "
         "Homebrew formula and every MCP client config name the old ones"
     )
+
+
+# --- the shopfront ---------------------------------------------------------------
+
+
+def test_the_package_ships_a_description():
+    """1.1.0 published to PyPI with a completely empty project page.
+
+    `pyproject.toml` had no `readme` field, so the metadata carried a one-line
+    summary and nothing else — on the most-linked page this project has. The
+    registry confirmed it: `description length: 0`.
+
+    Nothing caught it because every test built the wheel and checked the *code*
+    inside it. The metadata is what a human sees, and no test looked at it —
+    the same shape as the transport nobody exercised.
+    """
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    readme = data["project"].get("readme")
+    assert readme, "no readme in [project] — the PyPI page will be blank"
+    body = (ROOT / readme).read_text()
+    assert len(body) > 1500, f"{readme} is {len(body)} bytes; that is not a shopfront"
+    assert "clickllm-cli" in body, "it must name the install target, not just the command"
+
+
+def test_the_pypi_page_has_no_links_that_only_work_on_github():
+    """The reason this is a separate file from the README.
+
+    The README carries thirteen relative image sources that resolve against the
+    repository. On PyPI they resolve against nothing, so a copy of it would show
+    thirteen broken images on the page a launch points at.
+    """
+    import re
+
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    body = (ROOT / data["project"]["readme"]).read_text()
+
+    relative = [
+        m
+        for m in re.findall(r'(?:src|href)="([^"]+)"', body) + re.findall(r"]\(([^)]+)\)", body)
+        if not m.startswith(("http://", "https://", "#", "mailto:"))
+    ]
+    assert not relative, f"these resolve only inside the repo: {relative}"
+
+
+def test_the_pypi_page_does_not_republish_a_number_the_solver_disowns():
+    """The README published 119 tok/s where the solver produces 60. A shopfront
+    that repeats a retired figure is worse than one that is blank."""
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    body = (ROOT / data["project"]["readme"]).read_text()
+    assert "119" not in body, "the retired throughput figure reappeared on the PyPI page"
+    if "tok/s" in body:
+        assert "roofline" in body or "not a measurement" in body, (
+            "throughput is published without saying it is a projection"
+        )
