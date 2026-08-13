@@ -317,6 +317,12 @@ nothing installed; a test fails if anything networked is even imported.
 
 ## Verification
 
+```bash
+cargo test --all                                   # 249 Rust
+cargo clippy --all-targets -- -D warnings
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
+```
+
 **2225 tests.** 1976 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
 develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
