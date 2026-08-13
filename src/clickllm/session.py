@@ -176,17 +176,23 @@ class Session:
     requirements: Requirements = field(
         default_factory=lambda: Requirements(workload=Workload.INTERACTIVE)
     )
-    #: Fields understood — set outright or read out of prose. This is what stops
-    #: the session re-asking something already answered; it is NOT what locks a
-    #: value across a re-read, because prose can be corrected by later prose.
-    #: See `explicit` for the subset that is locked.
+    #: Fields set outright, through `set()`/`turn(**fields)` — never through
+    #: prose. `_worth_asking` and the "assuming" list read this to stop asking
+    #: about something already answered. A field read out of prose is not
+    #: added here; it lands in `answered` instead, precisely because it must
+    #: NOT lock a value across a re-read the way this set does. `stated` and
+    #: `explicit` are populated together and mean the same thing today — kept
+    #: distinct because they answer different questions ("skip this question"
+    #: vs. "protect this value from `_apply_text`") even though every caller
+    #: that sets one sets the other.
     stated: set[str] = field(default_factory=set)
     #: Fields the user set outright, through `set()`/`turn(**fields)`. A later
     #: sentence must not talk the session out of an answer given this way — "8
     #: users" said once stays 8 — so `_apply_text` keeps only these across a
-    #: re-read. A field merely read out of prose is in `stated` but not here,
-    #: so a correction in a later sentence ("actually batch scoring...") replaces
-    #: it instead of being silently discarded by the fresher `read()`.
+    #: re-read. A field merely read out of prose is in neither this set nor
+    #: `stated` — it is in `answered` instead — so a correction in a later
+    #: sentence ("actually batch scoring...") replaces it instead of being
+    #: silently discarded by the fresher `read()`.
     explicit: set[str] = field(default_factory=set)
     hw: Hardware | None = None
     hw_source: str = ""
@@ -194,12 +200,12 @@ class Session:
     #: Questions already put to the user. Asked once, then assumed — a session
     #: that repeats itself is one nobody finishes.
     asked: set[str] = field(default_factory=set)
-    #: Fields answered in prose. Distinct from `stated`, which also *locks* a
-    #: value against a re-read, and from `asked`, which records that a question
-    #: was put to someone. A prose answer must stop the question without
-    #: pinning the value: "a few thousand tokens" then "actually make that
-    #: 16000 tokens" has to land on 16384, and putting the field in `stated`
-    #: silently kept 4096. Nothing reads this back into requirements.
+    #: Fields answered in prose. Distinct from `explicit`, which additionally
+    #: *locks* a value against a re-read, and from `asked`, which records that
+    #: a question was put to someone. A prose answer must stop the question
+    #: without pinning the value: "a few thousand tokens" then "actually make
+    #: that 16000 tokens" has to land on 16384, and putting the field in
+    #: `explicit` silently kept 4096. Nothing reads this back into requirements.
     answered: set[str] = field(default_factory=set)
     evidence: tuple[str, ...] = ()
 
@@ -809,6 +815,7 @@ class Session:
                     else None
                 ),
                 "stated": sorted(self.stated),
+                "explicit": sorted(self.explicit),
                 "asked": sorted(self.asked),
                 "answered": sorted(self.answered),
                 "model_id": self.model_id,
@@ -849,6 +856,13 @@ class Session:
             stage=Stage(d["stage"]),
             requirements=Requirements(**r),
             stated=set(d["stated"]),
+            # .get, falling back to `stated`: a session serialised before this
+            # field existed had no `explicit`/`stated` split — every stated
+            # field was locked the same way `explicit` locks one now, so
+            # treating old `stated` as the resumed `explicit` reproduces that
+            # behaviour instead of silently dropping the lock on resume and
+            # letting a later sentence talk a direct answer out of the plan.
+            explicit=set(d.get("explicit", d["stated"])),
             asked=set(d["asked"]),
             # .get: a session serialised before this field existed still resumes.
             answered=set(d.get("answered", ())),

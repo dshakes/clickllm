@@ -217,8 +217,24 @@ def test_a_session_survives_a_restart_and_answers_identically():
     again = Session.from_json(s.to_json())
     assert again.answer() == s.answer()
     assert again.stated == s.stated
+    assert again.explicit == s.explicit
     assert again.asked == s.asked
     assert again.hw is not None and again.hw.name == s.hw.name
+
+
+def test_a_direct_answer_survives_a_resume_and_a_later_correction():
+    """`explicit` protects a direct answer from a later re-read of the prose —
+    but only if it round-trips through `to_json`/`from_json`. It did not: a
+    resumed session had an empty `explicit`, so `tell()` on the next process
+    silently overwrote a value the user set outright with whatever the fresh
+    parse of the accumulated text produced.
+    """
+    s = started()
+    s.set(concurrency=32)
+    resumed = Session.from_json(s.to_json())
+    assert resumed.requirements.concurrency == 32
+    resumed.tell("also for 10 engineers")
+    assert resumed.requirements.concurrency == 32, "a resumed direct answer must survive a re-read"
 
 
 # --- the boundary ----------------------------------------------------------------
@@ -714,25 +730,26 @@ def test_every_question_has_an_answer_that_stops_it_being_asked():
         ),
     }
 
+    s = Session()
+    turn = s.turn("a support chatbot for 20 agents", detect_hardware=False, machine=_machine())
     asked_any = False
     for _ in range(len(answers)):
-        s = Session()
-        turn = s.turn("a support chatbot for 20 agents", detect_hardware=False, machine=_machine())
-        while turn.question is not None:
-            asked_any = True
-            assert turn.question in answers, (
-                f"the session asks {turn.question!r} and this test has no answer for it — "
-                "add one, or the question has no phrasing a reader would produce"
-            )
-            reply, field = answers[turn.question]
-            previous = turn.question
-            turn = s.turn(reply)
-            assert field in s.stated or field in s.answered, (
-                f"answering {previous!r} with {reply!r} recorded {field} in neither "
-                "`stated` nor `answered`, so the question will be asked again"
-            )
-            assert turn.question != previous, (
-                f"{previous!r} was asked again in the turn that consumed its answer"
-            )
-        break
+        if turn.question is None:
+            break
+        asked_any = True
+        assert turn.question in answers, (
+            f"the session asks {turn.question!r} and this test has no answer for it — "
+            "add one, or the question has no phrasing a reader would produce"
+        )
+        reply, field = answers[turn.question]
+        previous = turn.question
+        turn = s.turn(reply)
+        assert field in s.stated or field in s.answered, (
+            f"answering {previous!r} with {reply!r} recorded {field} in neither "
+            "`stated` nor `answered`, so the question will be asked again"
+        )
+        assert turn.question != previous, (
+            f"{previous!r} was asked again in the turn that consumed its answer"
+        )
     assert asked_any, "no question was asked at all — this test would be vacuous"
+    assert turn.question is None, f"left with unanswered question: {turn.question}"

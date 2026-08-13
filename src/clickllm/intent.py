@@ -765,7 +765,13 @@ def _context(text: str) -> tuple[int, str] | None:
             # "2,000 tokens" and matched "000" out of it instead.
             if n is not None and 100 <= n <= 9_999_999:
                 window = 1024
-                while window < n and window < 1_048_576:
+                # The cap must clear the accepted range above, not a round
+                # number that happens to look like one: 1_048_576 sat below
+                # 9_999_999, so "5000000 tokens" rounded DOWN to roughly a
+                # fifth of what was stated — a stated prompt length silently
+                # became smaller than itself. 16_777_216 is the next
+                # power-of-two at or above the top of the accepted range.
+                while window < n and window < 16_777_216:
                     window *= 2
                 ctx = _whole(window)
                 if ctx:

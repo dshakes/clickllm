@@ -560,3 +560,12 @@ def test_a_context_length_is_bounded_after_its_multiplier_not_before(text, want,
     i = read(text)
     assert i.requirements.context == want
     assert ("context" in {q.field for q in i.questions}) is asked
+
+
+def test_a_bare_token_count_never_rounds_down_below_what_was_stated():
+    """The power-of-two rounding capped at 1_048_576, below the 9_999_999 top
+    of the accepted range. "5000000 tokens" rounded down to roughly a fifth of
+    the stated length instead of up — a stated prompt length silently became
+    smaller than itself, which under-sizes the KV cache it feeds."""
+    i = read("prompts run about 5000000 tokens")
+    assert i.requirements.context >= 5_000_000, i.requirements.context
