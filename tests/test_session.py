@@ -733,7 +733,12 @@ def test_every_question_has_an_answer_that_stops_it_being_asked():
     s = Session()
     turn = s.turn("a support chatbot for 20 agents", detect_hardware=False, machine=_machine())
     asked_any = False
-    for _ in range(len(answers)):
+    # Bounded, not `while turn.question is not None`: a regression where an
+    # answer fails to settle its field would hang CI instead of failing, and a
+    # test that can hang is worse than one that can fail. `+ 1` so one question
+    # too many is caught by the final assertion rather than by exhausting the
+    # range, which would read as a pass.
+    for _ in range(len(answers) + 1):
         if turn.question is None:
             break
         asked_any = True
