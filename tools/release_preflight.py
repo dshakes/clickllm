@@ -219,12 +219,40 @@ def check_homebrew_tap_secret(repo: str) -> tuple[str, str]:
     )
 
 
+def check_formula_pr_token(repo: str) -> tuple[str, str]:
+    """Without a PAT the formula PR opens as a bot and never runs its checks.
+
+    A PR opened with the default `GITHUB_TOKEN` is attributed to
+    app/github-actions, and every workflow run on that branch lands in
+    `action_required` waiting for a human. `main`'s ruleset requires `review`
+    and `qa`, so the PR reports "no checks reported" and can never merge —
+    while the job that opened it reports success. Both releases on 2026-08-13
+    stalled exactly there and needed the runs approving by hand.
+    """
+    ok, out = _gh("api", f"repos/{repo}/actions/secrets")
+    if not ok:
+        return UNKNOWN, "could not list secrets (needs admin)"
+    try:
+        names = {s["name"] for s in json.loads(out).get("secrets", [])}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return UNKNOWN, "could not parse the secrets list"
+    if "SDLC_BOT_TOKEN" in names:
+        return OK, "SDLC_BOT_TOKEN is set — the formula PR opens as a user"
+    return (
+        FAIL,
+        "SDLC_BOT_TOKEN is not set — the Homebrew formula PR will open as a bot "
+        "and its required checks will sit at action_required until someone "
+        "approves them by hand",
+    )
+
+
 CHECKS = (
     ("version consistency", check_version_consistency, False),
     ("rust workspace resolves", check_workspace_builds, False),
     ("pypi publish action", check_publish_action_is_current, False),
     ("actions can open PRs", check_actions_can_open_prs, True),
     ("homebrew tap secret", check_homebrew_tap_secret, True),
+    ("formula PR token", check_formula_pr_token, True),
     ("auto-merge", check_auto_merge, True),
     ("branch protection", check_branch_protection, True),
 )

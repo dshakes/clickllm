@@ -63,7 +63,14 @@ jobs:
             - core: core library / business logic (default if mixed/unclear)
           claude_args: |
             --model haiku
-            --max-turns 6
+            # 10, not 6. Six was exhausted twice in a row on PR #215 — a
+            # two-line Homebrew formula bump — returning `error_max_turns` with
+            # no structured output, so the check failed on a diff there was
+            # nothing to get wrong. The failure is the budget, not the change:
+            # a couple of turns go to reading the diff before the model has
+            # spent anything on deciding, and `--max-budget-usd` below is the
+            # real ceiling either way.
+            --max-turns 10
             --max-budget-usd 0.30
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*)"
             --json-schema '{"type":"object","properties":{"domain":{"type":"string","enum":["ui","api","infra","docs","core"]}},"required":["domain"]}'
