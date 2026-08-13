@@ -151,6 +151,8 @@ $ clickllm
     ? How many requests will be in flight at once?
 ```
 
+<img src="docs/assets/conversation.svg" alt="A replay of a bare clickllm session. The user describes a support chatbot for 20 agents; the tool answers with the model, quantisation and memory it would use, shows the evidence it read and the assumptions it made, and asks one follow-up question — how long the prompts are. The user answers, and it hands over the command. Each question is asked only when the answer would change the plan. In a script or a CI step the same invocation stays a usage error rather than waiting on input." width="100%">
+
 ```
   M4 Max · 16 cores · 128 GB · 546 GB/s          usable for inference: 96 GB
 
@@ -588,12 +590,16 @@ clickllm prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
 ```
 
 The share that moves is *measured*, so the dollars inherit its uncertainty — 60%
-on 40 requests is not the claim 60% on 4,000 is. Without a rate, a capture
+on 40 requests is not the claim 60% on 4,000 is.
+
+<img src="docs/assets/money-range.svg" alt="The same migration costed three times, at 4,000, 400 and 40 captured requests. The incumbent costs $2,847 a month and the candidate $317, and those rates never change. The dollar range widens as the sample shrinks, because the share of traffic that moves was measured rather than assumed. Less evidence is a wider claim, not a rounder number." width="100%"> Without a rate, a capture
 count, or a window of at least a week, it says the saving is unknown and names
 what would fix it. It will not extrapolate three days to a month.
 
 Long runs are resumable: `--resume run` writes each reply as it lands, so a
 collection killed at 380 of 400 does not re-buy the 380.
+
+<img src="docs/assets/resume-ledger.svg" alt="Three bars comparing a killed collection run. The first run reaches 380 of 400 replies before being killed. Without --resume, a second run buys all 400 again. With --resume, it buys only the missing 20. A failure is never cached, because an item that failed is an item to retry." width="100%">
 
 Then `clickllm receipt` makes it a file someone else can re-check, `clickllm
 guard` tells you when it stops being true, and `clickllm brief receipt.json
@@ -601,6 +607,8 @@ guard` tells you when it stops being true, and `clickllm brief receipt.json
 signs off — no network, no script, opens offline in six months, and leading with
 what is *not* proven. A reader who stops after the first screen stops having
 read the caveats.
+
+<img src="docs/assets/brief-anatomy.svg" alt="The five blocks of a migration briefing, in the order they are read: what must stay on the incumbent model, what is not proven either way, what is safe to move, what it saves, and the receipt's own JSON so the page need not be trusted. The order is the argument — a document built to persuade would put the good news first." width="100%">
 
 ## Three things everyone gets wrong
 
@@ -719,6 +727,8 @@ only if the file's own `format` tag says it is a clickllm artifact. Three
 prompts carry the workflows: size a model, prove a migration, check a receipt
 still holds. Each argument sits inside explicit markers and is named as data,
 because an agent-supplied argument can carry anything.
+
+<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: nine read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
 
 **Diagnostics** — nothing is emitted until `CLICKLLM_LOG` is set, and then only
 to stderr or a local file. There is no exporter, no collector endpoint, and no

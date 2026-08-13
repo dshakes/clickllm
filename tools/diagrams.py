@@ -1704,6 +1704,254 @@ def weights_flow() -> None:
     save("hero-weights.svg", p)
 
 
+def money_range() -> None:
+    """Why the saving is an interval: the share that moves is measured.
+
+    The rates are given. The *share* is measured on a sample, and a point
+    estimate hides that — which is how "$2,530/mo" ends up in a slide as though
+    someone had counted it. This draws the same run at two sample sizes so the
+    reader can see the number get less certain as the evidence thins, which is
+    the property invariant 6 exists to preserve.
+    """
+    W, H = 860, 396
+    p = head(
+        W,
+        H,
+        "A saving is a range",
+        "The same migration costed twice: once on 4,000 captured requests and once "
+        "on 40. The rates are identical. The dollars differ because the share of "
+        "traffic that moves was measured, not assumed.",
+    )
+    x0, bar_w = 250, 470
+    rows = [
+        ("4,000 requests", 0.985, 0.999, "#0e9bbd"),
+        ("400 requests", 0.95, 0.999, "#8b5cf6"),
+        ("40 requests", 0.87, 1.0, "#c2820b"),
+    ]
+    incumbent, candidate = 2847.0, 317.0
+
+    def dollars(share: float) -> float:
+        return incumbent - (candidate * share + incumbent * (1 - share))
+
+    p.append('<text x="40" y="86" class="t">$2,847/mo today · $317/mo self-hosted</text>')
+    for i, (label, lo, hi, colour) in enumerate(rows):
+        y = 132 + i * 74
+        p.append(f'<text x="40" y="{y + 5}" class="lb">{label}</text>')
+        p.append(
+            f'<rect x="{x0}" y="{y - 10}" width="{bar_w}" height="18" rx="4" fill="var(--panel)"/>'
+        )
+
+        # The interval, drawn to scale across the bar: 0.85 to 1.0 of the traffic.
+        def px(share: float) -> float:
+            return x0 + (share - 0.85) / 0.15 * bar_w
+
+        p.append(
+            f'<rect x="{px(lo):.1f}" y="{y - 10}" width="{max(3, px(hi) - px(lo)):.1f}" '
+            f'height="18" rx="4" fill="{colour}" opacity="0.85"/>'
+        )
+        p.append(
+            f'<text x="{x0}" y="{y + 30}" class="sub">'
+            f"${dollars(lo):,.0f} – ${dollars(hi):,.0f} per month</text>"
+        )
+    p.append(
+        f'<text x="40" y="{H - 40}" class="note">Less evidence is a wider claim, not a '
+        f"rounder number. Under a week of traffic, or with no rate at all, it refuses "
+        f"rather than extrapolating.</text>"
+    )
+    save("money-range.svg", p)
+
+
+def brief_anatomy() -> None:
+    """The briefing, in the order it is read — caveats above the headline.
+
+    Every document built to persuade puts the good news first. This one cannot,
+    because the person reading it is deciding whether to trust it, and a reader
+    who stops after the first screen must stop having read the caveats.
+    """
+    W, H = 860, 430
+    p = head(
+        W,
+        H,
+        "What a stakeholder receives",
+        "`clickllm brief` renders the receipt as one self-contained page: no network, "
+        "no script, opens offline in six months. The order is the argument.",
+    )
+    blocks = [
+        (
+            "Must stay on gpt-4o",
+            "measured, and below the bar — moving these is a known regression",
+            "#e0405f",
+        ),
+        (
+            "Not proven either way",
+            "not failures and not passes: unanswered, and shown as unanswered",
+            "#c2820b",
+        ),
+        (
+            "Safe to move",
+            "cleared the bar across the whole interval, not just on average",
+            "#0e9bbd",
+        ),
+        ("What it saves", "a range with the sample it was measured on, or a refusal", "#8b5cf6"),
+        (
+            "Verify this yourself",
+            "the receipt's own JSON, so the page need not be trusted",
+            "#63758f",
+        ),
+    ]
+    for i, (title, sub, colour) in enumerate(blocks):
+        y = 96 + i * 62
+        p.append(f'<rect x="40" y="{y}" width="{W - 80}" height="48" rx="7" fill="var(--panel)"/>')
+        p.append(f'<rect x="40" y="{y}" width="5" height="48" rx="2.5" fill="{colour}"/>')
+        p.append(f'<text x="62" y="{y + 21}" class="t" style="font-size:13px">{title}</text>')
+        p.append(f'<text x="62" y="{y + 38}" class="sub">{sub}</text>')
+    p.append(
+        f'<text x="40" y="{H - 22}" class="note">Nothing on this page authorises a '
+        f"cutover. Shadow mode does.</text>"
+    )
+    save("brief-anatomy.svg", p)
+
+
+def agent_surface() -> None:
+    """What an agent can reach, and the wall it cannot cross.
+
+    The differentiated claim is that a coding agent can size, prove and guard a
+    migration and *structurally cannot* move traffic. That is a property of the
+    surface, so it is worth drawing as one.
+    """
+    W, H = 860, 400
+    p = head(
+        W,
+        H,
+        "The agent surface, and its wall",
+        "Nine read-only tools, receipts and eval sets as resources confined to one "
+        "root, and three pre-built workflows. No verb moves production traffic.",
+    )
+    cols = [
+        (
+            "tools",
+            ["fit · where · explain", "advise · catalog", "prove · receipt", "guard · build"],
+        ),
+        (
+            "resources",
+            [
+                "clickllm:///receipt.json",
+                "clickllm:///evalset.json",
+                "",
+                "confined to CLICKLLM_EVAL_ROOT",
+            ],
+        ),
+        ("prompts", ["size-a-model", "prove-a-migration", "check-a-receipt-still-holds", ""]),
+    ]
+    for i, (title, items) in enumerate(cols):
+        x = 40 + i * 268
+        p.append(f'<rect x="{x}" y="92" width="248" height="168" rx="8" fill="var(--panel)"/>')
+        p.append(f'<text x="{x + 16}" y="118" class="t" style="font-size:13px">{title}</text>')
+        for j, item in enumerate(items):
+            if item:
+                p.append(f'<text x="{x + 16}" y="{146 + j * 24}" class="sub">{item}</text>')
+    # The wall.
+    p.append(
+        f'<rect x="40" y="288" width="{W - 80}" height="54" rx="8" fill="none" '
+        f'stroke="#e0405f" stroke-width="1.5" stroke-dasharray="6 4"/>'
+    )
+    p.append(
+        '<text x="60" y="312" class="t" style="font-size:13px;fill:#e0405f">'
+        "cutover, deploy, route, promote</text>"
+    )
+    p.append(
+        '<text x="60" y="331" class="sub">Not absent by policy — absent by construction. '
+        "There is no such tool to call.</text>"
+    )
+    save("agent-surface.svg", p)
+
+
+def conversation() -> None:
+    """A bare `clickllm`, replayed — one question at a time.
+
+    Animated as a terminal replay rather than shipped as a GIF: an SVG stays
+    crisp at any size, weighs a fraction as much, reads correctly in both light
+    and dark, and can be stopped by `prefers-reduced-motion`. A GIF is a binary
+    blob with a baked-in background that no reader can turn off.
+    """
+    W, H = 860, 396
+    p = head(
+        W,
+        H,
+        "It asks, one question at a time",
+        "`clickllm` with no arguments. Each question is asked only when the answer "
+        "would change the plan; the evidence and the assumptions are always shown.",
+    )
+    p.append(
+        f'<rect x="40" y="80" width="{W - 80}" height="{H - 132}" rx="9" fill="var(--panel)"/>'
+    )
+    lines = [
+        ("> a support chatbot for 20 agents", "#0e9bbd", 0),
+        ("Qwen3 30B-A3B at q8 — 44.2 GB of 96.0 GB. Engine: mlx.", "", 1),
+        ("understood:  concurrency = 4  (from \u201c20 agents\u201d)", "", 2),
+        ("assuming:    context = 32,768", "", 3),
+        ("? How long are the prompts \u2014 thousands of tokens, or tens of thousands?", "", 4),
+        ("> mostly short", "#0e9bbd", 5),
+        ("Nothing you did not ask about would change this.", "", 6),
+        ("MODEL / MACHINE / ENGINE / RUN \u2014 the command, handed over", "", 7),
+    ]
+    for text, colour, i in lines:
+        y = 112 + i * 34
+        # One `style` attribute, not two. Emitting `fill` and `animation-delay`
+        # separately produced duplicate attributes and an SVG no parser accepts —
+        # which renders as nothing at all in a browser, silently.
+        style = f"animation-delay:{i * 0.75:.2f}s"
+        if colour:
+            style += f";fill:{colour}"
+        # `pop` fades each line in and holds it, so the whole exchange reads as a
+        # replay rather than a wall of text arriving at once.
+        p.append(f'<text x="66" y="{y}" class="mono pop" style="{style}">{text}</text>')
+    p.append(
+        f'<text x="40" y="{H - 22}" class="note">In a script or a CI step it stays a usage '
+        f"error rather than waiting on input.</text>"
+    )
+    save("conversation.svg", p)
+
+
+def resume_ledger() -> None:
+    """A collection killed at 380 of 400, and what resuming costs.
+
+    Collection is the only thing here that spends real money, and it was the
+    part with no memory. The bar is the point: the second run buys twenty
+    replies, not four hundred.
+    """
+    W, H = 860, 340
+    p = head(
+        W,
+        H,
+        "A killed run does not re-buy what it paid for",
+        "`--resume` appends each reply as it lands. The ledger is keyed by the whole "
+        "question, so a different model or a changed prompt reuses nothing.",
+    )
+    x0, bar_w = 150, 640
+    rows = [
+        ("first run", 380, 400, "#0e9bbd", "killed at 380"),
+        ("without --resume", 400, 400, "#e0405f", "re-buys all 400"),
+        ("with --resume", 20, 400, "#1f6f43", "buys the missing 20"),
+    ]
+    for i, (label, bought, total, colour, note) in enumerate(rows):
+        y = 116 + i * 62
+        p.append(f'<text x="40" y="{y + 14}" class="lb">{label}</text>')
+        p.append(f'<rect x="{x0}" y="{y}" width="{bar_w}" height="20" rx="4" fill="var(--panel)"/>')
+        w = bar_w * bought / total
+        p.append(
+            f'<rect x="{x0}" y="{y}" width="{w:.0f}" height="20" rx="4" '
+            f'fill="{colour}" opacity="0.85"/>'
+        )
+        p.append(f'<text x="{x0 + bar_w + 10}" y="{y + 15}" class="sub">{note}</text>')
+    p.append(
+        f'<text x="40" y="{H - 26}" class="note">A failure is never cached: an item that '
+        f"failed is an item to retry, or a transient 503 becomes a permanently smaller "
+        f"eval set.</text>"
+    )
+    save("resume-ledger.svg", p)
+
+
 if __name__ == "__main__":
     print("writing diagrams:")
     memory_breakdown()
@@ -1718,4 +1966,9 @@ if __name__ == "__main__":
     kernels()
     silicon()
     weights_flow()
+    money_range()
+    brief_anatomy()
+    agent_surface()
+    conversation()
+    resume_ledger()
     print("done")
