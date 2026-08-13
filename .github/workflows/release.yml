@@ -541,7 +541,18 @@ jobs:
         run: echo "version=${{ needs.build.outputs.version }}" >> "$GITHUB_OUTPUT"
       - name: Open the Homebrew formula-bump PR
         env:
-          GH_TOKEN: ${{ github.token }}
+          # SDLC_BOT_TOKEN (a PAT), falling back to github.token. A PR opened
+          # with the default GITHUB_TOKEN is attributed to app/github-actions,
+          # and every workflow run on that branch then lands in
+          # `action_required` waiting for a human to approve it before it will
+          # start. `main`'s ruleset requires `review` and `qa`, which never
+          # run, so the PR reports "no checks reported" and can never merge —
+          # while the job that opened it reports success. Both releases today
+          # stalled there (6 runs on #208, 7 on #215), each needing manual
+          # approval nobody was told to give. A PAT-opened PR is attributed to
+          # a user and does not hit that gate, which keeps the approval
+          # requirement where it belongs: genuinely external actors.
+          GH_TOKEN: ${{ secrets.SDLC_BOT_TOKEN || github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
