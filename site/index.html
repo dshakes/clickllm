@@ -508,6 +508,14 @@
         the judge and its human-agreement rate, and — required, never optional — the clusters
         that did <em>not</em> pass. Re-run the eval set and the digest must match. A signature
         says <em>we said this</em>; reproduction says <em>and it's true</em>.</p>
+      <p>It carries the money too, as a range and never a point: the share of traffic that
+        moves is <em>measured</em>, so the dollars inherit its uncertainty. Without a rate, a
+        capture count, or a week of traffic it says the saving is unknown and names what would
+        fix it — it will not extrapolate three days to a month.</p>
+      <p><code>clickllm brief receipt.json</code> turns it into one self-contained page for
+        whoever signs off: no network, no script, opens offline in six months, and leading
+        with what is <em>not</em> proven. A reader who stops after the first screen stops
+        having read the caveats.</p>
     </div>
     <div class="card">
       <div class="cardtop"><span class="ico">🛡️</span><span class="tag warn">keeps checking</span></div>
@@ -709,6 +717,10 @@
 <section id="install"><div class="wrap rise">
   <p class="eyebrow">No login, no tokens, no account</p>
   <h2>Try it in ten seconds.</h2>
+  <p class="sub">Run <code>clickllm</code> with no arguments and it asks what you are
+    building — one question at a time, only when the answer would change the plan, and you
+    can stop at any point and still walk away with the best answer so far. In a script or a
+    CI step it stays a usage error rather than waiting on input.</p>
   <p class="sub">The sizing solver has zero runtime dependencies and runs offline. Nothing
     leaves your machine — captured traffic is the most sensitive data you have, and export is
     an explicit command, never a background sync.</p>

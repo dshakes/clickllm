@@ -132,6 +132,25 @@ else walks that whole line.
 uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8
 ```
 
+Or say nothing at all and let it ask. `clickllm` with no arguments opens a
+conversation — one question at a time, asked only when the answer would change
+the plan, with the evidence it read and the assumptions it made shown beside
+every answer. `q`, `^D` and `^C` all hand over the best answer so far. In a
+script or a CI step it stays a usage error rather than waiting on input.
+
+```
+$ clickllm
+
+  Describe what you are building. `q` to stop with the answer so far.
+
+  > a support chatbot for 20 agents
+
+  Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB. Engine: mlx.
+    understood:
+      · concurrency = 4   (from "20 agents — about a fifth in flight at once")
+    ? How many requests will be in flight at once?
+```
+
 ```
   M4 Max · 16 cores · 128 GB · 546 GB/s          usable for inference: 96 GB
 
