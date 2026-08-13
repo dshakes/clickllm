@@ -648,17 +648,17 @@ here carries one.
 rather than a second implementation: it execs `uvx --from clickllm-cli==<version>
 clickllm`, falling back to `uv tool run` then `pipx run`. A Python runner is still
 required underneath, so `npx` saves you naming the distribution, not installing Python.
-The `==` is exact on purpose: `npx clickllm@1.0.0` runs `clickllm-cli` 1.0.0 and nothing
+The `==` is exact on purpose: `npx clickllm@1.1.0` runs `clickllm-cli` 1.1.0 and nothing
 else, so the two registries cannot drift apart under you.
 
 ### Versions
 
-The commands above are unpinned and fetch the newest release — currently **1.0.0**. Pin
+The commands above are unpinned and fetch the newest release — currently **1.1.0**. Pin
 when you need a build to stay put:
 
 ```bash
-uvx --from clickllm-cli==1.0.0 clickllm fit   # exactly this build
-npx clickllm@1.0.0 fit                        # same build, via npm
+uvx --from clickllm-cli==1.1.0 clickllm fit   # exactly this build
+npx clickllm@1.1.0 fit                        # same build, via npm
 clickllm version                              # what you have, and where it came from
 clickllm upgrade                              # how to move, for the way you installed it
 ```
