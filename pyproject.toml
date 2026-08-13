@@ -2,6 +2,12 @@
 name = "clickllm-cli"
 version = "1.1.0"
 description = "Prove which open model can replace your closed one — on your traffic, your hardware, your budget."
+# The PyPI page was empty: no `readme` field meant a one-line summary and
+# nothing else on the most-linked page this project has. A separate file rather
+# than the README, for two reasons — the README carries thirteen relative image
+# links that resolve only on GitHub, and it is 800 lines, which is a repo
+# document rather than a shopfront.
+readme = "PYPI.md"
 requires-python = ">=3.11"
 dependencies = []  # Phase 0 is stdlib-only on purpose: `uvx clickllm fit` must just work.
 

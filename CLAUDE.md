@@ -19,7 +19,7 @@ Full picture: [README](README.md) · [PRD](docs/20-prd.md) · [architecture](doc
 
 ```bash
 cargo test && cargo clippy --all-targets && cargo fmt --check   # Rust gate (249 tests)
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # Python gate (1973 tests)
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # Python gate (1976 tests)
 uv run --with ruff   --python 3.13 ruff check src tests
 uv run --with ruff   --python 3.13 ruff format src tests
 python3 tools/release_preflight.py                     # before tagging a release
