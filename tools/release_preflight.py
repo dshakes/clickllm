@@ -192,11 +192,39 @@ def check_publish_action_is_current() -> tuple[str, str]:
 
 
 #: (name, callable). Repo-scoped checks take the repo slug; local ones take nothing.
+
+
+def check_homebrew_tap_secret(repo: str) -> tuple[str, str]:
+    """The tap sync skips silently without this, and reports success anyway.
+
+    Up to and including v1.1.1 the workflow read `HOMEBREW_TAP_PAT` while the
+    secret in this repo is `HOMEBREW_TAP_TOKEN`. The name never matched, so the
+    step took its skip path on every release and still exited 0 — which is why
+    `brew install clickllm` has never resolved. This checks the name that is
+    actually configured, so a rename on either side is caught before a tag.
+    """
+    ok, out = _gh("api", f"repos/{repo}/actions/secrets")
+    if not ok:
+        return UNKNOWN, "could not list secrets (needs admin)"
+    try:
+        names = {s["name"] for s in json.loads(out).get("secrets", [])}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return UNKNOWN, "could not parse the secrets list"
+    if "HOMEBREW_TAP_TOKEN" in names:
+        return OK, "HOMEBREW_TAP_TOKEN is set"
+    return (
+        FAIL,
+        "HOMEBREW_TAP_TOKEN is not set — the tap sync will not update "
+        "dshakes/homebrew-tap, so `brew install clickllm` stays broken",
+    )
+
+
 CHECKS = (
     ("version consistency", check_version_consistency, False),
     ("rust workspace resolves", check_workspace_builds, False),
     ("pypi publish action", check_publish_action_is_current, False),
     ("actions can open PRs", check_actions_can_open_prs, True),
+    ("homebrew tap secret", check_homebrew_tap_secret, True),
     ("auto-merge", check_auto_merge, True),
     ("branch protection", check_branch_protection, True),
 )

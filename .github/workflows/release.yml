@@ -595,7 +595,11 @@ jobs:
 
       - name: Sync formula into the shared tap (dshakes/homebrew-tap)
         env:
-          TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
+          # The secret in this repo is HOMEBREW_TAP_TOKEN. This read was
+          # HOMEBREW_TAP_PAT — a name that has never existed here — so TAP_PAT
+          # was always empty and the step below took its skip path on every
+          # release while reporting success.
+          TAP_PAT: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
@@ -605,8 +609,8 @@ jobs:
           formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
           [ -n "$formula" ] || exit 0
           if [ -z "${TAP_PAT:-}" ]; then
-            echo "::warning::HOMEBREW_TAP_PAT not set — skipping tap sync. Add a fine-grained PAT with contents:write on dshakes/homebrew-tap so the tap tracks releases automatically."
-            exit 0
+            echo "::error::HOMEBREW_TAP_TOKEN not set — the tap was NOT updated, so \`brew install clickllm\` still points at the previous release (or does not resolve at all). Add a fine-grained PAT with contents:write on dshakes/homebrew-tap. Failing rather than warning: this step reported success while skipping on every release up to v1.1.1, which is why the tap never had a formula."
+            exit 1
           fi
           tmp="$(mktemp -d)"
           git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
