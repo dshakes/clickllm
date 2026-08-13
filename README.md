@@ -77,11 +77,10 @@ in what unit. A flag the installed engine does not accept is a refusal, not a
 command that fails on start-up. A repo it has not confirmed exists is never
 printed as though it does.
 
-**2 — Know where open is good enough.** Benchmarks are someone else's exam. The
+**2 — Know where open is good enough.** Benchmarks are someone else's exam: the
 model that tops MMLU may fail your extraction schema, and the one ranked
 fortieth may be perfect at your four tasks. So the comparison runs on *your*
-captured requests, per kind of task, against the closed model you are using
-today:
+captured requests, per task, against the closed model you use today:
 
 ```
                     Arithmetic  Ticket classific  Structured extra  One-line summari
@@ -99,31 +98,24 @@ That is the whole answer: **which of your tasks an open model already does, with
 a number you can defend.** What you do with it is yours.
 
 **Estimates say so, and measurements have to earn the name.** Every throughput
-figure here is a memory-bandwidth roofline until something measures it, and
-`clickllm measure` is the thing that can — against a real endpoint, timing
-decode from the first token to the last. It refuses more readily than it
-reports: identical inputs on an idle-looking laptop have produced 46.9 and 33.7
-tok/s, tracking the load average, and a measured number 30% low is *worse* than
-the estimate it replaces because it carries more authority and outlives the
-browser tab that caused it. So a wide spread is reported as the finding, a busy
-machine is a refusal rather than a number, and the estimate is printed beside
-the measurement every time. [#80](https://github.com/dshakes/clickllm/issues/80)
-filed that constraint before the code existed.
+figure here is a memory-bandwidth roofline until something measures it;
+`clickllm measure` is the thing that can. It refuses more readily than it
+reports — identical inputs on an idle-looking laptop have produced 46.9 and 33.7
+tok/s — because a measured number 30% low is *worse* than the estimate it
+replaces: it carries more authority and outlives the browser tab that caused it.
+[#80](https://github.com/dshakes/clickllm/issues/80) filed that constraint
+before the code existed.
 
 **Why the interval and not the average.** 90% over 20 items and 90% over 400 are
 the same number and completely different decisions. Every cell is a Wilson score
-interval, and a task counts as proven only when its *whole* interval clears the
-bar — so a small sample cannot promote itself by getting lucky. At a perfect
-score you need 35 flawless items to clear 90%, and no fewer, however clean 12
-looks.
+interval, and a task is proven only when its *whole* interval clears the bar —
+so a small sample cannot promote itself by getting lucky. At a perfect score
+that takes 35 flawless items, however clean 12 looks.
 
-**Why now.** The quality gap has closed — about 17.5 points of MMLU between the
-best closed and best open model at the end of 2023, effectively zero on
-knowledge benchmarks by 2026, with cost still running 6–62x apart. Open weights
-stopped being the compromise and became the default for everything that does not
-specifically need a frontier model. The remaining problem is not whether they
-are good enough. It is that running them well is still a specialist skill, and
-knowing *where* they are good enough is still guesswork.
+**Why now.** The quality gap has closed — ~17.5 points of MMLU between the best
+closed and open model at the end of 2023, effectively zero by 2026, with cost
+still 6–62x apart. Running them well is still a specialist skill, and knowing
+*where* they are good enough is still guesswork.
 
 <sub>Sources: benchmark convergence and the 6–62x cost spread — published 2026
 comparisons of the Artificial Analysis index against provider pricing.
@@ -179,39 +171,8 @@ $ clickllm
 
 <img src="docs/assets/conversation.svg" alt="A replay of a bare clickllm session. The user describes a support chatbot for 20 agents; the tool answers with the model, quantisation and memory it would use, shows the evidence it read and the assumptions it made, and asks one follow-up question — how long the prompts are. The user answers, and it hands over the command. Each question is asked only when the answer would change the plan. In a script or a CI step the same invocation stays a usage error rather than waiting on input." width="100%">
 
-```
-
-  M4 Max · 16 cores · 128 GB · 546 GB/s
-  usable for inference: 96 GB
-
-  FEASIBLE at 32,768 context, concurrency 8
-
-  model                     quant   weights      kv   total    free  ~tok/s  license
-  ----------------------------------------------------------------------------------------
-  Qwen3 32B                 q4        17.2G   64.0G   84.1G   11.9G      15 slow  Apache-2.0 OK
-  Qwen3 30B-A3B (MoE)       q8        28.4G   24.0G   56.2G   39.8G      60  Apache-2.0 OK
-  Mistral Small 24B         q8        22.0G   40.0G   65.2G   30.8G      14 slow  Apache-2.0 OK
-  Phi-4 14B                 q8        13.7G   50.0G   66.3G   29.7G      18  MIT OK
-  Llama 3.1 8B              q8         7.5G   32.0G   41.6G   54.4G      32  Llama 3.1 !
-
-  NOT FEASIBLE
-
-  Gemma 3 27B               weights fit (14 GB) but KV at 32,768 ctx x8 (124 GB) puts it 45 GB over the 96 GB available
-  Llama 3.3 70B             weights fit (37 GB) but KV at 32,768 ctx x8 (80 GB) puts it 25 GB over the 96 GB available
-  Qwen3 235B-A22B (MoE)     weights alone need 123 GB at q4 — MoE sparsity (22B of 235B active) cuts compute, not memory
-  DeepSeek V3 (MoE, MLA)    weights alone need 352 GB at q4 — MoE sparsity (37B of 671B active) cuts compute, not memory
-  GLM-5.2                   weights alone need 186 GB at q4 — MoE sparsity (32B of 355B active) cuts compute, not memory
-  Kimi K2.7 Code            weights alone need 524 GB at q4 — MoE sparsity (32B of 1000B active) cuts compute, not memory
-  Kimi K3 (2.8T MoE)        weights alone need 1,467 GB at q4 — MoE sparsity (50B of 2800B active) cuts compute, not memory
-  DeepSeek V4 Pro           weights alone need 838 GB at q4 — MoE sparsity (45B of 1600B active) cuts compute, not memory
-  MiniMax M3                weights alone need 239 GB at q4 — MoE sparsity (46B of 456B active) cuts compute, not memory
-
-  runtime -> mlx
-             Apple silicon: the CUDA engines cannot run here at all. MLX has the better
-             batching story of the two Metal options.
-
-  clickllm fit --explain <model-id>   # show the arithmetic
-```
+It prints [the same table as above](#try-it-in-ten-seconds), for the machine it
+is running on.
 
 Then ask the inverse — *what would I need to run this?*
 
