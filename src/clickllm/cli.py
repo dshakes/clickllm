@@ -1750,6 +1750,78 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     return 0
 
 
+def _converse(parser: argparse.ArgumentParser) -> int:
+    """A bare `clickllm`: one question at a time, until there is an answer.
+
+    `session.py` has been a complete multi-turn engine the whole time, and the
+    browser has used it since the workbench conversation landed. The CLI — the
+    surface most people meet first — still answered a bare invocation with an
+    argparse error listing twenty-six verbs.
+
+    **Only when stdin is a terminal.** A bare `clickllm` in a script, a
+    Dockerfile or a CI step must keep failing exactly as it did rather than
+    blocking forever on a read: a command that hangs in CI is a worse first
+    minute than a usage error, and it is the kind of change that is discovered
+    at 3am by someone who did not make it.
+    """
+    if not sys.stdin.isatty():
+        parser.print_usage(sys.stderr)
+        print(
+            f"{parser.prog}: error: the following arguments are required: cmd",
+            file=sys.stderr,
+        )
+        return 2
+
+    from .session import Session
+
+    def show(text: str) -> None:
+        """Indent every line, not just the first.
+
+        Indenting the first line alone left `answer()`'s block ragged — MODEL at
+        six spaces and MACHINE at four — which reads as a rendering bug in the
+        one output a user is meant to copy.
+        """
+        print("\n" + "\n".join(f"  {line}" if line.strip() else "" for line in text.splitlines()))
+
+    session = Session()
+    print("\n  Describe what you are building. `q` to stop with the answer so far.\n")
+
+    def leave(code: int = 0) -> int:
+        """Hand over the best answer available, or admit there is not one.
+
+        Leaving before describing anything printed "No machine chosen yet",
+        which is not an answer and reads like a failure. Nothing was asked, so
+        nothing is owed — say that instead.
+        """
+        if session.hw is None:
+            print("\n  Nothing described yet, so there is nothing to answer.\n")
+        else:
+            show(session.answer())
+        return code
+
+    try:
+        # The description is read *before* the first step. Stepping first
+        # produced a full plan on defaults and a follow-up question before the
+        # user had said anything — an odd thing to do directly under a prompt
+        # asking them what they are building.
+        said = input("  > ").strip()
+        while True:
+            if said.lower() in {"q", "quit", "exit"}:
+                return leave()
+            turn = session.turn(said, detect_hardware=session.hw is None)
+            show(turn.render())
+            if turn.done:
+                return 0
+            said = input("\n  > ").strip()
+    except EOFError:
+        # Stdin closed mid-conversation. The answer so far is still worth
+        # printing — a session you can interrupt and still walk away with
+        # something is the whole difference from a wizard.
+        return leave()
+    except KeyboardInterrupt:
+        return leave(130)
+
+
 def main(argv: list[str] | None = None) -> int:
     from . import __version__
     from .events import configure
@@ -1772,7 +1844,12 @@ def main(argv: list[str] | None = None) -> int:
         action="version",
         version=f"clickllm {__version__} (clickllm-cli)",
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    # Not required: a bare `clickllm` opens a conversation instead of printing
+    # an argparse error over a list of twenty-six verbs, which is a bad first
+    # minute for someone who has just installed this and does not yet know
+    # which verb they want. `_converse` reproduces the old behaviour exactly
+    # when stdin is not a terminal, so nothing scripted changes.
+    sub = p.add_subparsers(dest="cmd")
     sub.add_parser("version", help="print the installed version").set_defaults(fn=cmd_version)
     sub.add_parser("upgrade", help="how to upgrade this install").set_defaults(fn=cmd_upgrade)
 
@@ -2200,6 +2277,8 @@ def main(argv: list[str] | None = None) -> int:
     kn.set_defaults(fn=cmd_kernel)
 
     args = p.parse_args(argv)
+    if getattr(args, "cmd", None) is None:
+        return _converse(p)
     try:
         return args.fn(args)
     # RuntimeError included: `desktop.install()` documents and raises it on any

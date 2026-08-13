@@ -620,7 +620,10 @@ class Session:
         optional rather than a gate.
         """
         if self.hw is None:
-            return "No machine chosen yet — call on() to detect this one or name a profile."
+            # Surface-neutral. `on()` is a Python API call, and this string is
+            # what the CLI and the MCP server hand a user who has no machine
+            # chosen — neither of whom can call it.
+            return "No machine chosen yet — detect this one, or name a hardware profile."
         cands = self._candidates()
         if not cands:
             return self._what_would_fit()

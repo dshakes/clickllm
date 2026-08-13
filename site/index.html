@@ -438,7 +438,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="n grad">2205</div><div class="l">tests · Rust + Python</div></div>
+    <div class="stat"><div class="n grad">2221</div><div class="l">tests · Rust + Python</div></div>
     <div class="stat"><div class="n">0</div><div class="l">bytes of telemetry, by design</div></div>
     <div class="stat"><div class="n">9</div><div class="l">diagrams, palette-validated</div></div>
     <div class="stat"><div class="n">7</div><div class="l">engines planned for and emitted</div></div>
@@ -508,6 +508,29 @@
         the judge and its human-agreement rate, and — required, never optional — the clusters
         that did <em>not</em> pass. Re-run the eval set and the digest must match. A signature
         says <em>we said this</em>; reproduction says <em>and it's true</em>.</p>
+      <p>It carries the money too, as a range and never a point: the share of traffic that
+        moves is <em>measured</em>, so the dollars inherit its uncertainty. Without a rate, a
+        capture count, or a week of traffic it says the saving is unknown and names what would
+        fix it — it will not extrapolate three days to a month.</p>
+      <p><code>clickllm brief receipt.json</code> turns it into one self-contained page for
+        whoever signs off: no network, no script, opens offline in six months, and leading
+        with what is <em>not</em> proven. A reader who stops after the first screen stops
+        having read the caveats.</p>
+  <figure>
+    <div class="anim" data-svg="assets/money-range.svg" role="img"
+         aria-label="The same migration costed at 4,000, 400 and 40 captured requests. The rates never change; the dollar range widens as the sample shrinks, because the share of traffic that moves was measured rather than assumed.">
+      <noscript><img src="assets/money-range.svg" alt="The same migration costed at 4,000, 400 and 40 captured requests. The rates never change; the dollar range widens as the sample shrinks, because the share of traffic that moves was measured rather than assumed."></noscript>
+    </div>
+    <figcaption>A saving is a range. Less evidence is a wider claim, not a rounder number — and under a week of traffic it refuses rather than extrapolating.</figcaption>
+  </figure>
+  <figure>
+    <div class="anim" data-svg="assets/brief-anatomy.svg" role="img"
+         aria-label="The five blocks of a migration briefing in the order they are read: what must stay, what is unproven, what is safe to move, what it saves, and the receipt's own JSON.">
+      <noscript><img src="assets/brief-anatomy.svg" alt="The five blocks of a migration briefing in the order they are read: what must stay, what is unproven, what is safe to move, what it saves, and the receipt's own JSON."></noscript>
+    </div>
+    <figcaption>The order is the argument. A document built to persuade would put the good news first.</figcaption>
+  </figure>
+
     </div>
     <div class="card">
       <div class="cardtop"><span class="ico">🛡️</span><span class="tag warn">keeps checking</span></div>
@@ -709,6 +732,17 @@
 <section id="install"><div class="wrap rise">
   <p class="eyebrow">No login, no tokens, no account</p>
   <h2>Try it in ten seconds.</h2>
+  <figure>
+    <div class="anim" data-svg="assets/conversation.svg" role="img"
+         aria-label="A replay of a bare clickllm session: the user describes a support chatbot, the tool answers with the model and memory it would use, shows its evidence and assumptions, and asks one follow-up question.">
+      <noscript><img src="assets/conversation.svg" alt="A replay of a bare clickllm session: the user describes a support chatbot, the tool answers with the model and memory it would use, shows its evidence and assumptions, and asks one follow-up question."></noscript>
+    </div>
+    <figcaption>One question at a time, asked only when the answer would change the plan.</figcaption>
+  </figure>
+  <p class="sub">Run <code>clickllm</code> with no arguments and it asks what you are
+    building — one question at a time, only when the answer would change the plan, and you
+    can stop at any point and still walk away with the best answer so far. In a script or a
+    CI step it stays a usage error rather than waiting on input.</p>
   <p class="sub">The sizing solver has zero runtime dependencies and runs offline. Nothing
     leaves your machine — captured traffic is the most sensitive data you have, and export is
     an explicit command, never a background sync.</p>
@@ -751,7 +785,7 @@ const CMDS = {
   // clickllm-cli and the command is clickllm; dropping the --from breaks the line.
   uvx:  [['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
           'size what runs on this machine — nothing cloned, nothing installed'],
-         ['uvx --from clickllm-cli==1.0.0 clickllm fit --context 32k --concurrency 8',
+         ['uvx --from clickllm-cli==1.1.0 clickllm fit --context 32k --concurrency 8',
           'pinned to a build that stays put; unpinned always fetches the newest'],
          ['uv tool install clickllm-cli',
           'or put the clickllm command on your PATH']],
@@ -764,8 +798,8 @@ const CMDS = {
   // cautious. tests/test_docs_lab.py now checks both directions.
   npm:  [['npx clickllm fit --context 32k --concurrency 8',
           'no Python packaging to name — the shim execs uvx --from clickllm-cli underneath'],
-         ['npx clickllm@1.0.0 fit --context 32k --concurrency 8',
-          'pinned: runs clickllm-cli==1.0.0 exactly, so the two registries cannot drift apart']],
+         ['npx clickllm@1.1.0 fit --context 32k --concurrency 8',
+          'pinned: runs clickllm-cli==1.1.0 exactly, so the two registries cannot drift apart']],
   git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
          ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
 };
