@@ -54,6 +54,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.ver.outputs.version }}
       num: ${{ steps.ver.outputs.num }}
@@ -174,6 +175,7 @@ jobs:
   publish-pypi:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: pypi
       url: https://pypi.org/p/clickllm-cli
@@ -294,6 +296,15 @@ jobs:
           - { os: macos-latest,  target: aarch64, tag: macos-arm64 }
           - { os: macos-13,      target: x86_64,  tag: macos-x86_64 }
     runs-on: ${{ matrix.os }}
+    # A hung runner must fail its own job rather than hold the `release`
+    # concurrency group. On 2026-08-13 the macos-13 leg of the v1.1.0 run sat
+    # `queued` for four hours because that image had no available runner; with
+    # `cancel-in-progress: false` it held the lock and every later release
+    # queued behind it forever. Three attempts at v1.1.1 scheduled zero jobs,
+    # and the run staying open also locks `gh run view --log`, so the sibling
+    # failures could not be read either. Twenty minutes is ~4x the observed
+    # build; past that the runner is missing, not slow.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -351,6 +362,7 @@ jobs:
   publish-compiled:
     needs: [build, build-compiled]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: pypi
     permissions:
@@ -374,6 +386,7 @@ jobs:
   publish-npm:
     needs: [build, publish-pypi]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write   # npm --provenance attests the tarball to this run
@@ -484,6 +497,7 @@ jobs:
   homebrew:
     needs: [build, publish-pypi]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
