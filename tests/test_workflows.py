@@ -105,6 +105,40 @@ def test_the_fix_job_says_which_of_its_three_outcomes_happened():
     assert 'if [ "$PUSHED" = "true" ]' in run and "exit 0" in run
 
 
+def test_a_queued_build_compiled_leg_cannot_block_later_releases():
+    """On 2026-08-13 the macos-13 leg of `build-compiled` sat `queued` for four
+    hours waiting for runner capacity. The workflow-level `concurrency: release`
+    lock at the time covered the whole run, so that queued (not even started)
+    job held the lock and every later release queued behind it forever.
+    `timeout-minutes` cannot fix this — it only bounds time after a runner
+    picks the job up, never time spent queued.
+
+    The fix is scope, not a bigger timeout: no workflow-level `concurrency:`,
+    and `build-compiled` must not opt into the `release` group that the jobs
+    touching shared state (the tag, PyPI, npm, the Homebrew PR) use.
+    """
+    doc = yaml.safe_load((WORKFLOWS / "release.yml").read_text())
+    assert "concurrency" not in doc, (
+        "a workflow-level concurrency group locks the whole run, including "
+        "build-compiled — a queued matrix leg would hold it again"
+    )
+
+    jobs = doc["jobs"]
+    assert "concurrency" not in jobs["build-compiled"], (
+        "build-compiled must stay outside the release lock, or a runner "
+        "shortage on one matrix leg blocks every other release"
+    )
+
+    locked_jobs = ["build", "publish-pypi", "publish-compiled", "publish-npm", "homebrew"]
+    for name in locked_jobs:
+        c = jobs[name].get("concurrency")
+        assert c, f"{name} must serialize against other release runs via job-level concurrency"
+        assert c.get("group") == "release", f"{name} concurrency group: {c.get('group')!r}"
+        assert c.get("cancel-in-progress") is False, (
+            f"{name}: an in-progress release must not be cancelled by a newer one"
+        )
+
+
 def test_the_release_workflow_still_fires_on_a_version_tag():
     """It was `workflow_dispatch`-only once. Pushing v0.1.0 did nothing, said
     nothing, and left a tag on origin with no release behind it."""

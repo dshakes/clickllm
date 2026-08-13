@@ -47,13 +47,26 @@ permissions:
   contents: write          # create + push the tag, publish the Release
   pull-requests: write     # open the Homebrew formula-bump PR
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
+# No workflow-level `concurrency:` here on purpose — see the note on `build`
+# below. Each job that touches shared release state (the tag, PyPI, npm, the
+# Homebrew PR) opts into the `release` group itself; `build-compiled` does not.
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Job-level, not the workflow-level `concurrency:` this used to be. A
+    # workflow-level group locks the *whole run* — including `build-compiled`,
+    # whose macos-13 leg sat `queued` for four hours on 2026-08-13 waiting for
+    # runner capacity that never came. `timeout-minutes` does not help there:
+    # it only bounds time *after* a runner picks the job up, not time spent
+    # queued, so the lock stayed held and every later release queued behind it
+    # forever. Scoping the lock to the jobs that actually touch shared state
+    # (this one, the publishers, homebrew) and leaving `build-compiled`
+    # unlocked means a runner shortage on one matrix leg can no longer block
+    # any other release from starting.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     outputs:
       version: ${{ steps.ver.outputs.version }}
       num: ${{ steps.ver.outputs.num }}
@@ -174,6 +187,10 @@ jobs:
   publish-pypi:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: release
+      cancel-in-progress: false
     environment:
       name: pypi
       url: https://pypi.org/p/clickllm-cli
@@ -294,6 +311,22 @@ jobs:
           - { os: macos-latest,  target: aarch64, tag: macos-arm64 }
           - { os: macos-13,      target: x86_64,  tag: macos-x86_64 }
     runs-on: ${{ matrix.os }}
+    # Deliberately outside the `release` concurrency group (see `build` above).
+    # `timeout-minutes` only bounds a job once a runner has started it — it does
+    # nothing for a job stuck `queued` on a scarce runner image, which is what
+    # actually happened: the macos-13 leg of the v1.1.0 run sat `queued` for
+    # four hours on 2026-08-13 with no available runner. Back when this job
+    # shared the workflow-level `release` lock, that queued job held it and
+    # every later release queued behind it forever — three attempts at v1.1.1
+    # scheduled zero jobs, and the run staying open also locks `gh run view
+    # --log`, so the sibling failures could not even be read. Not sharing the
+    # lock means a stuck macos-13 leg only delays *this* release's compiled
+    # wheels, never blocks the next one.
+    #
+    # `timeout-minutes: 20` stays regardless — it is ~4x the observed build and
+    # still catches a genuinely hung *execution* (e.g. a wedged maturin
+    # process) once a runner has picked the job up.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -351,6 +384,10 @@ jobs:
   publish-compiled:
     needs: [build, build-compiled]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: release
+      cancel-in-progress: false
     environment:
       name: pypi
     permissions:
@@ -374,6 +411,10 @@ jobs:
   publish-npm:
     needs: [build, publish-pypi]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: release
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write   # npm --provenance attests the tarball to this run
@@ -484,6 +525,10 @@ jobs:
   homebrew:
     needs: [build, publish-pypi]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: release
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -550,7 +595,11 @@ jobs:
 
       - name: Sync formula into the shared tap (dshakes/homebrew-tap)
         env:
-          TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
+          # The secret in this repo is HOMEBREW_TAP_TOKEN. This read was
+          # HOMEBREW_TAP_PAT — a name that has never existed here — so TAP_PAT
+          # was always empty and the step below took its skip path on every
+          # release while reporting success.
+          TAP_PAT: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
@@ -560,8 +609,8 @@ jobs:
           formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
           [ -n "$formula" ] || exit 0
           if [ -z "${TAP_PAT:-}" ]; then
-            echo "::warning::HOMEBREW_TAP_PAT not set — skipping tap sync. Add a fine-grained PAT with contents:write on dshakes/homebrew-tap so the tap tracks releases automatically."
-            exit 0
+            echo "::error::HOMEBREW_TAP_TOKEN not set — the tap was NOT updated, so \`brew install clickllm\` still points at the previous release (or does not resolve at all). Add a fine-grained PAT with contents:write on dshakes/homebrew-tap. Failing rather than warning: this step reported success while skipping on every release up to v1.1.1, which is why the tap never had a formula."
+            exit 1
           fi
           tmp="$(mktemp -d)"
           git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
