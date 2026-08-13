@@ -696,6 +696,38 @@ def _context(text: str) -> tuple[int, str] | None:
         k = _digits(m.group(1))
         ctx = _whole(k * 1024) if k else None
         return (ctx, m.group(0)) if ctx else None
+    # A bare token count, no `k`. The conversation asks "How long are the
+    # prompts — a few thousand tokens, or tens of thousands?", and every
+    # natural answer to that question ("about 2000 tokens in, 300 out", "2000
+    # token prompts") missed the branch above, which requires the `k` suffix.
+    # The field stayed at its default with no provenance line, so the same
+    # question was asked again on the next turn — the tool asking for units its
+    # own parser could not read. Round up to the next power-of-two window, the
+    # way a served model is actually configured; a stated prompt length is a
+    # floor, not the window.
+    # The worded forms the question itself offers. "a few thousand tokens" is
+    # the tool's own suggested wording and parsed to nothing at all.
+    worded = (
+        (r"tens of thousands\s*(?:of\s*)?(?:token|word)", 32768),
+        (r"(?:a\s*)?few\s*thousand\s*(?:token|word)", 4096),
+        (r"(?:a\s*)?couple\s*(?:of\s*)?thousand\s*(?:token|word)", 2048),
+    )
+    for pat, size in worded:
+        if (m := re.search(pat, text)) is not None:
+            ctx = _whole(size)
+            if ctx:
+                return ctx, m.group(0)
+
+    if (m := re.search(r"(\d{3,7})\s*(?:token|tok)", text)) is not None:
+        n = _digits(m.group(1))
+        if n:
+            window = 1024
+            while window < n and window < 1_048_576:
+                window *= 2
+            ctx = _whole(window)
+            if ctx:
+                return ctx, m.group(0)
+
     if (
         m := re.search(r"(?:long|large|big)\s*(?:context|documents?|files?|pdfs?)", text)
     ) is not None:

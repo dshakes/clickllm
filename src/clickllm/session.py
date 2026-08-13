@@ -255,6 +255,29 @@ class Session:
         kept = {f: getattr(self.requirements, f) for f in self.stated}
         self.requirements = replace(read.requirements, **kept)
         self.evidence = tuple(i.render() for i in read.inferred)
+        # A field the user stated in prose is stated. Only `set()` used to
+        # populate this, so answering a question in words left the field out of
+        # `stated` and `_worth_asking` asked it again on the same turn that
+        # printed the answer with its provenance — "context = 4096 (from 'a few
+        # thousand token')" directly above "? How long are the prompts". It
+        # stopped only because `asked` accumulates, which is a different
+        # mechanism doing this one's job by accident.
+        #
+        # Inferences carry the words they came from, so anything with evidence
+        # in the text is an answer, not a default.
+        # Only fields the user *said*, not fields derived from what they said.
+        # Both carry evidence, but a stated field's evidence is a literal
+        # substring of the text ("a few thousand token"), while a derived one's
+        # is the reasoning ("20 agents — about a fifth in flight at once, since
+        # people read and think between requests"). Marking the derived ones
+        # stated would suppress the question that checks the guess, which is
+        # backwards: a guess is exactly what is worth asking about.
+        lowered = self.text.lower()
+        self.stated |= {
+            i.field
+            for i in read.inferred
+            if i.evidence and i.evidence.lower() in lowered and hasattr(self.requirements, i.field)
+        }
         if self.stage is Stage.UNDERSTAND:
             self.stage = Stage.HARDWARE
 
