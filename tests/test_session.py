@@ -727,9 +727,9 @@ def test_every_question_has_an_answer_that_stops_it_being_asked():
             reply, field = answers[turn.question]
             previous = turn.question
             turn = s.turn(reply)
-            assert field in s.stated, (
-                f"answering {previous!r} with {reply!r} did not record {field} as stated, "
-                "so the question will be asked again"
+            assert field in s.stated or field in s.answered, (
+                f"answering {previous!r} with {reply!r} recorded {field} in neither "
+                "`stated` nor `answered`, so the question will be asked again"
             )
             assert turn.question != previous, (
                 f"{previous!r} was asked again in the turn that consumed its answer"

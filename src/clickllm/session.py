@@ -194,6 +194,13 @@ class Session:
     #: Questions already put to the user. Asked once, then assumed — a session
     #: that repeats itself is one nobody finishes.
     asked: set[str] = field(default_factory=set)
+    #: Fields answered in prose. Distinct from `stated`, which also *locks* a
+    #: value against a re-read, and from `asked`, which records that a question
+    #: was put to someone. A prose answer must stop the question without
+    #: pinning the value: "a few thousand tokens" then "actually make that
+    #: 16000 tokens" has to land on 16384, and putting the field in `stated`
+    #: silently kept 4096. Nothing reads this back into requirements.
+    answered: set[str] = field(default_factory=set)
     evidence: tuple[str, ...] = ()
 
     # --- input ---------------------------------------------------------------
@@ -269,13 +276,14 @@ class Session:
         kept = {f: getattr(self.requirements, f) for f in self.explicit}
         self.requirements = replace(read.requirements, **kept)
         self.evidence = tuple(i.render() for i in read.inferred)
-        # A field the user stated in prose is stated. Only `set()` used to
-        # populate this, so answering a question in words left the field out of
-        # `stated` and `_worth_asking` asked it again on the same turn that
-        # printed the answer with its provenance — "context = 4096 (from 'a few
-        # thousand token')" directly above "? How long are the prompts". It
-        # stopped only because `asked` accumulates, which is a different
-        # mechanism doing this one's job by accident.
+        # A question answered in prose must stop being asked — but must NOT
+        # lock its value. `stated` does both jobs: `_worth_asking` skips a
+        # stated field, and `kept` above pins it against a re-read. Prose needs
+        # only the first. Putting prose fields in `stated` made a later
+        # correction unreachable: "a few thousand tokens" then "actually make
+        # that 16000 tokens" kept 4096, silently discarding the correction,
+        # because `kept` restored the older value over the fresh parse. Caught
+        # by review before merge.
         #
         # Inferences carry the words they came from, so anything with evidence
         # in the text is an answer, not a default.
@@ -290,7 +298,7 @@ class Session:
         # lookup, not an arithmetic estimate — so it is stated once read, the
         # same as `workload` or `context`.
         lowered = self.text.lower()
-        self.stated |= {
+        self.answered |= {
             i.field
             for i in read.inferred
             if not i.guess
@@ -435,7 +443,7 @@ class Session:
             ),
         ]
         for field_name, question, alternative in probes:
-            if field_name in self.stated or field_name in self.asked:
+            if field_name in self.stated or field_name in self.asked or field_name in self.answered:
                 continue
             if self._outcome_differs(alternative):
                 self.asked.add(field_name)
@@ -802,6 +810,7 @@ class Session:
                 ),
                 "stated": sorted(self.stated),
                 "asked": sorted(self.asked),
+                "answered": sorted(self.answered),
                 "model_id": self.model_id,
                 "hw": self.hw.to_dict() if self.hw else None,
                 "hw_source": self.hw_source,
@@ -841,6 +850,8 @@ class Session:
             requirements=Requirements(**r),
             stated=set(d["stated"]),
             asked=set(d["asked"]),
+            # .get: a session serialised before this field existed still resumes.
+            answered=set(d.get("answered", ())),
             model_id=d["model_id"],
             hw=hw,
             hw_source=d.get("hw_source", ""),

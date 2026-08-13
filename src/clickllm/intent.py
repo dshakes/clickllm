@@ -698,68 +698,83 @@ _OUTPUT_LENGTH_WORDING = re.compile(
 
 
 def _context(text: str) -> tuple[int, str] | None:
-    """A stated context length."""
-    m = re.search(r"(\d+)\s*k\s*(?:token|context|ctx|window)", text)
-    if m:
-        # Through _digits like the other two captures: this one was missed when
-        # I fixed those, which is the duplicated-fact shape inside the fix for
-        # it. A 5000-digit "k tokens" raised ValueError out of read().
-        # Through _whole as well as _digits: _digits bounds the CAPTURE, and
-        # the x1024 happens after it, so a large-but-legal "k" produced a
-        # context of 10^12 tokens that fed straight into sizing as a confident
-        # requirement. Same shape as the two overflow fixes above — the guard
-        # has to be on the value that leaves the function.
+    """A stated context length. The LAST one stated wins.
+
+    Position matters because `Session` accumulates every turn into one string,
+    so a correction arrives appended to what it corrects. Returning the first
+    match by branch order made "a few thousand tokens" then "actually make that
+    16000 tokens" keep 4096 — the correction parsed and was then discarded.
+    Candidates carry their offset and the rightmost wins, so a later sentence
+    overrides an earlier one whichever branch matched.
+    """
+    found: list[tuple[int, int, str]] = []  # (offset, context, evidence)
+
+    # Through _digits like the other two captures: a 5000-digit "k tokens"
+    # raised ValueError out of read(). Through _whole as well: _digits bounds
+    # the CAPTURE and the x1024 happens after it, so a large-but-legal "k"
+    # produced a context of 10^12 tokens that fed straight into sizing as a
+    # confident requirement. The guard has to be on the value that leaves.
+    for m in re.finditer(r"(\d+)\s*k\s*(?:token|context|ctx|window)", text):
         k = _digits(m.group(1))
         ctx = _whole(k * 1024) if k else None
-        return (ctx, m.group(0)) if ctx else None
-    # A bare token count, no `k`. The conversation asks "How long are the
-    # prompts — a few thousand tokens, or tens of thousands?", and every
-    # natural answer to that question ("about 2000 tokens in, 300 out", "2000
-    # token prompts") missed the branch above, which requires the `k` suffix.
-    # The field stayed at its default with no provenance line, so the same
-    # question was asked again on the next turn — the tool asking for units its
-    # own parser could not read. Round up to the next power-of-two window, the
-    # way a served model is actually configured; a stated prompt length is a
-    # floor, not the window.
+        if ctx:
+            found.append((m.start(), ctx, m.group(0)))
+
     # The worded forms the question itself offers. "a few thousand tokens" is
     # the tool's own suggested wording and parsed to nothing at all.
-    worded = (
+    for pat, size in (
         (r"tens of thousands\s*(?:of\s*)?(?:token|word)", 32768),
         (r"(?:a\s*)?few\s*thousand\s*(?:token|word)", 4096),
         (r"(?:a\s*)?couple\s*(?:of\s*)?thousand\s*(?:token|word)", 2048),
-    )
-    for pat, size in worded:
-        if (m := re.search(pat, text)) is not None:
+    ):
+        for m in re.finditer(pat, text):
             ctx = _whole(size)
             if ctx:
-                return ctx, m.group(0)
+                found.append((m.start(), ctx, m.group(0)))
 
     # Scoped per clause, not per sentence: "about 2000 tokens in, 300 out"
     # must read the prompt length off the first clause and never reach the
     # second. A bare count qualified by response/output/completion wording
     # is a completion length, not a prompt length — "responses are about 500
-    # tokens" and "output is 300 tokens" would otherwise infer a context
-    # window from the answer, not the question, and suppress the context
-    # question on a field it never actually read.
+    # tokens" would otherwise infer a context window from the answer, not the
+    # question, and suppress the context question on a field it never read.
     # The comma only splits clauses apart when it is not a thousands
     # separator: "in, 300 out" is two clauses, but "2,000 tokens" is one
     # number, told apart by whether a digit follows immediately.
+    #
+    # `(?!{_PER})` because a throughput rate is not a context length: without
+    # it "2000 tokens/sec" set a 2048 context, a performance requirement
+    # re-read as a prompt size.
+    offset = 0
     for clause in re.split(r"[.;!?\n]|,(?!\d)", text):
-        m = re.search(r"(\d[\d,]*)\s*(?:token|tok)", clause)
-        if m is None or _OUTPUT_LENGTH_WORDING.search(clause):
-            continue
-        n = _digits(m.group(1))
-        # The same 3-to-7-digit floor as before, now applied to the parsed
-        # value instead of the raw digit run — that run breaks on the comma
-        # in "2,000 tokens" and matched "000" out of it instead.
-        if n is None or not (100 <= n <= 9_999_999):
-            continue
-        window = 1024
-        while window < n and window < 1_048_576:
-            window *= 2
-        ctx = _whole(window)
-        if ctx:
-            return ctx, m.group(0)
+        # `tokens?`/`toks?` spelled out, not `token\b`: the word boundary after
+        # "tok" falls before the plural "s", and `_PER`'s own `ss?` alternative
+        # then matched that "s" — so every bare "2000 tokens" looked like a
+        # rate and was rejected.
+        # `\b` AFTER the alternation, not inside it. Without the boundary the
+        # engine backtracks: blocked at "tokens", it retries the shorter
+        # "token", the lookahead then sees "s/sec" rather than "/sec", `_PER`
+        # does not match, and "2000 tokens/sec" was read as a 2048 context —
+        # a throughput rate re-read as a prompt size, which is the defect this
+        # guard exists to stop.
+        m = re.search(rf"(\d[\d,]*)\s*(?:tokens|token|toks|tok)\b(?!{_PER})", clause)
+        if m is not None and not _OUTPUT_LENGTH_WORDING.search(clause):
+            n = _digits(m.group(1))
+            # The same 3-to-7-digit floor, applied to the parsed value rather
+            # than the raw digit run — that run breaks on the comma in
+            # "2,000 tokens" and matched "000" out of it instead.
+            if n is not None and 100 <= n <= 9_999_999:
+                window = 1024
+                while window < n and window < 1_048_576:
+                    window *= 2
+                ctx = _whole(window)
+                if ctx:
+                    found.append((offset + m.start(), ctx, m.group(0)))
+        offset += len(clause) + 1
+
+    if found:
+        _, ctx, evidence = max(found, key=lambda c: c[0])
+        return ctx, evidence
 
     if (
         m := re.search(r"(?:long|large|big)\s*(?:context|documents?|files?|pdfs?)", text)
