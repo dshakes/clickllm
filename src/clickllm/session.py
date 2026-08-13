@@ -176,9 +176,18 @@ class Session:
     requirements: Requirements = field(
         default_factory=lambda: Requirements(workload=Workload.INTERACTIVE)
     )
-    #: Fields the user set explicitly. Everything else is inferred or defaulted,
-    #: and the distinction is what stops the session re-asking something answered.
+    #: Fields understood — set outright or read out of prose. This is what stops
+    #: the session re-asking something already answered; it is NOT what locks a
+    #: value across a re-read, because prose can be corrected by later prose.
+    #: See `explicit` for the subset that is locked.
     stated: set[str] = field(default_factory=set)
+    #: Fields the user set outright, through `set()`/`turn(**fields)`. A later
+    #: sentence must not talk the session out of an answer given this way — "8
+    #: users" said once stays 8 — so `_apply_text` keeps only these across a
+    #: re-read. A field merely read out of prose is in `stated` but not here,
+    #: so a correction in a later sentence ("actually batch scoring...") replaces
+    #: it instead of being silently discarded by the fresher `read()`.
+    explicit: set[str] = field(default_factory=set)
     hw: Hardware | None = None
     hw_source: str = ""
     model_id: str = ""
@@ -252,7 +261,12 @@ class Session:
         read = intent.read(self.text)
         # An explicit answer outranks a re-reading of the prose: the user said
         # "8 users" once and must not be talked out of it by a later sentence.
-        kept = {f: getattr(self.requirements, f) for f in self.stated}
+        # `explicit`, not `stated` — a field only ever read out of prose has no
+        # such override standing. It must keep taking whatever the freshest
+        # `read()` over the full accumulated text says, or a correction like
+        # "actually batch scoring 4 million tickets overnight" could never
+        # reach `requirements` once the first sentence had already been read.
+        kept = {f: getattr(self.requirements, f) for f in self.explicit}
         self.requirements = replace(read.requirements, **kept)
         self.evidence = tuple(i.render() for i in read.inferred)
         # A field the user stated in prose is stated. Only `set()` used to
@@ -266,17 +280,23 @@ class Session:
         # Inferences carry the words they came from, so anything with evidence
         # in the text is an answer, not a default.
         # Only fields the user *said*, not fields derived from what they said.
-        # Both carry evidence, but a stated field's evidence is a literal
-        # substring of the text ("a few thousand token"), while a derived one's
-        # is the reasoning ("20 agents — about a fifth in flight at once, since
-        # people read and think between requests"). Marking the derived ones
-        # stated would suppress the question that checks the guess, which is
-        # backwards: a guess is exactly what is worth asking about.
+        # A stated field's evidence QUOTE — everything before " — ", the part
+        # `Inference.evidence` promises is the user's own words — is a literal
+        # substring of the text either way; what tells the two apart is
+        # `i.guess`. "20 agents" implies a headcount, but concurrency = 4 is a
+        # divide-by-5 guess built on top of it, and a guess is exactly what is
+        # worth still asking about. "agents" implying `prefix_sharing` is not a
+        # guess in that sense — the phrase determines the field through a
+        # lookup, not an arithmetic estimate — so it is stated once read, the
+        # same as `workload` or `context`.
         lowered = self.text.lower()
         self.stated |= {
             i.field
             for i in read.inferred
-            if i.evidence and i.evidence.lower() in lowered and hasattr(self.requirements, i.field)
+            if not i.guess
+            and i.evidence
+            and i.evidence.split(" — ", 1)[0].strip().lower() in lowered
+            and hasattr(self.requirements, i.field)
         }
         if self.stage is Stage.UNDERSTAND:
             self.stage = Stage.HARDWARE
@@ -326,6 +346,7 @@ class Session:
                 raise ValueError(f"{key} must be {want.__name__}, got {value!r}") from e
         self.requirements = replace(self.requirements, **coerced)
         self.stated |= set(fields)
+        self.explicit |= set(fields)
 
     def on(self, machine: str | Hardware | None = None) -> Turn:
         """Pick the hardware. A profile id, a `Hardware`, or None to detect local."""

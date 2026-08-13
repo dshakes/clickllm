@@ -64,6 +64,13 @@ class Inference:
     #: The literal words that produced this. Quoted back so a misreading is
     #: obvious at a glance rather than discovered in production.
     evidence: str
+    #: True when the VALUE, not just the field, was computed rather than read
+    #: — "20 agents" implies a headcount, but the concurrency number is a
+    #: divide-by-5 guess, and a guess is exactly what is worth still asking
+    #: about. False (the default) means the words directly determined the
+    #: value, the way a phrase in `_PREFIX_SIGNALS` directly determines
+    #: `prefix_sharing` through a lookup rather than arithmetic.
+    guess: bool = False
 
     def render(self) -> str:
         """`workload = realtime   (from "voice agent")`"""
@@ -681,6 +688,15 @@ def _latency(text: str) -> tuple[int, str] | None:
     return (ms, m.group(0)) if ms else None
 
 
+#: A bare token count next to any of these describes what comes OUT of the
+#: model, not what goes in. "500 tokens" alone is ambiguous and still reads
+#: as prompt length, same as before this existed — this only excludes the
+#: clauses that name which side of the request they mean.
+_OUTPUT_LENGTH_WORDING = re.compile(
+    r"\b(?:response|responses|output|outputs|completion|completions|reply|replies|answer|answers)\b"
+)
+
+
 def _context(text: str) -> tuple[int, str] | None:
     """A stated context length."""
     m = re.search(r"(\d+)\s*k\s*(?:token|context|ctx|window)", text)
@@ -718,15 +734,32 @@ def _context(text: str) -> tuple[int, str] | None:
             if ctx:
                 return ctx, m.group(0)
 
-    if (m := re.search(r"(\d{3,7})\s*(?:token|tok)", text)) is not None:
+    # Scoped per clause, not per sentence: "about 2000 tokens in, 300 out"
+    # must read the prompt length off the first clause and never reach the
+    # second. A bare count qualified by response/output/completion wording
+    # is a completion length, not a prompt length — "responses are about 500
+    # tokens" and "output is 300 tokens" would otherwise infer a context
+    # window from the answer, not the question, and suppress the context
+    # question on a field it never actually read.
+    # The comma only splits clauses apart when it is not a thousands
+    # separator: "in, 300 out" is two clauses, but "2,000 tokens" is one
+    # number, told apart by whether a digit follows immediately.
+    for clause in re.split(r"[.;!?\n]|,(?!\d)", text):
+        m = re.search(r"(\d[\d,]*)\s*(?:token|tok)", clause)
+        if m is None or _OUTPUT_LENGTH_WORDING.search(clause):
+            continue
         n = _digits(m.group(1))
-        if n:
-            window = 1024
-            while window < n and window < 1_048_576:
-                window *= 2
-            ctx = _whole(window)
-            if ctx:
-                return ctx, m.group(0)
+        # The same 3-to-7-digit floor as before, now applied to the parsed
+        # value instead of the raw digit run — that run breaks on the comma
+        # in "2,000 tokens" and matched "000" out of it instead.
+        if n is None or not (100 <= n <= 9_999_999):
+            continue
+        window = 1024
+        while window < n and window < 1_048_576:
+            window *= 2
+        ctx = _whole(window)
+        if ctx:
+            return ctx, m.group(0)
 
     if (
         m := re.search(r"(?:long|large|big)\s*(?:context|documents?|files?|pdfs?)", text)
@@ -837,6 +870,7 @@ def read(text: str) -> Intent:
                 f"in the system. A rate alone gives no number at all, and the "
                 f"latency budget is not this number: it is time to first "
                 f"token, and a request outlives its first token",
+                guess=True,
             )
         )
     elif (headcount := _people(low)) is not None:
@@ -847,6 +881,7 @@ def read(text: str) -> Intent:
                 concurrency,
                 f"{evidence} — about a fifth in flight at once, since people "
                 f"read and think between requests",
+                guess=True,
             )
         )
     else:
@@ -876,6 +911,7 @@ def read(text: str) -> Intent:
                     itl_ms,
                     f"{evidence} — real-time work is judged per token, so this "
                     f"is the budget spread over roughly 20 tokens",
+                    guess=True,
                 )
             )
         inferred.append(Inference("ttft_ms", ms, evidence))
