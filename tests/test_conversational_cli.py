@@ -68,6 +68,9 @@ def test_a_non_interactive_bare_invocation_still_fails_rather_than_hanging(monke
 
     monkeypatch.setattr(builtins, "input", explode)
 
+    # 2, not 1: a bare invocation with no TTY is a *usage* error — the same
+    # thing argparse says when a required argument is missing — and that is
+    # the one case that keeps 2 under the new split.
     assert cli.main([]) == 2
     err = capsys.readouterr().err
     assert "usage: clickllm" in err

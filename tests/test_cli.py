@@ -58,7 +58,7 @@ def test_run_tears_the_engine_down_on_sigterm_not_just_ctrl_c(monkeypatch):
     assert "return ep.wait()" not in body
 
 
-def test_a_runtime_error_is_a_sentence_and_exit_two_not_a_traceback(monkeypatch, capsys):
+def test_a_runtime_error_is_a_sentence_and_exit_one_not_a_traceback(monkeypatch, capsys):
     """`main()` caught KeyError/ValueError/OSError — not RuntimeError.
 
     `desktop.install()` documents and raises `RuntimeError` on any unsupported
@@ -72,7 +72,7 @@ def test_a_runtime_error_is_a_sentence_and_exit_two_not_a_traceback(monkeypatch,
         raise RuntimeError("this platform has no desktop entry point")
 
     monkeypatch.setattr(desktop, "install", boom)
-    assert cli.main(["desktop"]) == 2
+    assert cli.main(["desktop"]) == 1
     assert "this platform has no desktop entry point" in capsys.readouterr().err
 
 

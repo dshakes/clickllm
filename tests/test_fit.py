@@ -225,7 +225,7 @@ def test_cli_runs(capsys):
     assert "hardware" in payload and "feasible" in payload and "runtime" in payload
 
     # Unknown model is a clean error, not a traceback.
-    assert cli.main(["fit", "--explain", "no-such-model"]) == 2
+    assert cli.main(["fit", "--explain", "no-such-model"]) == 1
 
 
 def test_explain_shows_the_arithmetic():
@@ -547,7 +547,7 @@ def test_where_cli(capsys):
     assert any(p["feasible"] for p in payload["placements"])
     assert all(p["reason"] for p in payload["placements"] if not p["feasible"])
 
-    assert cli.main(["where", "no-such-model"]) == 2
+    assert cli.main(["where", "no-such-model"]) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -676,7 +676,7 @@ def test_catalog_cli_requires_explicit_network_optin(capsys):
     assert "opt-in" in capsys.readouterr().out
     assert cli.main(["discover"]) == 0
     assert "opt-in" in capsys.readouterr().out
-    assert cli.main(["catalog", "--model", "no-such"]) == 2
+    assert cli.main(["catalog", "--model", "no-such"]) == 1
 
 
 # --------------------------------------------------------------------------- #

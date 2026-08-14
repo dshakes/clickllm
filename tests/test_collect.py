@@ -500,7 +500,7 @@ def test_the_cli_refuses_rather_than_scoring_a_run_where_nothing_answered(
     with stub(lambda p, n: (400, {"error": "dead"})) as (base, _):
         code = cli.main(["prove", _evalset(tmp_path / "e.json", 4), "--candidate-endpoint", base])
     captured = capsys.readouterr()
-    assert code == 2
+    assert code == 1
     assert "nothing can be scored" in captured.err, captured.err
     assert "Traceback" not in captured.err
 
@@ -512,7 +512,7 @@ def test_the_cli_exit_is_a_sentence_not_a_traceback(tmp_path, capsys: pytest.Cap
     code = cli.main(
         ["prove", _evalset(tmp_path / "e.json", 2), "--candidate-endpoint", "not-a-url"]
     )
-    assert code == 2
+    assert code == 1
     err = capsys.readouterr().err
     assert "Traceback" not in err
     assert "http(s) URL" in err, err
@@ -541,7 +541,7 @@ def test_a_bad_fingerprints_file_fails_before_collection_spends_anything(
             ]
         )
         assert not log, "collection ran before the fingerprints file was validated"
-    assert code == 2
+    assert code == 1
     assert "Traceback" not in capsys.readouterr().err
 
 
@@ -793,7 +793,7 @@ def test_the_cli_refuses_a_judge_it_could_not_disclose(
 
     code = cli.main(["prove", _evalset(tmp_path / "e.json", 4), *flags])
     err = capsys.readouterr().err
-    assert code == 2
+    assert code == 1
     assert message in err, err
     assert "Traceback" not in err
 
@@ -827,7 +827,7 @@ def test_the_cli_reports_the_incumbent_that_died_when_the_candidate_answered(
         )
     captured = capsys.readouterr()
 
-    assert code == 2
+    assert code == 1
     assert "nothing can be scored" in captured.err, captured.err
     assert "HTTP 503" in captured.err, "the reason must come from the side that failed"
     assert "Traceback" not in captured.err

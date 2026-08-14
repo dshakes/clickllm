@@ -81,7 +81,10 @@ trades a defect for its mirror image.
 
 ## Conventions
 - **Errors:** raise with the offending value in the message; CLI catches and returns
-  a nonzero exit code, never a traceback.
+  a nonzero exit code, never a traceback. **Which** nonzero matters: `1` means the
+  call was well-formed and the world did not cooperate (retry or report), `2` means
+  the invocation itself was wrong (fix it, do not retry). Everything used to be `2`,
+  so an agent could not tell those apart.
 - **Tests:** every module carries an assert-based `demo()` self-check runnable via
   `python -m clickllm.<mod>`; `tests/` runs those plus cases needing a synthetic machine.
   Prefer one runnable check over a fixture pyramid.

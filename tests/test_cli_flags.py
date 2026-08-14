@@ -64,7 +64,7 @@ def test_desktop_on_an_unsupported_platform_is_a_sentence(platform, capsys, monk
     sentence and a nonzero exit, never a traceback."""
     monkeypatch.setattr("sys.platform", platform)
     rc = main(["desktop"])
-    assert rc == 2
+    assert rc == 1
     assert platform in capsys.readouterr().err
 
 
@@ -143,3 +143,26 @@ def test_a_receipt_can_be_read_by_the_machine_it_is_addressed_to(tmp_path, capsy
         "the digest changed passing through --json, so a receipt round-tripped "
         "through the CLI would fail its own verification"
     )
+
+
+def test_the_exit_code_says_which_kind_of_failure_it_was():
+    """0 success, 1 the world did not cooperate, 2 you called me wrong.
+
+    Every nonzero exit used to be `2` — argparse's *usage error* — so a caller
+    could not tell "fix the invocation, do not retry" from "the call was fine,
+    retry or report". An agent that cannot separate those either retries a
+    malformed command forever or abandons a transient network failure.
+
+    The two failing cases below must not collapse back to one number. A test
+    asserting only `!= 0` would pass on exactly the behaviour this replaced,
+    which is why both are pinned to their own value.
+    """
+    assert main(["fit"]) == 0, "a working invocation must be 0"
+
+    # Runtime: the call is well-formed, the endpoint is not listening.
+    assert main(["measure", "--endpoint", "http://127.0.0.1:1/v1", "--samples", "1"]) == 1, (
+        "a connection failure is a runtime failure, not a usage error"
+    )
+
+    # Usage: no subcommand, which is what argparse itself reports as 2.
+    assert main([]) == 2, "a missing required argument stays a usage error"
