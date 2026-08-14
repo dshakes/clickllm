@@ -782,7 +782,7 @@ const CMDS = {
   // clickllm-cli and the command is clickllm; dropping the --from breaks the line.
   uvx:  [['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
           'size what runs on this machine — nothing cloned, nothing installed'],
-         ['uvx --from clickllm-cli==1.1.3 clickllm fit --context 32k --concurrency 8',
+         ['uvx --from clickllm-cli==1.1.4 clickllm fit --context 32k --concurrency 8',
           'pinned to a build that stays put; unpinned always fetches the newest'],
          ['uv tool install clickllm-cli',
           'or put the clickllm command on your PATH']],
@@ -795,8 +795,8 @@ const CMDS = {
   // cautious. tests/test_docs_lab.py now checks both directions.
   npm:  [['npx clickllm fit --context 32k --concurrency 8',
           'no Python packaging to name — the shim execs uvx --from clickllm-cli underneath'],
-         ['npx clickllm@1.1.3 fit --context 32k --concurrency 8',
-          'pinned: runs clickllm-cli==1.1.3 exactly, so the two registries cannot drift apart']],
+         ['npx clickllm@1.1.4 fit --context 32k --concurrency 8',
+          'pinned: runs clickllm-cli==1.1.4 exactly, so the two registries cannot drift apart']],
   git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
          ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
 };
