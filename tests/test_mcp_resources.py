@@ -234,8 +234,17 @@ def test_reading_a_resource_over_the_protocol_returns_its_contents(root):
 
 
 def test_the_tools_are_still_read_only():
-    """The whole claim. Adding two capabilities must not have added a verb."""
-    assert len(mcp.TOOLS) == 9
+    """The whole claim. Adding capabilities must not have added a verb.
+
+    The count is a tripwire, not a target: it exists so that adding a tool is a
+    decision someone made rather than one that happened. `clickllm_distill`
+    took it from 9 to 10, and the question it forced was the right one — the
+    first draft wrote the eval set to disk, which would have made this the only
+    tool here that mutates anything. `_prove` documents the rule ("read-only by
+    construction: it returns a proposal and touches nothing"), so distill
+    returns the eval set instead of writing it.
+    """
+    assert len(mcp.TOOLS) == 10
     for name in mcp.TOOLS:
         assert not any(
             w in name for w in ("deploy", "apply", "promote", "cutover", "write", "delete")

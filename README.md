@@ -246,6 +246,7 @@ clickllm_where     // the inverse: which hardware would run this, and at what co
 clickllm_catalog   // parameters, MoE split, context, licence
 clickllm_advise    // what to change unprompted, and where production diverged
 clickllm_build     // the whole flow, multi-turn: pass state back to continue
+clickllm_distill   // captured traffic -> an eval set, so there is something to prove against
 clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
 clickllm_receipt   // read a proof: what is proven, what must stay, what is unknown
 clickllm_guard     // does that proof still hold — and if not, which of three ways

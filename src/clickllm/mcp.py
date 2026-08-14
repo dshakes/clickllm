@@ -444,6 +444,56 @@ def _catalog() -> dict[str, Any]:
     }
 
 
+def _distill(
+    captures: str = "",
+    min_per_cluster: int = 3,
+) -> dict[str, Any]:
+    """Turn captured traffic into an eval set an agent can then prove against.
+
+    The hole in the middle of the agentic chain. An agent could size (`fit`),
+    score (`prove`) and check staleness (`guard`) — but not build the eval set
+    `prove` requires, so it could prove a model against a file it had no way to
+    create. The flow stopped mid-way and a human dropped to the CLI.
+
+    Local compute over already-captured, already-redacted data. It moves no
+    traffic and reaches no network, so it sits inside the rule that no tool here
+    can authorise a cutover.
+
+    Returns the eval set rather than writing it. `_prove` documents itself as
+    "read-only by construction: it returns a proposal and touches nothing", and
+    that is the rule every tool here follows — so this one does too, even though
+    writing the file would have connected the chain in one call. Consistency
+    with a safety property is worth more than the convenience of breaking it.
+    """
+    from . import core, observe
+
+    home = observe.state_dir()
+    log = pathlib.Path(captures).expanduser() if captures else home / "captures.log"
+    key_path = home / "capture.key"
+    if not log.exists():
+        raise ValueError(f"no capture log at {log} — run `clickllm observe` first")
+    # Never create a key here. A fresh one decrypts nothing, and the honest
+    # failure ("no key") beats a capture log that silently reads as empty.
+    if not key_path.exists():
+        raise ValueError(f"no capture key at {key_path} — the log cannot be read without it")
+
+    rows = core.read_captures(str(log), key_path.read_bytes())
+    if not rows:
+        raise ValueError(f"{log} holds no captures yet")
+
+    doc, report = observe.distill(rows, min_per_cluster=min_per_cluster)
+    return {
+        "eval_set": doc,
+        "items": len(doc.get("items", ())),
+        "report": report if isinstance(report, dict) else str(report),
+        "next": (
+            "write this to a file and pass it to clickllm_prove — this tool "
+            "returns the eval set rather than writing it, because every tool "
+            "here touches nothing"
+        ),
+    }
+
+
 TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
     "clickllm_fit": (
         _fit,
@@ -559,6 +609,31 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                             "Measured reality: concurrency, prefix_sharing, ttft_ms, "
                             "itl_ms, peak_context, kv_utilisation. Any subset."
                         ),
+                    },
+                },
+            },
+        },
+    ),
+    "clickllm_distill": (
+        _distill,
+        {
+            "description": (
+                "Turn captured traffic into an eval set, so the result can be "
+                "proven against. The step between `clickllm observe` and "
+                "`clickllm_prove`. Local compute over already-redacted data; "
+                "moves no traffic."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "captures": {
+                        "type": "string",
+                        "description": "capture log path; defaults to the standard one",
+                    },
+                    "min_per_cluster": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "smallest task shape worth scoring separately",
                     },
                 },
             },
