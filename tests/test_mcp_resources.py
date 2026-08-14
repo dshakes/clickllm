@@ -75,7 +75,18 @@ def test_a_resource_read_cannot_leave_the_eval_root(root, uri):
     steering the agent. `_within_eval_root` resolves *before* comparing, which
     is what stops a symlink walking out by pointing at something outside.
     """
-    with pytest.raises((ValueError, OSError)):
+    # `match=`, not a bare raises. Without it this passes on ANY ValueError or
+    # OSError — including "file not found", which every one of these URIs would
+    # raise even with the confinement deleted. A negative test that cannot tell
+    # the guard firing from an unrelated failure upstream of it is not testing
+    # the guard. (Exactly this shape shipped a hole in `clickllm_distill`: the
+    # escape test passed on a refusal that came from a missing key.)
+    #
+    # Two intended refusals, because two of these URIs are malformed and get
+    # rejected as unknown before the path is ever resolved. Both prevent the
+    # read; only one is the confinement, and the alternation says so rather
+    # than letting either stand in for the other.
+    with pytest.raises((ValueError, OSError), match=r"outside the eval root|unknown resource URI"):
         mcp.read_resource(uri)
 
 
