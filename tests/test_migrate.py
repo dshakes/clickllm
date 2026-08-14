@@ -381,7 +381,7 @@ def test_migrate_refuses_a_blank_candidate_without_an_endpoint(monkeypatch, tmp_
             "2",
         ]
     )
-    assert code == 2
+    assert code == 1
     assert not (tmp_path / "migration.json").exists(), (
         "a refused run must not record a state file, or the refusal reads as a run"
     )

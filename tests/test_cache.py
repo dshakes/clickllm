@@ -311,13 +311,13 @@ def test_a_report_without_a_budget_writes_nothing(hub, tmp_path, monkeypatch, ca
 def test_evict_with_no_budget_anywhere_says_so(hub, tmp_path, monkeypatch):
     monkeypatch.setenv("HF_HUB_CACHE", str(hub))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    assert main(["cache", "evict"]) == 2  # a sentence and a nonzero exit, never a traceback
+    assert main(["cache", "evict"]) == 1  # a sentence and a nonzero exit, never a traceback
 
 
 def test_pin_without_a_repo_is_a_nonzero_exit(hub, tmp_path, monkeypatch):
     monkeypatch.setenv("HF_HUB_CACHE", str(hub))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    assert main(["cache", "pin"]) == 2
+    assert main(["cache", "pin"]) == 1
 
 
 def test_the_report_reads_the_cache_and_changes_nothing(hub, tmp_path, monkeypatch, capsys):

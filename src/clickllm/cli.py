@@ -319,10 +319,10 @@ def cmd_catalog_add(args: argparse.Namespace) -> int:
         arch = cu.parse_config(json.loads(cu.http_fetch(url)))
     except cu.ConfigError as e:
         print(f"error: {args.repo}: {e}", file=sys.stderr)
-        return 2
+        return 1
     except Exception as e:  # noqa: BLE001 — network and JSON, reported not raised
         print(f"error: could not read {url}: {e}", file=sys.stderr)
-        return 2
+        return 1
 
     model_id = args.id or args.repo.split("/")[-1].lower()
     params = args.params_b
@@ -730,7 +730,7 @@ def cmd_observe(args: argparse.Namespace) -> int:
         binary = observe.find_gateway()
     except FileNotFoundError as exc:
         print(f"\n  {exc}\n")
-        return 2
+        return 1
     if binary is None:
         print(
             "\n  No gateway binary found.\n\n"
@@ -739,7 +739,7 @@ def cmd_observe(args: argparse.Namespace) -> int:
             "  Or point at one: CLICKLLM_GATEWAY_BIN=/path/to/clickllm-gateway\n\n"
             "  `clickllm fit` needs none of this — the gateway is only for capture.\n"
         )
-        return 2
+        return 1
 
     home = observe.state_dir()
     capture = pathlib.Path(args.capture) if args.capture else home / "captures.log"
@@ -804,25 +804,25 @@ def cmd_distill(args: argparse.Namespace) -> int:
 
     if not core.available():
         print(f"\n  {core.why_unavailable()}\n")
-        return 2
+        return 1
 
     home = observe.state_dir()
     log = pathlib.Path(args.capture) if args.capture else home / "captures.log"
     key_path = pathlib.Path(args.key) if args.key else home / "capture.key"
     if not log.exists():
         print(f"\n  No capture log at {log}. Run `clickllm observe` first.\n")
-        return 2
+        return 1
     if not key_path.exists():
         # Never `load_or_create_key` here: a fresh key would decrypt nothing and
         # report an empty log, which reads as "no traffic" rather than "wrong
         # key" — the most misleading answer available.
         print(f"\n  No key at {key_path}. It is written when the gateway first records.\n")
-        return 2
+        return 1
 
     rows = core.read_captures(str(log), key_path.read_bytes())
     if not rows:
         print(f"\n  {log} holds no captures yet.\n")
-        return 2
+        return 1
 
     # A namer only when an endpoint is given. Naming sends captured prompts to a
     # model, which is the one thing in this pipeline that leaves the machine —
@@ -869,7 +869,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     if args.status:
         if not path.exists():
             print(f"\n  No migration in progress ({path} does not exist).\n")
-            return 2
+            return 1
         st = migrate.load_state(path)
         print(f"\n  migration to {st.candidate}, started {st.started}")
         print(f"  currently {st.stage().render()}  ·  {len(st.runs)} runs recorded\n")
@@ -894,14 +894,14 @@ def cmd_migrate(args: argparse.Namespace) -> int:
         raise ValueError("--candidate is required: name the model being evaluated")
     if not core.available():
         print(f"\n  {core.why_unavailable()}\n")
-        return 2
+        return 1
 
     home = observe.state_dir()
     log = pathlib.Path(args.capture) if args.capture else home / "captures.log"
     key = pathlib.Path(args.key) if args.key else home / "capture.key"
     if not log.exists() or not key.exists():
         print(f"\n  No captures at {log}. Run `clickllm observe` first.\n")
-        return 2
+        return 1
 
     rows = core.read_captures(str(log), key.read_bytes())
     st = migrate.load_state(path, args.candidate)
@@ -1040,7 +1040,7 @@ def cmd_catalog(args: argparse.Namespace) -> int:
         specs = [m for m in specs if m.id == args.model]
         if not specs:
             print(f"error: {args.model} has no known repo to verify against", file=sys.stderr)
-            return 2
+            return 1
 
     if not args.network:
         print(
@@ -1721,7 +1721,7 @@ def cmd_kernel(args: argparse.Namespace) -> int:
     out = pathlib.Path(args.out or args.name)
     if out.exists() and any(out.iterdir()):
         print(f"error: {out} exists and is not empty", file=sys.stderr)
-        return 2
+        return 1
     for rel, body in scaffold(plugin, claim).items():
         dest = out / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -2356,7 +2356,22 @@ def main(argv: list[str] | None = None) -> int:
                 f"(or {EVENTS_ENV}=/path/to/file.log). Nothing leaves this machine.",
                 file=sys.stderr,
             )
-        return 2
+        # 1, not 2. `2` is argparse's *usage error* and it used to be returned
+        # for everything nonzero, so a caller could not tell "you called me
+        # wrong" (fix the invocation, do not retry) from "the world did not
+        # cooperate" (the call was fine, retry or report). An agent that cannot
+        # separate those either retries a malformed command forever or abandons
+        # a transient network failure. The one place `2` survives is a missing
+        # required argument, which is what argparse itself would have said.
+        #
+        # The split is drawn at the argparse boundary, and that is not a perfect
+        # proxy for intent: `--samples 1` is rejected by `measure` itself rather
+        # than by argparse, so it lands on 1 despite being an invocation the
+        # caller should fix rather than retry. Splitting those out needs a
+        # distinct exception type raised at every argument check, which is a
+        # wider change than this one. Worth knowing before treating 1 as
+        # "always safe to retry".
+        return 1
 
 
 if __name__ == "__main__":

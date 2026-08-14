@@ -268,7 +268,7 @@ def test_a_failure_points_at_the_diagnostics(monkeypatch, capsys):
     from clickllm import cli
 
     monkeypatch.delenv(events.ENV, raising=False)
-    assert cli.main(["prove", "/definitely/not/here.json"]) == 2
+    assert cli.main(["prove", "/definitely/not/here.json"]) == 1
     err = capsys.readouterr().err
     assert "error:" in err
     assert events.ENV in err and "debug" in err
@@ -282,5 +282,5 @@ def test_the_hint_is_suppressed_when_the_user_already_has_it_on(monkeypatch, cap
     from clickllm import cli
 
     monkeypatch.setenv(events.ENV, "debug")
-    assert cli.main(["prove", "/definitely/not/here.json"]) == 2
+    assert cli.main(["prove", "/definitely/not/here.json"]) == 1
     assert events.ENV not in capsys.readouterr().err

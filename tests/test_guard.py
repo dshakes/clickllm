@@ -357,7 +357,7 @@ def test_an_altered_receipt_is_a_sentence_not_a_traceback(tmp_path, capsys):
     blob = json.loads(receipt().to_json())
     blob["receipt"]["incumbent"] = "a model that was never measured"
     rp = _write(tmp_path, "bad.json", json.dumps(blob))
-    assert main(["receipt", rp]) == 2
+    assert main(["receipt", rp]) == 1
     assert "altered" in capsys.readouterr().err
 
 
@@ -375,14 +375,14 @@ def test_an_impossible_measurement_is_refused_before_the_digest_is_consulted(tmp
     blob = json.loads(receipt().to_json())
     blob["receipt"]["proven"][0]["passed"] = 999
     rp = _write(tmp_path, "bad.json", json.dumps(blob))
-    assert main(["receipt", rp]) == 2
+    assert main(["receipt", rp]) == 1
     assert "cannot exceed total" in capsys.readouterr().err
 
 
 def test_a_missing_file_is_a_sentence_not_a_traceback(tmp_path, capsys):
     from clickllm.cli import main
 
-    assert main(["guard", str(tmp_path / "nope.json")]) == 2
+    assert main(["guard", str(tmp_path / "nope.json")]) == 1
     assert "error:" in capsys.readouterr().err
 
 
