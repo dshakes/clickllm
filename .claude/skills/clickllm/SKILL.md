@@ -96,9 +96,9 @@ drop the interval. Do not.
 
 ## As an agent, over MCP
 
-Ten read-only tools: `clickllm_fit`, `clickllm_explain`, `clickllm_where`,
-`clickllm_catalog`, `clickllm_advise`, `clickllm_build`, `clickllm_distill`,
-`clickllm_prove`, `clickllm_receipt`, `clickllm_guard`.
+Nine read-only tools: `clickllm_fit`, `clickllm_explain`, `clickllm_where`,
+`clickllm_catalog`, `clickllm_advise`, `clickllm_build`, `clickllm_prove`,
+`clickllm_receipt`, `clickllm_guard`.
 
 **None of them can move traffic**, and that is enforced by a test over the live
 registry rather than by convention. Starting a server, spending money, and
