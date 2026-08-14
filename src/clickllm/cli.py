@@ -1629,6 +1629,14 @@ def cmd_receipt(args: argparse.Namespace) -> int:
     from .prove.receipt import _NON_EVIDENTIARY, Receipt, verify
 
     r = Receipt.from_json(pathlib.Path(args.receipt).read_text())
+    if getattr(args, "json", False) and not args.against:
+        # A receipt exists to be checked by someone who was not there. That
+        # audience is increasingly an agent, and the only way to read a verdict
+        # was to parse the rendered block — so the artefact whose whole purpose
+        # is machine-checkable evidence could not be machine-read.
+        print(r.to_json())
+        return 0
+
     if not args.against:
         print()
         print(r.render())
@@ -2290,6 +2298,7 @@ def main(argv: list[str] | None = None) -> int:
     pv.set_defaults(fn=cmd_prove)
 
     rc = sub.add_parser("receipt", help="render or verify a migration receipt")
+    rc.add_argument("--json", action="store_true", help="machine-readable")
     rc.add_argument("receipt", help="path to a receipt JSON file")
     rc.add_argument("--against", help="a second receipt to verify this one against")
     rc.set_defaults(fn=cmd_receipt)
