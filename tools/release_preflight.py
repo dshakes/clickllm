@@ -98,13 +98,35 @@ def check_branch_protection(repo: str) -> tuple[str, str]:
     defensible choice for a solo repo, and this tool does not get to overrule
     it. What it does get to do is stop the workflows claiming otherwise.
     """
-    ok, _ = _gh("api", f"repos/{repo}/branches/main/protection")
+    # Two APIs, and only checking the old one is why this reported the exact
+    # opposite of the truth. Classic branch protection lives at
+    # `/branches/main/protection`; a **ruleset** does not appear there at all —
+    # that endpoint 404s — and `main` is governed by a ruleset requiring
+    # `review` and `qa`. So this printed "no branch protection" on 2026-08-13
+    # while a direct `git push` to main was being rejected with GH013 by the
+    # very rules it could not see. A control that cannot observe the thing it
+    # guards is worse than no control: it reports safety as absent and, had the
+    # rules been removed, would have said nothing different.
+    ok, out = _gh("api", f"repos/{repo}/rules/branches/main")
     if ok:
-        return OK, "main is protected"
+        try:
+            kinds = {r.get("type") for r in json.loads(out)}
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            kinds = set()
+        if "required_status_checks" in kinds:
+            return OK, "main is governed by a ruleset requiring status checks"
+        if kinds:
+            return (
+                WARN,
+                f"main has a ruleset ({', '.join(sorted(kinds))}) but it does not "
+                "require status checks, so a red PR can still merge",
+            )
+    if _gh("api", f"repos/{repo}/branches/main/protection")[0]:
+        return OK, "main is protected (classic branch protection)"
     return (
         WARN,
-        "main has no branch protection — every 'a human merges this' guarantee "
-        "in the workflows is convention, not enforcement",
+        "main has no branch protection or ruleset — every 'a human merges this' "
+        "guarantee in the workflows is convention, not enforcement",
     )
 
 
