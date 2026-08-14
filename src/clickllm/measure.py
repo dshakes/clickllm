@@ -482,7 +482,11 @@ def measure(
     for when, load in (("before", before), ("after", after)):
         if load.contended:
             refused.append(
-                f"the machine was busy {when}: {load.render()}, over {LOAD_PER_CORE_LIMIT:.2f}/core"
+                f"the machine was busy {when}: {load.render()}, over "
+                f"{LOAD_PER_CORE_LIMIT:.2f}/core — quit the processes named above, or "
+                f"measure on a machine doing nothing else. Note the load average is a "
+                f"one-minute mean, so it lags: a quiet `uptime` a moment before this ran "
+                f"is not evidence the machine stayed quiet during it"
             )
     return Measurement(
         model=m.model,
