@@ -1098,6 +1098,30 @@ def cmd_ui(args: argparse.Namespace) -> int:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        # The catalogue is the one thing an agent must enumerate before it can
+        # ask about anything, and it was a fixed-width table only — so every
+        # caller had to re-parse column offsets that exist for human eyes.
+        print(
+            json.dumps(
+                [
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "params_b": m.params_b,
+                        "active_b": m.active_b,
+                        "max_context": m.max_context,
+                        "kv_scheme": getattr(m, "kv_scheme", None),
+                        "licence": _lic(m),
+                        "verified": getattr(m, "verified", None),
+                    }
+                    for m in sorted(catalog.load(), key=lambda m: m.params_b)
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
     print(f"\n  {'id':<22}{'params':>9}{'active':>9}{'ctx':>10}  license")
     print(f"  {'-' * 66}")
     for m in sorted(catalog.load(), key=lambda m: m.params_b):
@@ -1708,6 +1732,24 @@ def cmd_version(args: argparse.Namespace) -> int:
     """
     from . import __version__
 
+    if getattr(args, "json", False):
+        # An agent's first call is "what am I talking to". It had no
+        # machine-readable answer, so the one command whose entire job is
+        # reporting identity could only be screen-scraped.
+        print(
+            json.dumps(
+                {
+                    "version": __version__,
+                    "distribution": "clickllm-cli",
+                    "command": "clickllm",
+                    "python": sys.version.split()[0],
+                    "source": str(pathlib.Path(__file__).resolve().parent),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
     print(f"clickllm {__version__}")
     print("  distribution  clickllm-cli")
     print(f"  python        {sys.version.split()[0]}")
@@ -1850,7 +1892,9 @@ def main(argv: list[str] | None = None) -> int:
     # which verb they want. `_converse` reproduces the old behaviour exactly
     # when stdin is not a terminal, so nothing scripted changes.
     sub = p.add_subparsers(dest="cmd")
-    sub.add_parser("version", help="print the installed version").set_defaults(fn=cmd_version)
+    v = sub.add_parser("version", help="print the installed version")
+    v.add_argument("--json", action="store_true", help="machine-readable")
+    v.set_defaults(fn=cmd_version)
     sub.add_parser("upgrade", help="how to upgrade this install").set_defaults(fn=cmd_upgrade)
 
     f = sub.add_parser("fit", help="what runs on this machine")
@@ -2017,6 +2061,7 @@ def main(argv: list[str] | None = None) -> int:
     u.set_defaults(fn=cmd_ui)
 
     m = sub.add_parser("models", help="list the catalog")
+    m.add_argument("--json", action="store_true", help="machine-readable")
     m.set_defaults(fn=cmd_models)
 
     ob = sub.add_parser("observe", help="record real traffic through a capture gateway")
