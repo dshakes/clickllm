@@ -219,13 +219,17 @@ def eval_root() -> pathlib.Path:
     return pathlib.Path(os.environ.get("CLICKLLM_EVAL_ROOT", ".")).resolve()
 
 
-def _within_eval_root(candidate: str) -> pathlib.Path:
-    """Resolve `candidate` and refuse it if it leaves the eval root.
+def _within_root(
+    candidate: str, root: pathlib.Path, *, name: str, variable: str, holds: str
+) -> pathlib.Path:
+    """Resolve `candidate` under `root` and refuse it if it leaves `root`.
 
-    This is the one MCP tool where an agent names a filesystem path and the
-    contents come back into its context — a file-read primitive addressable by
-    whatever is steering that agent, which invariant 7 says may itself have come
-    out of a customer's request log.
+    The one check every path-taking MCP surface shares — a caller names a
+    filesystem path and the contents come back into its context, which is a
+    file-read primitive addressable by whatever is steering that agent
+    (invariant 7). Two implementations of one boundary is how the weaker one
+    gets found, so `_within_eval_root` and `_within_capture_root` both call this
+    rather than each carrying their own copy.
 
     Resolved *before* the comparison, so a symlink cannot walk out of the root by
     pointing at something outside it.
@@ -234,17 +238,54 @@ def _within_eval_root(candidate: str) -> pathlib.Path:
         ValueError: naming both the path and the root, because a refusal nobody
             can act on is only marginally better than the read.
     """
-    root = eval_root()
     path = pathlib.Path(candidate).expanduser()
     resolved = (root / path if not path.is_absolute() else path).resolve()
     if resolved != root and root not in resolved.parents:
         raise ValueError(
-            f"{candidate} is outside the eval root ({root}). Set "
-            f"CLICKLLM_EVAL_ROOT to the directory holding your eval sets, or "
+            f"{candidate} is outside the {name} ({root}). Set "
+            f"{variable} to the directory holding your {holds}, or "
             f"pass a path inside it. The CLI is unrestricted — this applies to "
             f"paths an agent names, not paths you type."
         )
     return resolved
+
+
+def _within_eval_root(candidate: str) -> pathlib.Path:
+    """Resolve `candidate` and refuse it if it leaves the eval root.
+
+    This is the one MCP tool where an agent names a filesystem path and the
+    contents come back into its context — a file-read primitive addressable by
+    whatever is steering that agent, which invariant 7 says may itself have come
+    out of a customer's request log.
+    """
+    return _within_root(
+        candidate,
+        eval_root(),
+        name="eval root",
+        variable="CLICKLLM_EVAL_ROOT",
+        holds="eval sets",
+    )
+
+
+def _within_capture_root(candidate: str) -> pathlib.Path:
+    """Resolve `candidate` and refuse it if it leaves the capture root.
+
+    `clickllm_distill` decrypts whatever log it is pointed at and returns
+    prompts and baselines into the agent's context — the same file-read-by-proxy
+    shape `_within_eval_root` guards against, so it gets the same guard.
+    Confined to `observe.state_dir()`: set by `CLICKLLM_HOME`, which is chosen
+    by whoever launches the server, not the agent it serves — the operator/agent
+    split ADR-0014 draws for the eval root, applied to capture logs.
+    """
+    from . import observe
+
+    return _within_root(
+        candidate,
+        observe.state_dir().resolve(),
+        name="capture root",
+        variable="CLICKLLM_HOME",
+        holds="capture logs",
+    )
 
 
 def _prove(
@@ -444,6 +485,63 @@ def _catalog() -> dict[str, Any]:
     }
 
 
+def _distill(
+    captures: str = "",
+    min_per_cluster: int = 3,
+) -> dict[str, Any]:
+    """Turn captured traffic into an eval set an agent can then prove against.
+
+    The hole in the middle of the agentic chain. An agent could size (`fit`),
+    score (`prove`) and check staleness (`guard`) — but not build the eval set
+    `prove` requires, so it could prove a model against a file it had no way to
+    create. The flow stopped mid-way and a human dropped to the CLI.
+
+    Local compute over already-captured, already-redacted data. It moves no
+    traffic and reaches no network, so it sits inside the rule that no tool here
+    can authorise a cutover.
+
+    `captures` is confined to the capture root the same way `eval_set` is
+    confined to the eval root: this decrypts whatever log it is pointed at and
+    returns the contents into the agent's context, so a caller-named path here
+    is the same file-read-by-proxy shape invariant 7 warns about, on a log that
+    is a capture of production traffic rather than an eval set already reviewed
+    by a human. See `_within_capture_root`.
+
+    Returns the eval set rather than writing it. `_prove` documents itself as
+    "read-only by construction: it returns a proposal and touches nothing", and
+    that is the rule every tool here follows — so this one does too, even though
+    writing the file would have connected the chain in one call. Consistency
+    with a safety property is worth more than the convenience of breaking it.
+    """
+    from . import core, observe
+
+    home = observe.state_dir()
+    log = _within_capture_root(captures) if captures else home / "captures.log"
+    key_path = home / "capture.key"
+    if not log.exists():
+        raise ValueError(f"no capture log at {log} — run `clickllm observe` first")
+    # Never create a key here. A fresh one decrypts nothing, and the honest
+    # failure ("no key") beats a capture log that silently reads as empty.
+    if not key_path.exists():
+        raise ValueError(f"no capture key at {key_path} — the log cannot be read without it")
+
+    rows = core.read_captures(str(log), key_path.read_bytes())
+    if not rows:
+        raise ValueError(f"{log} holds no captures yet")
+
+    doc, report = observe.distill(rows, min_per_cluster=min_per_cluster)
+    return {
+        "eval_set": doc,
+        "items": len(doc.get("items", ())),
+        "report": report if isinstance(report, dict) else str(report),
+        "next": (
+            "write this to a file and pass it to clickllm_prove — this tool "
+            "returns the eval set rather than writing it, because every tool "
+            "here touches nothing"
+        ),
+    }
+
+
 TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
     "clickllm_fit": (
         _fit,
@@ -559,6 +657,35 @@ TOOLS: dict[str, tuple[Callable[..., Any], dict[str, Any]]] = {
                             "Measured reality: concurrency, prefix_sharing, ttft_ms, "
                             "itl_ms, peak_context, kv_utilisation. Any subset."
                         ),
+                    },
+                },
+            },
+        },
+    ),
+    "clickllm_distill": (
+        _distill,
+        {
+            "description": (
+                "Turn captured traffic into an eval set, so the result can be "
+                "proven against. The step between `clickllm observe` and "
+                "`clickllm_prove`. Local compute over already-redacted data; "
+                "moves no traffic. Paths are confined to the capture root "
+                "(CLICKLLM_HOME, ADR-0014)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "captures": {
+                        "type": "string",
+                        "description": (
+                            "capture log path, inside the capture root; defaults to "
+                            "the standard one"
+                        ),
+                    },
+                    "min_per_cluster": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "smallest task shape worth scoring separately",
                     },
                 },
             },

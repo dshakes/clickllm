@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 400" width="860" height="400" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,'Segoe UI',Inter,system-ui,sans-serif">
-<title id='t'>The agent surface, and its wall</title><desc id='d'>Nine read-only tools, receipts and eval sets as resources confined to one root, and three pre-built workflows. No verb moves production traffic.</desc>
+<title id='t'>The agent surface, and its wall</title><desc id='d'>Ten read-only tools, receipts and eval sets as resources confined to one root, and three pre-built workflows. No verb moves production traffic.</desc>
 <style>
 :root{--s0:#0e9bbd;--s1:#8b5cf6;--s2:#c2820b;--s3:#e0405f;--bg:#0d1320;--panel:#111a2b;--ink:#eef4ff;--ink2:#9fb0cc;--muted:#63758f;--grid:#1c2534;}
 @media (prefers-color-scheme:light){:root:not([data-theme=dark]){--s0:#0369a1;--s1:#7e22ce;--s2:#b45309;--s3:#15803d;--bg:#fcfcfb;--panel:#f4f4f2;--ink:#0b0b0b;--ink2:#52514e;--muted:#7a7975;--grid:#e3e3e0;}}
@@ -14,6 +14,7 @@
 <text x="56" y="170" class="sub">advise · catalog</text>
 <text x="56" y="194" class="sub">prove · receipt</text>
 <text x="56" y="218" class="sub">guard · build</text>
+<text x="56" y="242" class="sub">distill</text>
 <rect x="308" y="92" width="248" height="168" rx="8" fill="var(--panel)"/>
 <text x="324" y="118" class="t" style="font-size:13px">resources</text>
 <text x="324" y="146" class="sub">clickllm:///receipt.json</text>

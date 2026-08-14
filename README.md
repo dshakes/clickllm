@@ -236,7 +236,7 @@ shapes that were never scored.
 The same engine is a CLI, an MCP server, a Python SDK and a workbench —
 one core, four surfaces, no wrapper around a subprocess:
 
-<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: nine read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
+<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: ten read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
 
 ```jsonc
 // clickllm-mcp — JSON-RPC over stdio, zero dependencies
@@ -246,6 +246,7 @@ clickllm_where     // the inverse: which hardware would run this, and at what co
 clickllm_catalog   // parameters, MoE split, context, licence
 clickllm_advise    // what to change unprompted, and where production diverged
 clickllm_build     // the whole flow, multi-turn: pass state back to continue
+clickllm_distill   // captured traffic -> an eval set, so there is something to prove against
 clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
 clickllm_receipt   // read a proof: what is proven, what must stay, what is unknown
 clickllm_guard     // does that proof still hold — and if not, which of three ways
