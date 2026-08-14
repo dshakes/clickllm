@@ -494,8 +494,28 @@ jobs:
           # actually serve it — the same reason PyPI's publish is followed by a
           # verification step. A skip that hid a never-published package would
           # be worse than the failure it replaced.
-          if ! npm view "clickllm@${VERSION#v}" version >/dev/null 2>&1; then
-            printf '::error::npm does not serve clickllm@%s after publishing\n' "${VERSION#v}"
+          # Retried, not asked once. npm serves through a CDN and a publish is
+          # not visible to `npm view` the instant it returns, so this check has
+          # failed on every release while the package was in fact published —
+          # npm has served 1.1.1 through 1.1.4 with this step red each time.
+          #
+          # The check itself is right and worth keeping: it exists so a publish
+          # that silently did nothing cannot report success, which is the defect
+          # shape this repo keeps finding. But a verification that cries wolf on
+          # every green release is worse than none, because it teaches everyone
+          # to ignore the one time it means something. Six tries over ~60s is
+          # far longer than propagation takes and still bounded.
+          served=""
+          for attempt in 1 2 3 4 5 6; do
+            if npm view "clickllm@${VERSION#v}" version >/dev/null 2>&1; then
+              served="yes"
+              break
+            fi
+            printf 'npm has not served clickllm@%s yet (attempt %s) — waiting\n' "${VERSION#v}" "$attempt"
+            sleep 10
+          done
+          if [ -z "$served" ]; then
+            printf '::error::npm does not serve clickllm@%s 60s after publishing\n' "${VERSION#v}"
             exit 1
           fi
 
