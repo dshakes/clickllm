@@ -236,7 +236,7 @@ shapes that were never scored.
 The same engine is a CLI, an MCP server, a Python SDK and a workbench —
 one core, four surfaces, no wrapper around a subprocess:
 
-<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: nine read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
+<img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: ten read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
 
 ```jsonc
 // clickllm-mcp — JSON-RPC over stdio, zero dependencies
