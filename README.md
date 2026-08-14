@@ -295,17 +295,17 @@ then moves you across with a rollback button.
 ```bash
 uvx --from clickllm-cli clickllm fit           # no install, no deps
 pip install clickllm-cli                       # or install it
-npx clickllm@1.1.4 fit                        # same build, via npm
+npx clickllm@1.2.0 fit                        # same build, via npm
 clickllm version                              # what you have, and where it came from
 ```
 
-The commands above are unpinned and fetch the newest release — currently **1.1.4**.
+The commands above are unpinned and fetch the newest release — currently **1.2.0**.
 
-The `==` is exact on purpose: `npx clickllm@1.1.4` runs `clickllm-cli` 1.1.4 and nothing else.
+The `==` is exact on purpose: `npx clickllm@1.2.0` runs `clickllm-cli` 1.2.0 and nothing else.
 Pin it when you need a build to stay put:
 
 ```bash
-uvx --from clickllm-cli==1.1.4 clickllm fit   # exactly this build
+uvx --from clickllm-cli==1.2.0 clickllm fit   # exactly this build
 ```
 
 `clickllm version` reads the installed metadata rather than a string someone typed —
