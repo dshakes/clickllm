@@ -117,3 +117,29 @@ def test_the_json_flag_does_not_change_what_is_true(capsys):
     assert machine["distribution"] in human, (
         "--json and the table disagree about the distribution name"
     )
+
+
+def test_a_receipt_can_be_read_by_the_machine_it_is_addressed_to(tmp_path, capsys):
+    """A receipt exists to be checked by someone who was not there.
+
+    That audience is increasingly an agent, and until now the only way to read a
+    verdict was to parse the rendered block — so the one artefact whose entire
+    purpose is machine-checkable evidence could not be machine-read. The digest
+    has to survive the round trip too, or "verify this yourself" is a slogan.
+    """
+    import sys
+
+    sys.path.insert(0, "tests")
+    from test_agent_surfaces import _good_receipt
+
+    written = _good_receipt()
+    path = tmp_path / "receipt.json"
+    path.write_text(written.to_json())
+
+    assert main(["receipt", str(path), "--json"]) == 0
+    emitted = json.loads(capsys.readouterr().out)
+
+    assert emitted["digest"] == json.loads(written.to_json())["digest"], (
+        "the digest changed passing through --json, so a receipt round-tripped "
+        "through the CLI would fail its own verification"
+    )
