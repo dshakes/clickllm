@@ -782,3 +782,65 @@ def test_one_dead_sample_among_good_ones_still_refuses():
         sampler=_take([*_samples(50, 50), M.Sample(1, 0.0, 0.1)]),
     )
     assert not m.usable
+
+
+def test_a_run_that_slows_is_not_a_run_that_disagrees():
+    """A steady decline and scattered noise refuse for different reasons.
+
+    Measured on an idle M4 Max — load flat at 0.39/core before and after — a 32B
+    model fell from 22.1 to 16.2 tok/s across fifteen samples, correlating -0.90
+    with sample order. Calling that "the samples disagree by 31%" points the
+    reader at contention they will not find; the samples agree closely about a
+    downward trend. It is the silicon clocking down under sustained load.
+
+    Both still refuse — the distinction is what the reader does next: quit
+    something, or accept that this hardware does not hold its burst rate.
+    """
+    from clickllm.measure import _decline
+
+    slowing = [
+        22.12,
+        21.98,
+        22.17,
+        21.21,
+        20.06,
+        18.68,
+        18.39,
+        19.36,
+        19.60,
+        19.12,
+        17.83,
+        18.15,
+        16.24,
+        16.38,
+        18.12,
+    ]
+    found = _decline(slowing)
+    assert found is not None, "a -0.90 correlation with sample order is a decline"
+    first, last, drop = found
+    assert first > last
+    assert 0.15 < drop < 0.25, f"expected ~19% decline, got {drop:.0%}"
+
+    # Scatter with the same spread must NOT be reported as a decline, or the
+    # diagnosis becomes noise of its own.
+    scattered = [
+        19.0,
+        22.0,
+        17.0,
+        21.5,
+        18.0,
+        22.2,
+        16.5,
+        20.0,
+        19.5,
+        17.5,
+        21.0,
+        18.5,
+        22.1,
+        16.8,
+        20.5,
+    ]
+    assert _decline(scattered) is None, "scatter is not a trend"
+
+    # Too few samples to judge is None, not a guess.
+    assert _decline([22.0, 18.0, 16.0]) is None
