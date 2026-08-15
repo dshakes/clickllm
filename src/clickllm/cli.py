@@ -990,7 +990,29 @@ def cmd_measure(args: argparse.Namespace) -> int:
         except KeyError:
             spec = None
         if spec is not None:
-            fit_result = fit.best_quant(spec, hw, _parse_size(args.context), args.concurrency)
+            # `--quant` when the caller knows what the endpoint serves; the
+            # best-fitting quant only as a fallback, and disclosed as a guess.
+            #
+            # Guessing silently was wrong in a way that made every ratio
+            # meaningless: ollama serving qwen2.5-coder:32b at q4 (16.4 GB) was
+            # compared against the q8 roofline (32.8 GB) that `best_quant`
+            # picked because q8 fits in 96 GB. The measurement beat that
+            # roofline by 1.79x — impossible, since nothing decodes faster than
+            # its memory bandwidth, and the impossibility was the only clue that
+            # the two numbers described different models.
+            quant_basis = ""
+            ctx = _parse_size(args.context)
+            if getattr(args, "quant", None):
+                fit_result = fit.solve(spec, args.quant, hw, ctx, args.concurrency)
+                quant_basis = f"--quant {args.quant}"
+            else:
+                fit_result = fit.best_quant(spec, hw, ctx, args.concurrency)
+                quant_basis = (
+                    f"assumed {fit_result.quant} — the best fit for this machine, "
+                    f"not necessarily what the endpoint serves; pass --quant to be sure"
+                    if fit_result is not None
+                    else ""
+                )
             if fit_result is not None:
                 # The like-for-like comparison: single-stream decode against a
                 # single-stream roofline. `aggregate_tokens_per_sec` is the batch
@@ -1009,6 +1031,11 @@ def cmd_measure(args: argparse.Namespace) -> int:
 
     if args.json:
         print(result.to_json())
+    elif quant_basis and result.roofline_tokens_per_sec is not None:
+        # Say which model the roofline describes. Without this the ratio looks
+        # like a fact about the endpoint when it is partly a fact about a
+        # quantisation nobody confirmed.
+        print(f"\n  roofline basis: {quant_basis}")
     else:
         print(result.render())
         if roofline is None and args.model:
@@ -2153,6 +2180,11 @@ def main(argv: list[str] | None = None) -> int:
     ms.add_argument("--samples", type=int, default=M_DEFAULT_SAMPLES)
     ms.add_argument("--max-tokens", type=int, default=M_DEFAULT_MAX_TOKENS, dest="max_tokens")
     ms.add_argument("--context", default="32k", help="context for the roofline comparison")
+    ms.add_argument(
+        "--quant",
+        help="quantisation the endpoint actually serves (q4, q8, ...); "
+        "without it the roofline assumes the best fit, which may be a different model",
+    )
     ms.add_argument("--concurrency", type=int, default=1)
     ms.add_argument("--out", help="write the measurement as JSON")
     ms.add_argument("--json", action="store_true")

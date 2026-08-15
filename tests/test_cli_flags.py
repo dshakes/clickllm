@@ -192,3 +192,46 @@ def test_every_surface_that_prints_throughput_says_it_is_an_estimate(capsys):
     feasible = rows.get("feasible") or []
     assert feasible, "no feasible rows to check"
     assert "estimate_basis" in feasible[0], "--json dropped the estimate basis"
+
+
+def test_measure_does_not_compare_a_measurement_to_a_different_model():
+    """The roofline must describe the model the endpoint actually serves.
+
+    `measure` picked the best-fitting quantisation for the machine and compared
+    the measurement against that. Serving qwen2.5-coder:32b at q4 (16.4 GB)
+    while the roofline described q8 (32.8 GB) produced a measured/roofline ratio
+    of 1.79 — nothing decodes faster than its memory bandwidth, so the ratio was
+    not merely wrong, it was impossible. That impossibility was the only signal
+    that the two numbers described different models.
+
+    `--quant` states what is served. Without it the basis is still a guess, and
+    the point of this test is that the guess and the declaration disagree — so a
+    caller who knows the quant has a reason to pass it.
+    """
+    from clickllm import catalog, fit
+    from clickllm.hardware import Hardware
+
+    gb = 1024**3
+    machine = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * gb,
+        usable_bytes=96 * gb,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    spec = next(m for m in catalog.load() if m.id == "qwen3-32b")
+
+    guessed = fit.best_quant(spec, machine, 32768, 1)
+    declared = fit.solve(spec, "q4", machine, 32768, 1)
+
+    assert guessed is not None
+    assert guessed.quant != "q4", (
+        "this machine now best-fits q4, so the mismatch this guards is no longer "
+        "reachable here — re-pick a model where the guess and a common served "
+        "quant differ, or the test is watching nothing"
+    )
+    assert declared.tokens_per_sec > guessed.tokens_per_sec, (
+        "a smaller quantisation must predict a higher roofline; if not, the "
+        "comparison below proves nothing"
+    )
