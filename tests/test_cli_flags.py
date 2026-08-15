@@ -258,9 +258,7 @@ def test_measure_does_not_compare_a_measurement_to_a_different_model():
     )
 
 
-def test_measure_cli_still_prints_the_measurement_alongside_the_roofline_basis(
-    capsys, monkeypatch
-):
+def test_measure_cli_still_prints_the_measurement_alongside_the_roofline_basis(capsys, monkeypatch):
     """`cmd_measure` must render the actual measurement — samples, median,
     spread, usable/not-usable — on every path, `--quant` included.
 
