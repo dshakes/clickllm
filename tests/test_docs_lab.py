@@ -1440,8 +1440,13 @@ def test_the_readme_quotes_output_the_code_actually_prints():
     for line in ("  capture   ", "  upstream  ", "  listening http://"):
         assert line in readme, f"the README dropped {line!r} from the observe banner"
         assert line.strip() in main_rs, f"the gateway no longer prints {line!r}"
-    assert "point your base_url here and nothing else changes." in readme
-    assert "point your base_url here and nothing else changes." in main_rs
+    # The corrected sentence. The old one — "point your base_url here" — was
+    # pinned in both places and matched in both places, and it produced a 404:
+    # the gateway serves only /v1/chat/completions, so a base_url of the bare
+    # address hits nothing. A guard that pins two copies of a wrong fact proves
+    # they agree, not that either is right. Found by running the chain.
+    assert "point your base_url at" in readme and "/v1 and nothing else changes." in readme
+    assert "point your base_url at" in main_rs and "/v1 and nothing else changes." in main_rs
 
 
 def test_the_walkthrough_does_not_quote_a_scratchpad_run():
