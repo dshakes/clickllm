@@ -183,7 +183,22 @@ def cmd_fit(args: argparse.Namespace) -> int:
         print(
             f"\n  ? = architecture unverified; KV figures are estimates ({len(unverified)} shown)"
         )
-    print("\n  clickllm fit --explain <model-id>   # show the arithmetic\n")
+    # The ~tok/s column is a memory-bandwidth roofline, and this is the surface
+    # that says so. `--explain` has carried "(roofline estimate, not measured)"
+    # all along and `--json` carries `estimate_basis`, but the default table —
+    # the one nearly everyone reads — printed the number bare. The convention in
+    # CLAUDE.md is that roofline projections say they are roofline projections,
+    # and two surfaces out of three obeyed it.
+    #
+    # It matters more than a label usually would: BANDWIDTH_EFFICIENCY, which
+    # scales every figure in that column, has never been checked against a
+    # measurement (#222). A number nobody has validated should not be the one
+    # number on the page with no qualifier.
+    print(
+        "\n  ~tok/s is a memory-bandwidth roofline, not a measurement"
+        " — `clickllm measure` measures."
+    )
+    print("  clickllm fit --explain <model-id>   # show the arithmetic\n")
     return 0
 
 
