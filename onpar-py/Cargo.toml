@@ -1,0 +1,28 @@
+[package]
+name = "onpar-py"
+description = "Python bindings for the onpar datapath — the capture format and the redactor, exposed once."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+# The import name Python sees. Underscored on purpose: `onpar.core` is the
+# public API. Top-level rather than `onpar._core` because this ships as its own
+# wheel, and two distributions writing into one package directory collide on
+# install order. Must also differ from the `onpar-core` crate, whose lib is
+# already `onpar_core`.
+name = "_onpar_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+onpar-core = { path = "../onpar-core", version = "1.2.2" }
+onpar-gateway = { path = "../onpar-gateway", version = "1.2.2" }
+serde_json.workspace = true
+# abi3-py311 matches the project's requires-python: one wheel per platform for
+# every supported interpreter, rather than one per platform per minor version.
+pyo3 = { version = "0.29", features = ["abi3-py311"] }
+
+[lints]
+workspace = true

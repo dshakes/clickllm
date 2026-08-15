@@ -1,0 +1,287 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>onpar — traffic</title>
+<style>
+  :root{--bg:#0b0f16;--card:#161b22;--card2:#1b2230;--line:#242c3a;--ink:#f0f6fc;
+        --ink2:#a9b4c0;--ink3:#7d8590;--accent:#a855f7;--good:#46a758;--bad:#e5484d;--warn:#e5a00d;
+        --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+        --sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:linear-gradient(160deg,#0b0f16,#0d1117 55%,#12161f);color:var(--ink);
+       font-family:var(--sans);line-height:1.55;min-height:100vh;padding:28px}
+  .wrap{max-width:1180px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  h1{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--ink3);font-size:13px}
+  .sp{flex:1}
+  .live{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink3)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--good)}
+  .dot.stale{background:var(--warn)} .dot.dead{background:var(--bad)}
+  .grid{display:grid;gap:14px;margin-top:22px}
+  .tiles{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
+        border-radius:12px;padding:16px 18px}
+  .label{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+  .value{font-family:var(--mono);font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:6px}
+  .note{font-size:11.5px;color:var(--ink3);margin-top:4px}
+  .note.warn{color:var(--warn)}
+  h2{font-size:14px;font-weight:700;margin:26px 0 0}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+  td.num{text-align:right;font-family:var(--mono)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:650;
+        border:1px solid var(--line);background:#10151d;color:var(--ink2)}
+  .pill.mirror{border-color:#3d2f5c;color:#c9a6f5}
+  .pill.unrep{border-color:#5c4a1e;color:var(--warn)}
+  .bar{height:6px;border-radius:3px;background:#222a36;overflow:hidden;margin-top:7px}
+  .bar > i{display:block;height:100%;background:var(--accent)}
+  .empty{color:var(--ink3);font-size:13.5px;padding:28px 0;text-align:center}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink2)}
+  footer{margin-top:30px;color:var(--ink3);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>click<span>llm</span> · traffic</h1>
+    <div class="sub" id="window">—</div>
+    <span class="sp"></span>
+    <span class="live"><i class="dot" id="dot"></i><span id="livetext">connecting…</span></span>
+  </header>
+  <div class="sub">
+    Every request that crossed this gateway. Token figures come from the upstream;
+    where it reported none, that is shown as <b>unreported</b> — never as zero.
+  </div>
+
+  <div class="grid tiles" id="tiles"></div>
+
+  <h2>Engine, right now</h2>
+  <div id="engine"></div>
+
+  <h2>Shadow / candidate</h2>
+  <div id="mirrors"></div>
+
+  <h2>By backend</h2>
+  <div id="backends"></div>
+
+  <h2>Recent requests</h2>
+  <div id="recent"></div>
+
+  <footer>
+    Reads <code>GET /metrics/requests</code> from this gateway. Nothing leaves the machine.
+    Cost is shown only when a rate is configured and usage was actually reported.
+  </footer>
+</div>
+
+<style>
+  .meter{flex:1;height:8px;border-radius:4px;background:#1c2534;overflow:hidden;min-width:120px}
+  .meter i{display:block;height:100%;border-radius:4px;background:#0e9bbd;transition:width .4s}
+  .meter i.warm{background:#c2820b} .meter i.hot{background:#e0405f}
+  .kvrow{display:flex;align-items:center;gap:12px;margin:10px 0 8px;font-size:12.5px}
+  .kvrow>span:first-child{width:74px;color:#9fb0cc}
+  .kvrow>b{font-variant-numeric:tabular-nums;min-width:46px;text-align:right}
+  .statline{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:#9fb0cc}
+  .statline b{color:#eef4ff;font-variant-numeric:tabular-nums}
+  .cardhead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .sub.dim{color:#63758f;font-size:11.5px;margin-top:6px}
+  .hint{color:#63758f;font-size:11px;white-space:nowrap}
+  .contras{margin-top:12px;border-top:1px solid #1c2534;padding-top:10px}
+  .contrahead{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#c2820b;margin-bottom:6px}
+  .contra{font-size:12px;color:#9fb0cc;line-height:1.5;margin:5px 0;padding-left:12px;border-left:2px solid #c2820b}
+</style>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString();
+const pct = (a, b) => b ? Math.round((a / b) * 100) : 0;
+
+function tile(label, value, note, warn) {
+  return `<div class="card"><div class="label">${label}</div>
+    <div class="value">${value}</div>
+    ${note ? `<div class="note${warn ? ' warn' : ''}">${note}</div>` : ''}</div>`;
+}
+
+function render(rows) {
+  if (!rows.length) {
+    $('tiles').innerHTML = '';
+    $('backends').innerHTML = '';
+    $('recent').innerHTML = `<div class="empty">No requests yet. Point a client at this gateway
+      by swapping its <code>base_url</code>, and traffic will appear here.</div>`;
+    $('window').textContent = '—';
+    return;
+  }
+
+  const reported   = rows.filter(r => r.metered.kind === 'reported');
+  const unreported = rows.length - reported.length;
+  const tokens     = reported.reduce((s, r) => s + r.metered.prompt_tokens + r.metered.completion_tokens, 0);
+  const streaming  = rows.filter(r => r.streaming).length;
+  const errors     = rows.filter(r => r.status >= 400).length;
+  const mirrored   = rows.filter(r => r.mirrored_to).length;
+  const durations  = rows.map(r => r.duration_ms).sort((a, b) => a - b);
+  const p95        = durations[Math.min(durations.length - 1, Math.floor(durations.length * 0.95))];
+
+  $('window').textContent = `${fmt(rows.length)} requests retained`;
+  $('tiles').innerHTML = [
+    tile('Requests', fmt(rows.length), `${streaming} streamed · ${mirrored} mirrored`),
+    tile('Tokens', fmt(tokens),
+         unreported ? `${unreported} request${unreported > 1 ? 's' : ''} reported no usage` : 'all requests reported usage',
+         unreported > 0),
+    tile('p95 latency', `${fmt(p95)} ms`, `${fmt(durations[0])} ms fastest`),
+    tile('Errors', fmt(errors), errors ? `${pct(errors, rows.length)}% of requests` : 'none', errors > 0),
+  ].join('');
+
+  // Per-backend rollup. Sorted by volume so the busiest is first.
+  const byBackend = {};
+  for (const r of rows) {
+    const b = (byBackend[r.backend] ||= { n: 0, tokens: 0, unreported: 0, ms: 0 });
+    b.n++; b.ms += r.duration_ms;
+    if (r.metered.kind === 'reported') b.tokens += r.metered.prompt_tokens + r.metered.completion_tokens;
+    else b.unreported++;
+  }
+  const entries = Object.entries(byBackend).sort((a, b) => b[1].n - a[1].n);
+  const max = Math.max(...entries.map(([, v]) => v.n));
+  $('backends').innerHTML = `<table><thead><tr>
+      <th>Backend</th><th>Share</th><th class="num">Requests</th>
+      <th class="num">Tokens</th><th class="num">Avg ms</th></tr></thead><tbody>` +
+    entries.map(([name, v]) => `<tr>
+      <td><b>${esc(name)}</b>${v.unreported ? ` <span class="pill unrep">${v.unreported} unreported</span>` : ''}</td>
+      <td style="width:34%"><div class="bar"><i style="width:${pct(v.n, max)}%"></i></div></td>
+      <td class="num">${fmt(v.n)}</td>
+      <td class="num">${v.tokens ? fmt(v.tokens) : '—'}</td>
+      <td class="num">${Math.round(v.ms / v.n)}</td></tr>`).join('') + '</tbody></table>';
+
+  $('recent').innerHTML = `<table><thead><tr>
+      <th>Model</th><th>Backend</th><th>Routing</th>
+      <th class="num">Status</th><th class="num">Tokens</th><th class="num">ms</th></tr></thead><tbody>` +
+    rows.slice(-40).reverse().map(r => {
+      const rep = r.metered.kind === 'reported';
+      const tok = rep ? fmt(r.metered.prompt_tokens + r.metered.completion_tokens)
+                      : `<span class="pill unrep">unreported</span>`;
+      return `<tr>
+        <td><code>${esc(r.model)}</code>${r.streaming ? ' <span class="pill">stream</span>' : ''}</td>
+        <td>${esc(r.backend)}${r.mirrored_to ? ` <span class="pill mirror">→ ${esc(r.mirrored_to)}</span>` : ''}</td>
+        <td class="sub" style="color:var(--ink3);font-size:12px">${esc(r.reason)}</td>
+        <td class="num" style="color:${r.status >= 400 ? 'var(--bad)' : 'var(--ink2)'}">${r.status}</td>
+        <td class="num">${tok}</td>
+        <td class="num">${fmt(r.duration_ms)}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+// Request data is untrusted: a model name or routing reason is rendered as text,
+// never as markup.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+let failures = 0;
+function renderMirrors(rows) {
+  if (!rows.length) {
+    $('mirrors').innerHTML = `<div class="empty">No mirrored traffic. In shadow or canary
+      phase, every request is also sent to the candidate — scored, never served.</div>`;
+    return;
+  }
+  const failed = rows.filter(r => r.error).length;
+  const ok = rows.filter(r => r.status === 200).length;
+  const tokens = rows.filter(r => r.metered.kind === 'reported')
+                     .reduce((s, r) => s + r.metered.prompt_tokens + r.metered.completion_tokens, 0);
+  const ms = rows.reduce((s, r) => s + r.duration_ms, 0) / rows.length;
+  $('mirrors').innerHTML = `<div class="grid tiles">
+    ${tile('Mirrored', fmt(rows.length), 'sent to the candidate, never served')}
+    ${tile('Candidate OK', fmt(ok), failed ? `${failed} failed to reach the candidate` : 'all reached', failed > 0)}
+    ${tile('Candidate tokens', tokens ? fmt(tokens) : '—', 'reported by the candidate')}
+    ${tile('Candidate avg', `${Math.round(ms)} ms`, 'off the client hot path')}
+  </div>` + (failed ? `<div class="note warn" style="margin-top:10px">
+      The candidate is failing. Shadow mode is gathering no evidence while this
+      persists — a rollout gated on it would never have data to advance on.</div>` : '');
+}
+
+// --- live engine telemetry ---------------------------------------------------
+// Every field may be absent. Absent renders as an em dash, never as 0 — a KV
+// utilisation of "0%" reads as plenty of headroom, which is the exact opposite
+// of "we could not read it". See telemetry.rs for why that distinction is the
+// point of the module.
+// Prefixed to avoid colliding with the request-table helpers above, which
+// already own `pct` and `ms` with different meanings.
+const NA = '\u2014';
+const tPct = v => v === null || v === undefined ? NA : (v * 100).toFixed(0) + '%';
+const tMs  = v => v === null || v === undefined ? NA : Math.round(v) + 'ms';
+const tNum = v => v === null || v === undefined ? NA : Math.round(v).toLocaleString();
+
+function bar(frac) {
+  // A meter with no reading shows an empty track, not a full-width zero.
+  if (frac === null || frac === undefined) return `<div class="meter"></div>`;
+  const cls = frac >= 0.90 ? 'hot' : frac >= 0.75 ? 'warm' : '';
+  return `<div class="meter"><i class="${cls}" style="width:${Math.min(frac,1)*100}%"></i></div>`;
+}
+
+function renderEngine(payload) {
+  const rows = (payload.backends || []).map(b => {
+    const t = b.telemetry || {};
+    if (t.error) {
+      return `<div class="card">
+        <div class="cardhead"><b>${b.backend}</b> <span class="tag">no telemetry</span></div>
+        <div class="sub">${t.error}</div>
+        <div class="sub dim">Not an outage on its own — the gateway is still serving.
+          It means this engine publishes no metrics endpoint we can read.</div>
+      </div>`;
+    }
+    const d = b.derived || {};
+    // Predictions the deployment falsified. The reason this panel exists: a
+    // planner emits a config on assumptions and nobody ever checks them.
+    const against = (b.contradicts_plan || []).map(
+      c => `<div class="contra">${c}</div>`).join('');
+    return `<div class="card">
+      <div class="cardhead"><b>${b.backend}</b>
+        ${d.kv_pressure ? '<span class="tag warn">KV near full — scheduler is preempting</span>' : ''}</div>
+      <div class="kvrow"><span>KV cache</span>${bar(t.kv_cache_used)}<b>${tPct(t.kv_cache_used)}</b></div>
+      <div class="kvrow"><span>prefill</span>${bar(d.prefill_share)}<b>${tPct(d.prefill_share)}</b>
+        <span class="hint">${d.prefill_share === null || d.prefill_share === undefined ? ''
+          : d.prefill_share > 0.5 ? 'prefill-bound — tune chunking' : 'decode-bound — tune bandwidth'}</span></div>
+      <div class="statline">
+        <span>running <b>${tNum(t.running)}</b></span>
+        <span>waiting <b>${tNum(t.waiting)}</b></span>
+        <span>queued <b>${tMs(t.queue_ms)}</b></span>
+        <span>TTFT <b>${tMs(t.ttft_ms)}</b></span>
+        <span>inter-token <b>${tMs(t.itl_ms)}</b></span>
+        <span>end-to-end <b>${tMs(t.e2e_ms)}</b></span>
+      </div>
+      <div class="statline">
+        <span>prefix hits <b>${tPct(t.prefix_hit_rate)}</b></span>
+        <span>draft accepted <b>${tPct(t.draft_acceptance)}</b></span>
+        <span>truncated <b>${tPct(d.truncation_rate)}</b></span>
+        <span>abandoned <b>${tPct(d.abandon_rate)}</b></span>
+        <span>KV reuse gap <b>${t.kv_reuse_gap_s === null || t.kv_reuse_gap_s === undefined ? NA : t.kv_reuse_gap_s.toFixed(1) + 's'}</b></span>
+      </div>
+      ${against ? `<div class="contras"><div class="contrahead">The deployment disagrees with the plan</div>${against}</div>` : ''}
+    </div>`;
+  }).join('');
+  $('engine').innerHTML = rows || `<div class="sub dim">No backends configured.</div>`;
+}
+
+async function poll() {
+  try {
+    const res = await fetch('metrics/requests', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    render(await res.json());
+    const mres = await fetch('metrics/mirrors', { cache: 'no-store' });
+    if (mres.ok) renderMirrors(await mres.json());
+    // Engine telemetry is a separate, slower call against the engines
+    // themselves. Its failure must not mark the gateway unreachable.
+    try {
+      const eres = await fetch('metrics/engine', { cache: 'no-store' });
+      if (eres.ok) renderEngine(await eres.json());
+    } catch (_) { /* rendered per-backend above */ }
+    failures = 0;
+    $('dot').className = 'dot';
+    $('livetext').textContent = 'live';
+  } catch (e) {
+    failures++;
+    $('dot').className = failures > 3 ? 'dot dead' : 'dot stale';
+    $('livetext').textContent = failures > 3 ? 'gateway unreachable' : 'retrying…';
+  }
+}
+poll();
+setInterval(poll, 2000);
+</script>
