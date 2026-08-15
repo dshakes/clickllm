@@ -52,6 +52,6 @@
 <line x1="475.6" y1="96" x2="475.6" y2="326" stroke="var(--s3)" stroke-width="2" stroke-dasharray="6 4"/><text x="483.6" y="110" class="lb" style="fill:var(--s3)">break-even</text>
 <rect x="92" y="377" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="106" y="385" class="lb">throughput gained</text><rect x="230" y="377" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="244" y="385" class="lb">throughput lost</text>
 <text x="28" y="424" class="note">Illustrative shape, not measured numbers — the crossover moves with the model, the drafter and the hardware. The</text>
-<text x="28" y="440" class="note">lesson is that the quantity has a sign, which is why clickllm derives it from your concurrency instead of offering</text>
-<text x="28" y="456" class="note">it as a checkbox.</text>
+<text x="28" y="440" class="note">lesson is that the quantity has a sign, which is why onpar derives it from your concurrency instead of offering it</text>
+<text x="28" y="456" class="note">as a checkbox.</text>
 </svg>

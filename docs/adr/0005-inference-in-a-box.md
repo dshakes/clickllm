@@ -36,7 +36,7 @@ One row. It happens to be the dev machine and the entire indie on-ramp, which is
 The push-back is right that the *box* is buildable. Distribution and execution are separable, and only execution is constrained:
 
 - **Package as an OCI artifact.** OCI images are content-addressed layers with a manifest; nothing requires a container runtime to *unpack* one. So the box ships through standard registries — `docker push`, `cosign` signing, layer dedup, air-gapped mirrors, existing enterprise supply-chain tooling — on **every** platform including macOS.
-- **Bind execution per host.** On Linux/Windows/k8s the OCI artifact *is* the runtime image. On macOS the same artifact is pulled and unpacked, and clickllm supervises the native MLX/llama.cpp process against it.
+- **Bind execution per host.** On Linux/Windows/k8s the OCI artifact *is* the runtime image. On macOS the same artifact is pulled and unpacked, and onpar supervises the native MLX/llama.cpp process against it.
 
 The user gets one artifact, one registry, one `pull`, one command, one endpoint. Only the final exec binding differs — and that difference is invisible unless they ask.
 
@@ -70,13 +70,13 @@ mymodel.box  (OCI manifest + layers)
 
 | | |
 |---|---|
-| **One command** | `clickllm run ghcr.io/acme/triage:v3` — anywhere |
+| **One command** | `onpar run ghcr.io/acme/triage:v3` — anywhere |
 | **One endpoint** | OpenAI-compatible, same port, same shape, every platform |
 | **One registry** | standard OCI — `cosign` signing, layer dedup, air-gapped mirrors |
 | **One manifest** | portable across hosts; the *bindings* differ, the declaration doesn't |
 | **Zero knobs** | ADR-0004 holds — nothing is asked |
 
-`clickllm pack` builds it, `clickllm push`/`pull` moves it, `clickllm run` executes it. On Linux/Windows/k8s that resolves to a container; on macOS the same artifact is unpacked and a native engine is supervised against it. **Same command, same endpoint, same artifact** — which is what "in a box" has to mean.
+`onpar pack` builds it, `onpar push`/`pull` moves it, `onpar run` executes it. On Linux/Windows/k8s that resolves to a container; on macOS the same artifact is unpacked and a native engine is supervised against it. **Same command, same endpoint, same artifact** — which is what "in a box" has to mean.
 
 ### Proactive, not baked
 
@@ -109,6 +109,6 @@ Simpler, and it silently guts the on-ramp persona and the dogfooding machine. Th
 
 ## Follows from this
 
-- `clickllm run` must work with **no clickllm-specific runtime present** on the target beyond the CLI itself — pulling the container or the native engine as needed.
+- `onpar run` must work with **no onpar-specific runtime present** on the target beyond the CLI itself — pulling the container or the native engine as needed.
 - The support matrix (architecture × runtime × platform) is published, tested in CI, and treated as a first-class artifact.
 - Every run emits a one-line provenance summary: model, quant, engine, knobs changed on arrival, measured tok/s. Silence about a re-tune is a bug.

@@ -10,9 +10,9 @@ had never been read end to end:
 | entry point | validated? | consequence |
 |---|---|---|
 | `cli.py` | yes, in argument parsing | correct |
-| `mcp.py` | **no** ([#107](https://github.com/dshakes/clickllm/issues/107)) | a model that does not fit reported FEASIBLE, with flattering headroom |
+| `mcp.py` | **no** ([#107](https://github.com/dshakes/onpar/issues/107)) | a model that does not fit reported FEASIBLE, with flattering headroom |
 | `sdk.py` `fit()` | yes, hand-written again | correct |
-| `sdk.py` `explain()` | **no** ([#108](https://github.com/dshakes/clickllm/issues/108)) | same model, same lie, different door |
+| `sdk.py` `explain()` | **no** ([#108](https://github.com/dshakes/onpar/issues/108)) | same model, same lie, different door |
 
 Three doors into one calculation. Two of them guarded, and the two that were not
 produce a *wrong sizing verdict* rather than a crash — a non-positive `context`

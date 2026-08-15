@@ -22,10 +22,10 @@ use std::time::Duration;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Router as AxumRouter, http::StatusCode};
+use futures_util::StreamExt;
 use onpar_gateway::capture::CaptureStore;
 use onpar_gateway::proxy::{AppState, app};
 use onpar_gateway::router::{Backend, Phase, Route, Router};
-use futures_util::StreamExt;
 
 async fn spawn(router: AxumRouter) -> SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

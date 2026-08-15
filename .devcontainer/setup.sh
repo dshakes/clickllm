@@ -27,18 +27,18 @@ for t in ncu nsys; do
     || echo "$t: absent — install Nsight to profile rather than guess"
 done
 
-echo "── clickllm ───────────────────────────────────────────────"
+echo "── onpar ───────────────────────────────────────────────"
 pip install -q -e . 2>/dev/null || true
-python -m clickllm.kernels && python -m clickllm.plan
+python -m onpar.kernels && python -m onpar.plan
 
 cat <<'MSG'
 
 Ready. The workflow this environment exists for:
 
-  1. clickllm kernel scaffold my-kernel      # a package, not a fork
+  1. onpar kernel scaffold my-kernel      # a package, not a fork
   2. …write the kernel…
   3. ncu --set full python bench.py          # measure, do not guess
-  4. clickllm prove --against baseline.json  # did it change the OUTPUT?
+  4. onpar prove --against baseline.json  # did it change the OUTPUT?
 
 Step 4 is the one that is usually skipped and the only one that can tell a
 1.4× win from an unreviewed model change.

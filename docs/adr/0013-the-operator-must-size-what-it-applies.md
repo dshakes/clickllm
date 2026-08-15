@@ -5,7 +5,7 @@
 
 ## Context
 
-`clickllm.k8s.reconcile` opens by stating why it exists at all:
+`onpar.k8s.reconcile` opens by stating why it exists at all:
 
 > Nothing, if it asked for an image and a command. The reason to run an operator
 > is that **the answer changes when the cluster changes**: a workload sized for
@@ -89,7 +89,7 @@ alternative is what exists today: applying a Deployment whose flags were derived
 from no hardware at all, which fails later, in the cluster, as an OOM under a
 status reading `Planned`.
 
-**Migration.** `clickllm catalog-add` already exists for adding an entry from a
+**Migration.** `onpar catalog-add` already exists for adding an entry from a
 repo's `config.json`, so the remedy for `ModelNotInCatalogue` is a documented
 one-command path rather than a dead end. The status message should name it.
 

@@ -607,13 +607,13 @@ def test_every_command_the_docs_tell_you_to_run_exists(page):
 #: Names of OUR OWN distributions that have actually been published, anywhere a
 #: reader could install them from — PyPI, a Homebrew tap, a registry.
 #:
-#: One entry, and it is the whole list. `onpar` is on PyPI;
+#: One entry, and it is the whole list. Nothing is on PyPI yet:
 #: `https://pypi.org/pypi/onpar/json` is still a **404** and so is
 #: `onpar-core`, and `dshakes/homebrew-tap` still carries only `compass.rb`,
 #: `distil.rb` and `firstpass-proxy.rb` — no onpar formula. Publishing
 #: something means adding it here, which is the point: the constant is the claim,
 #: and the test is what makes stating it falsely cost something.
-PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"onpar", "onpar"})
+PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"onpar"})
 #: A flat set of names cannot express what is actually true, because the answer
 #: depends on the registry: `onpar` is live on npm and a 404 on PyPI, so the
 #: same token is correct after `npx` and wrong after `uvx`. Keyed by the verb's

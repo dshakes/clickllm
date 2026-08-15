@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>clickllm docs — run open models properly, and understand why</title>
+<title>onpar docs — run open models properly, and understand why</title>
 <meta name="description" content="How to pick, deploy, tune and prove open-weight LLMs. Includes a from-scratch education module on GPUs, prefill/decode, KV cache, batching, quantization and the serving stack.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
 <style>
@@ -128,7 +128,7 @@
      A paragraph saying "KV cache grows with context times concurrency" is true
      and forgettable. Dragging concurrency from 1 to 32 and watching the bar
      cross the line is the same fact, learned instead of read. Every number here
-     runs the same arithmetic as `clickllm fit`, so the page cannot drift from
+     runs the same arithmetic as `onpar fit`, so the page cannot drift from
      the tool. */
   .lab{background:linear-gradient(180deg,var(--panel2),var(--panel));
        border:1px solid var(--line2);border-radius:14px;padding:20px;margin:22px 0}
@@ -196,7 +196,7 @@
   <span style="color:var(--ink3);font-size:13.5px">docs</span>
   <span class="sp"></span>
   <a class="n" href="../">Home</a>
-  <a class="n" href="https://github.com/dshakes/clickllm">GitHub</a>
+  <a class="n" href="https://github.com/dshakes/onpar">GitHub</a>
 </nav></header>
 
 <div class="shell">
@@ -250,7 +250,7 @@
 
 <!-- ══════════ WHAT ══════════ -->
 <h2 id="what">What this is</h2>
-<p>clickllm helps you <em>choose</em>, <em>deploy</em>, <em>tune</em>, and <em>trust</em> open-weight
+<p>onpar helps you <em>choose</em>, <em>deploy</em>, <em>tune</em>, and <em>trust</em> open-weight
 language models on hardware you control.</p>
 <div class="cards">
   <div class="card"><h4>Choose</h4><p>What actually runs on your silicon, at your context and
@@ -270,7 +270,7 @@ language models on hardware you control.</p>
   genuinely cannot decide — and while it waits, it answers with its assumption stated out loud
   rather than with a blank prompt.</p>
 
-<pre><span class="u">$ clickllm build "coding assistant for 20 engineers"</span>
+<pre><span class="u">$ onpar build "coding assistant for 20 engineers"</span>
 
 Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB, 7 candidates fit. Engine: mlx.
 
@@ -308,18 +308,18 @@ Qwen3 30B-A3B (MoE) at q8 on M4 Max — 44.2 GB of 96.0 GB, 7 candidates fit. En
   <span class="c">[low]</span> State a TTFT or ITL budget.
 
 <span class="k">THEN PROVE IT</span>
-  clickllm prove evalset.json --candidate qwen3-30b-a3b --incumbent &lt;your-current-model&gt;
+  onpar prove evalset.json --candidate qwen3-30b-a3b --incumbent &lt;your-current-model&gt;
 
 Nothing above has been run. Deployment is yours to trigger, and no
 eval result moves production traffic without a human.</pre>
 
 <p><strong>NOT EXPRESSED</strong> is the block worth reading twice. It is every knob the plan wanted
   that this engine has no flag for — stated, rather than silently emitted as a flag that would fail
-  at start-up. Then <code>clickllm run</code> starts it, or <code>clickllm box</code> packages it for
+  at start-up. Then <code>onpar run</code> starts it, or <code>onpar box</code> packages it for
   somewhere else.</p>
 
-<pre><span class="u">$ clickllm build "coding assistant for 20 engineers" --save session.json</span>
-<span class="u">$ clickllm build --resume session.json --concurrency 8</span>   <span class="c"># answers the open question</span></pre>
+<pre><span class="u">$ onpar build "coding assistant for 20 engineers" --save session.json</span>
+<span class="u">$ onpar build --resume session.json --concurrency 8</span>   <span class="c"># answers the open question</span></pre>
 
 <div class="note">
   <p><b>Nothing above is a wizard.</b> The session is state on disk, not a sequence of screens:
@@ -333,35 +333,35 @@ eval result moves production traffic without a human.</pre>
 <p>The sizing solver has zero runtime dependencies and runs offline, so the fastest path is to
   run it without installing anything at all. Python 3.11 or newer.</p>
 
-<pre><span class="u">$ uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8</span>   <span class="c"># run it, install nothing</span>
-<span class="u">$ npx clickllm fit --context 32k --concurrency 8</span>                  <span class="c"># same, if node is what you have</span>
-<span class="u">$ uv tool install clickllm-cli</span>                                    <span class="c"># or put clickllm on your PATH</span>
-<span class="u">$ pipx install clickllm-cli</span>
-<span class="u">$ pip install clickllm-cli</span>
+<pre><span class="u">$ uvx --from onpar onpar fit --context 32k --concurrency 8</span>   <span class="c"># run it, install nothing</span>
+<span class="u">$ npx onpar fit --context 32k --concurrency 8</span>                  <span class="c"># same, if node is what you have</span>
+<span class="u">$ uv tool install onpar</span>                                    <span class="c"># or put onpar on your PATH</span>
+<span class="u">$ pipx install onpar</span>
+<span class="u">$ pip install onpar</span>
 
-<span class="u">$ uvx --from clickllm-cli==1.2.2 clickllm fit</span>                     <span class="c"># pin a build that stays put</span>
-<span class="u">$ npx clickllm@1.2.2 fit</span>                                         <span class="c"># the same build, via npm</span>
-<span class="u">$ clickllm version</span>                                                <span class="c"># what you have, and where it came from</span>
-<span class="u">$ clickllm upgrade</span>                                                <span class="c"># how to move, for the way you installed it</span>
+<span class="u">$ uvx --from onpar==1.2.2 onpar fit</span>                     <span class="c"># pin a build that stays put</span>
+<span class="u">$ npx onpar@1.2.2 fit</span>                                         <span class="c"># the same build, via npm</span>
+<span class="u">$ onpar version</span>                                                <span class="c"># what you have, and where it came from</span>
+<span class="u">$ onpar upgrade</span>                                                <span class="c"># how to move, for the way you installed it</span>
 
-<span class="u">$ curl -fsSL https://dshakes.github.io/clickllm/install.sh | sh</span>    <span class="c"># picks whichever of those you already have</span></pre>
+<span class="u">$ curl -fsSL https://dshakes.github.io/onpar/install.sh | sh</span>    <span class="c"># picks whichever of those you already have</span></pre>
 
 <div class="note">
-  <p><b>The distribution is <code>clickllm-cli</code>; the command is <code>clickllm</code>.</b>
+  <p><b>The distribution is <code>onpar</code>; the command is <code>onpar</code>.</b>
   PyPI refused the bare name as too similar to the existing <code>click-llm</code> package, so
-  <code>pip install clickllm</code> and <code>uvx clickllm</code> both fail and always will. The
+  <code>pip install onpar</code> and <code>uvx onpar</code> both fail and always will. The
   <code>--from</code> is what bridges the two names — it is not optional, and every <code>uvx</code>
   line in these docs carries one. There is no Homebrew formula.</p>
 </div>
 
 <div class="note">
-  <p><b><code>npx clickllm</code> works.</b> npm allowed the bare name PyPI refused, so the npm
-  package and the command are both <code>clickllm</code>. It is a shim, not a second
-  implementation — it execs <code>uvx --from clickllm-cli==&lt;version&gt; clickllm</code> and falls
+  <p><b><code>npx onpar</code> works.</b> npm allowed the bare name PyPI refused, so the npm
+  package and the command are both <code>onpar</code>. It is a shim, not a second
+  implementation — it execs <code>uvx --from onpar==&lt;version&gt; onpar</code> and falls
   back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python 3.11+ are
   still required underneath. <code>npx</code> saves you naming the distribution, not installing
-  Python. The <code>==</code> is exact by design: <code>npx clickllm@1.2.2</code> runs
-  <code>clickllm-cli</code> 1.2.2 and nothing else, so the two registries cannot drift apart
+  Python. The <code>==</code> is exact by design: <code>npx onpar@1.2.2</code> runs
+  <code>onpar</code> 1.2.2 and nothing else, so the two registries cannot drift apart
   under you.</p>
 </div>
 
@@ -383,7 +383,7 @@ eval result moves production traffic without a human.</pre>
   </tbody>
 </table></div>
 <p class="lede" style="font-size:15px">Divide bandwidth by model size and you have a ceiling nobody can beat.
-  <code>clickllm fit</code> reports that division derated by a <strong>0.72</strong>
+  <code>onpar fit</code> reports that division derated by a <strong>0.72</strong>
   efficiency factor — the second figure in each row above — because no real engine
   achieves its rated bandwidth. That factor is a calibration knob, not a measurement,
   which is why the tool calls its output an <em>estimate</em>: reality lands below the
@@ -502,7 +502,7 @@ eval result moves production traffic without a human.</pre>
     Mixture-of-Experts model on <em>active</em> parameters instead of <em>total</em>: Kimi K3 activates
     50B of 2.8T per token, so people assume 50B of memory. All 2.8T must be resident.
     <em>Sparsity cuts compute, not memory.</em></p>
-  <p>clickllm gets all three right, and <code>--explain</code> shows the arithmetic so you can check.</p>
+  <p>onpar gets all three right, and <code>--explain</code> shows the arithmetic so you can check.</p>
 </div>
 
 <h2 id="edu-batch"><i class="chip"></i>Learn: batching and throughput</h2>
@@ -527,7 +527,7 @@ eval result moves production traffic without a human.</pre>
     <tr><td>mlx (Metal)</td><td>~15% slower</td><td><strong>~27× higher aggregate</strong></td></tr>
   </tbody>
 </table></div>
-<p>Neither is "better". <code>clickllm fit --concurrency N</code> picks on the number you give it,
+<p>Neither is "better". <code>onpar fit --concurrency N</code> picks on the number you give it,
   which is why that flag matters more than it looks.</p>
 
 <h4>So how much of the GPU are you actually using?</h4>
@@ -556,7 +556,7 @@ eval result moves production traffic without a human.</pre>
 <div class="note">
   <p><b>This is the whole reason the solver exists.</b> "Will it fit" and "will it be fast" are the
   same question asked twice, because the thing that decides both is how much memory the KV cache
-  leaves you. That is what <code>clickllm fit</code> computes, and what <code>--explain</code>
+  leaves you. That is what <code>onpar fit</code> computes, and what <code>--explain</code>
   shows the arithmetic for.</p>
 </div>
 
@@ -598,7 +598,7 @@ eval result moves production traffic without a human.</pre>
 <div class="note">
   <p><b>This is why <code>prefix_sharing</code> exists in the planner.</b> It is the single
   most under-used number in LLM serving: nobody sets it, because no form asks for it, so the
-  default assumes every request is unique. <code>clickllm advise</code> raises it unprompted
+  default assumes every request is unique. <code>onpar advise</code> raises it unprompted
   for exactly that reason.</p>
 </div>
 
@@ -620,7 +620,7 @@ eval result moves production traffic without a human.</pre>
 <div class="note warn">
   <p><b>An eviction is a silent tax, not an error.</b> A server at 95% KV utilisation is not
   "efficiently used" — it is one busy minute away from thrashing, and the symptom will arrive
-  as a latency complaint rather than an alert. <code>clickllm advise</code> flags it at 90%.</p>
+  as a latency complaint rather than an alert. <code>onpar advise</code> flags it at 90%.</p>
 </div>
 
 <h2 id="edu-quant">Learn: quantization</h2>
@@ -641,7 +641,7 @@ eval result moves production traffic without a human.</pre>
 </table></div>
 <div class="note">
   <p><b>Why we cap at 8-bit by default.</b> fp16 doubles bandwidth cost for quality gains that are
-  negligible at inference time. clickllm picks the highest precision <em>at or below 8 bits</em> that
+  negligible at inference time. onpar picks the highest precision <em>at or below 8 bits</em> that
   fits, and only goes to 16 when a model publishes nothing smaller.</p>
 </div>
 
@@ -696,7 +696,7 @@ eval result moves production traffic without a human.</pre>
   <p><b>Distillation is the one this product cares about, and it is a happy accident.</b>
   If you are migrating off a closed API, you have been paying for that model's answers to your
   own traffic — and a captured log of those answers <em>is</em> a distillation dataset. You
-  already bought the training data. That is what <code>clickllm</code>'s post-training module
+  already bought the training data. That is what <code>onpar</code>'s post-training module
   proposes: train the open model on your incumbent's real answers to your real prompts.</p>
 </div>
 <div class="note warn">
@@ -729,14 +729,14 @@ eval result moves production traffic without a human.</pre>
   <p><b>Rank is the one knob worth understanding.</b> It sets how much the adapter is allowed
   to change: higher rank means more capacity and a bigger file. 8–16 is a normal starting point;
   64+ is for genuinely hard shifts. vLLM only accepts specific values (1, 8, 16, 32, 64, 128,
-  256, 320, 512), so clickllm rounds <em>up</em> to the next accepted one — rounding down would
+  256, 320, 512), so onpar rounds <em>up</em> to the next accepted one — rounding down would
   refuse to load your adapter rather than merely wasting a little memory.</p>
 </div>
 <div class="note warn">
   <p><b>The trap that costs throughput silently.</b> Loading eight adapters does not mean eight
   can run in one batch. Both engines cap adapters-per-batch, and both default it low — vLLM's
   <code>--max-loras</code> defaults to <b>1</b>. Load eight, leave the cap alone, and seven of
-  them serialise. Nothing errors; throughput is just a fraction of what you paid for. clickllm
+  them serialise. Nothing errors; throughput is just a fraction of what you paid for. onpar
   derives that cap from your concurrency instead of leaving it at the default.</p>
 </div>
 <p class="sub">SGLang counts the base model in the same budget, so N adapters need
@@ -746,7 +746,7 @@ eval result moves production traffic without a human.</pre>
 <h2 id="edu-spec">Learn: speculative decoding</h2>
 <figure>
   <img src="../assets/edu-spec-decode.svg" alt="Throughput change from speculative decoding against batch size, positive at low batch and negative beyond about 32" loading="lazy">
-  <figcaption>The quantity has a sign. That is why clickllm derives it from your concurrency instead of offering it as a checkbox.</figcaption>
+  <figcaption>The quantity has a sign. That is why onpar derives it from your concurrency instead of offering it as a checkbox.</figcaption>
 </figure>
 <p>A small "draft" model guesses several tokens ahead; the real model verifies them in one pass.
   Accepted guesses are free. Output is <em>identical</em> — it's a speed trick, not a quality
@@ -755,7 +755,7 @@ eval result moves production traffic without a human.</pre>
   <p><b>It is not free at scale.</b> EAGLE-3's headline "2–3×" is a <em>single-stream</em> figure. At
   realistic serving concurrency expect ~1.3–1.8×, and past batch ~32 the acceptance rate falls far
   enough that you pay for two forward passes and <em>go slower</em>.</p>
-  <p>clickllm disables it above that cliff automatically and prints why. In the walkthrough above,
+  <p>onpar disables it above that cliff automatically and prints why. In the walkthrough above,
   it was enabled, measured, found to cost 8%, and reverted.</p>
 </div>
 
@@ -808,16 +808,16 @@ eval result moves production traffic without a human.</pre>
   <p><b>Check the support matrix before committing hardware.</b> vLLM lists v5e, v6e and v7x
     as recommended; v3, v4 and v5p are <em>experimental</em>. MLA attention, XL MoE and vision
     encoders are listed as still maturing — so a DeepSeek-family model, which is MLA, is
-    exactly the case to verify rather than assume. clickllm surfaces each of these as a plan
+    exactly the case to verify rather than assume. onpar surfaces each of these as a plan
     note rather than quietly picking the hardware for you.</p>
 </div>
-<p class="sub">SGLang, llm-d and llama.cpp have no TPU path at all, so clickllm will never
+<p class="sub">SGLang, llm-d and llama.cpp have no TPU path at all, so onpar will never
   offer them there — emitting a command that cannot start is worse than emitting none.</p>
 
 
 <h2 id="edu-kernels"><i class="chip"></i>Learn: kernel-level work</h2>
 <p>Below the engine there is one more layer: the CUDA kernels that actually do the arithmetic.
-  clickllm <strong>does not write them</strong> — out-engineering vLLM's kernel authors is not the
+  onpar <strong>does not write them</strong> — out-engineering vLLM's kernel authors is not the
   gap, and a custom attention kernel maintained against upstream churn is a permanent tax whose
   failure mode is subtle numerical drift that presents as a <em>model quality</em> problem.</p>
 <p>What it does give you is the seam and the thing nobody else does: <strong>a way to prove your
@@ -849,7 +849,7 @@ eval result moves production traffic without a human.</pre>
   <tr><td><code>vllm.endpoint_plugins</code></td><td>extra HTTP routes</td>
       <td>routes — <b>not loaded by default</b></td></tr>
 </table></div>
-<pre><span class="u">$ clickllm kernel fused-rmsnorm --speedup 1.18 --drift "fp16 reduction order"</span>
+<pre><span class="u">$ onpar kernel fused-rmsnorm --speedup 1.18 --drift "fp16 reduction order"</span>
 
   wrote fused-rmsnorm/pyproject.toml          <span class="c">entry point in the right group</span>
   wrote fused-rmsnorm/fused_rmsnorm/__init__.py   <span class="c">a re-entrant register()</span>
@@ -889,10 +889,10 @@ eval result moves production traffic without a human.</pre>
   whether the profilers are present. It also sets <code>--shm-size=16g</code>, because Docker's
   64&nbsp;MB default produces a bus error that looks convincingly like a kernel bug.</p>
 <pre><span class="c"># the workflow the environment exists for</span>
-<span class="u">clickllm kernel my-kernel</span>              <span class="c">a package, not a fork</span>
+<span class="u">onpar kernel my-kernel</span>              <span class="c">a package, not a fork</span>
 <span class="c"># …write the kernel…</span>
 <span class="u">ncu --set full python bench.py</span>       <span class="c">measure, don't guess</span>
-<span class="u">clickllm prove --against base.json</span>   <span class="c">did it change the OUTPUT?</span></pre>
+<span class="u">onpar prove --against base.json</span>   <span class="c">did it change the OUTPUT?</span></pre>
 <p class="sub">The last step is the one usually skipped, and the only one that can tell a
   genuine 1.4× win from an unreviewed model change. It is the same machinery that decides whether
   an entirely different model is equivalent — and a kernel is a far smaller perturbation than that,
@@ -902,7 +902,7 @@ eval result moves production traffic without a human.</pre>
 <p>Recommendations combine three inputs: <em>your hardware</em>, <em>your workload</em>, and
   <em>current capability rankings</em>. None alone is enough — a leaderboard doesn't know your GPU,
   and your GPU doesn't know which model is good.</p>
-<pre><span class="u">$ clickllm fit --context 32k --concurrency 8</span>
+<pre><span class="u">$ onpar fit --context 32k --concurrency 8</span>
 
   <span class="k">M4 Max</span> · 16 cores · 128 GB · 546 GB/s
   usable for inference: 96 GB
@@ -934,14 +934,14 @@ eval result moves production traffic without a human.</pre>
              continuous batching on Metal; at concurrency 8 aggregate throughput
              dominates, despite ~15% lower single-stream than llama.cpp
 
-  clickllm fit --explain &lt;model-id&gt;   <span class="c"># show the arithmetic</span></pre>
+  onpar fit --explain &lt;model-id&gt;   <span class="c"># show the arithmetic</span></pre>
 <p>The <strong>NOT FEASIBLE</strong> block is the useful half — it tells you <em>why</em>, which is
   usually the thing you actually needed to know. It separates the two failures that look identical
   from the outside: weights that do not fit at all, and weights that fit while the KV cache for your
   context and concurrency does not.</p>
 
 <h3>Seeing the arithmetic</h3>
-<pre><span class="u">$ clickllm fit --explain qwen3-30b-a3b --concurrency 8</span>
+<pre><span class="u">$ onpar fit --explain qwen3-30b-a3b --concurrency 8</span>
 
 Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 
@@ -962,7 +962,7 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   <span class="g">verdict: FITS</span></pre>
 
 <h3>Leaderboard awareness <span class="pill soon">PLANNED</span></h3>
-<p>Capability rankings move weekly. clickllm tracks published leaderboards and release feeds, then
+<p>Capability rankings move weekly. onpar tracks published leaderboards and release feeds, then
   filters them through <em>your</em> constraints — a model topping every chart is irrelevant if it
   needs 1.4 TB of memory.</p>
 <div class="note">
@@ -971,10 +971,10 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 </div>
 
 <h2 id="models">Managing models <span class="pill live">LIVE</span></h2>
-<p><strong>There is no <code>clickllm pull</code>, and that is deliberate.</strong> The serving engine
+<p><strong>There is no <code>onpar pull</code>, and that is deliberate.</strong> The serving engine
   fetches its own weights — vLLM and MLX both do, and both do it better than a second downloader
-  would. So clickllm resolves <em>which</em> repo, and the engine moves the bytes.</p>
-<pre><span class="u">$ clickllm models</span>          <span class="c"># the catalogue, with licences</span>
+  would. So onpar resolves <em>which</em> repo, and the engine moves the bytes.</p>
+<pre><span class="u">$ onpar models</span>          <span class="c"># the catalogue, with licences</span>
 
   id                       params   active       ctx  license
   ------------------------------------------------------------------
@@ -1002,7 +1002,7 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 <p>Resolve the weights repo, choose the engine this machine can actually run, start it, and wait for
   healthy. <code>--dry-run</code> stops before starting anything and prints the exact command, which
   is the form worth reading first.</p>
-<pre><span class="u">$ clickllm run qwen3-30b-a3b --dry-run</span>
+<pre><span class="u">$ onpar run qwen3-30b-a3b --dry-run</span>
 
   <span class="k">MODEL</span>     Qwen3 30B-A3B (MoE) @ q8   (44.2 GB of 96.0 GB usable)
   <span class="k">WEIGHTS</span>   mlx-community/Qwen3-30B-A3B-8bit   <span class="c">(confirmed; 1 candidate(s) checked)</span>
@@ -1034,17 +1034,17 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   <code>--concurrency</code>, <code>--host</code> and <code>--port</code> override the derived
   choices; nothing binds off loopback unless you ask it to.</p>
 <div class="note">
-  <p><b>A refusal names the shortfall and the next step.</b> <code>clickllm run glm-5.2</code> on a
+  <p><b>A refusal names the shortfall and the next step.</b> <code>onpar run glm-5.2</code> on a
   128 GB laptop answers <em>“even at q4 it needs 248.4 GB against 96.0 GB usable — short by
-  152.4 GB”</em>, and points at <code>clickllm where</code> and <code>clickllm host</code>. It does
+  152.4 GB”</em>, and points at <code>onpar where</code> and <code>onpar host</code>. It does
   not start something that will die at load.</p>
 </div>
 
 <h3 id="cache">What the engines left on your disk <span class="pill live">LIVE</span></h3>
 <p>Proving six candidates is a sweep, not a download: each launch costs 30–45 GB in Hugging Face's
-  cache and nothing tracks it. <code>clickllm cache</code> reads that cache — it is not a second
+  cache and nothing tracks it. <code>onpar cache</code> reads that cache — it is not a second
   store — and can reclaim space without destroying the incumbent you are measuring against.</p>
-<pre><span class="u">$ clickllm cache</span>
+<pre><span class="u">$ onpar cache</span>
 
   ~/.cache/huggingface/hub
 
@@ -1055,14 +1055,14 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 
   109.6 GB in 4 repos · 646.0 GB free on disk
 
-  clickllm cache pin &lt;repo&gt;              <span class="c"># never evict this one</span>
-  clickllm cache evict --budget 200G     <span class="c"># show what would go</span>
+  onpar cache pin &lt;repo&gt;              <span class="c"># never evict this one</span>
+  onpar cache evict --budget 200G     <span class="c"># show what would go</span>
 
-<span class="u">$ clickllm cache pin mlx-community/Qwen3-30B-A3B-8bit</span>
+<span class="u">$ onpar cache pin mlx-community/Qwen3-30B-A3B-8bit</span>
 
   pinned: mlx-community/Qwen3-30B-A3B-8bit
 
-<span class="u">$ clickllm cache evict --budget 60G</span>
+<span class="u">$ onpar cache evict --budget 60G</span>
 
   would delete 3 repos, freeing 81.2 GB:
 
@@ -1081,9 +1081,9 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   reads the list first.</p>
 
 <h3 id="host">Somewhere it does not fit <span class="pill live">LIVE</span></h3>
-<p>A 355B model does not run on a laptop. <code>clickllm host</code> ranks rented shapes that can
+<p>A 355B model does not run on a laptop. <code>onpar host</code> ranks rented shapes that can
   serve it, free tiers first, and shows the ones that cannot alongside the reason.</p>
-<pre><span class="u">$ clickllm host glm-5.2</span>
+<pre><span class="u">$ onpar host glm-5.2</span>
 
   GLM-5.2 · 355B (32B active, MoE) · MIT
   at 32,768 context, concurrency 4
@@ -1109,8 +1109,8 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   <span class="c">Prices read 2026-07-28 from each provider's own page; every source URL is in the detail
   below. They move. Re-read the source before committing spend — nothing here checks it for you.</span>
 
-  clickllm host glm-5.2 --write ./deploy   <span class="c"># emit the deploy artifact</span>
-  clickllm host glm-5.2 --free-only        <span class="c"># only what costs nothing</span>
+  onpar host glm-5.2 --write ./deploy   <span class="c"># emit the deploy artifact</span>
+  onpar host glm-5.2 --free-only        <span class="c"># only what costs nothing</span>
   Nothing was written, nothing was started, no provider was contacted.</pre>
 <p>The <code>$/Mtok</code> column assumes the machine is saturated single-stream, so
   real cost is higher. Throughput is a roofline estimate. Both are labelled that way in the output
@@ -1120,7 +1120,7 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 <h2 id="deploy">Deploying <span class="pill live">LIVE</span></h2>
 <p>You name a model. Every knob is derived — see <a href="#tuning">optimization controls</a> for the
   full list and how to override any of them. There is no <code>--target</code> flag, because you do
-  not pick one: <code>clickllm box</code> solves <em>every</em> host class at once and writes the
+  not pick one: <code>onpar box</code> solves <em>every</em> host class at once and writes the
   ones that fit.</p>
 <h4>Inference in a box</h4>
 <p>A <em>box</em> is a portable, tuned artifact: manifest, weights lock, per-target bindings, and the
@@ -1139,7 +1139,7 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
     if you know, and an incident if you do not. Today <code>box</code> applies this at build time,
     per host class; on arrival it is the operator's step.</figcaption>
 </figure>
-<pre><span class="u">$ clickllm box qwen3-30b-a3b --write ./deploy --ref ghcr.io/acme/triage:v3</span>
+<pre><span class="u">$ onpar box qwen3-30b-a3b --write ./deploy --ref ghcr.io/acme/triage:v3</span>
 
   <span class="k">BOX</span>       qwen3-30b-a3b · Qwen3 30B-A3B (MoE)
   <span class="k">PROOF</span>     none — no receipt was supplied, so this box carries no quality claim
@@ -1172,30 +1172,30 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 
   <span class="k">PUSH</span>
     cd ./deploy
-    oras push ghcr.io/acme/triage:v3 --artifact-type application/vnd.clickllm.box.v1+json \
+    oras push ghcr.io/acme/triage:v3 --artifact-type application/vnd.onpar.box.v1+json \
       manifest.yaml:application/yaml weights.lock:application/yaml \
       bench.json:application/json README.md:text/markdown targets
     cosign sign ghcr.io/acme/triage:v3      <span class="c"># optional, and the reason OCI was chosen</span>
     docker build -t ghcr.io/acme/triage:v3-linux-cuda targets/linux-cuda \
       &amp;&amp; docker push ghcr.io/acme/triage:v3-linux-cuda
 
-  Run these yourself. clickllm holds no registry credential, reads no
+  Run these yourself. onpar holds no registry credential, reads no
   token, and has contacted no registry.</pre>
 <div class="note">
-  <p><b>clickllm never pushes.</b> It prints the exact <code>oras</code> and <code>docker</code>
+  <p><b>onpar never pushes.</b> It prints the exact <code>oras</code> and <code>docker</code>
   commands and stops. It holds no registry credential and reads no token, so publishing stays an act
   you perform with your own credentials — the same reason no eval result moves production traffic on
   its own.</p>
 </div>
 <p>A host class the model cannot fit is <strong>not built, and named</strong> —
-  <code>clickllm box llama-3.3-70b</code> writes the ROCm target and reports <em>“linux-cuda: not
+  <code>onpar box llama-3.3-70b</code> writes the ROCm target and reports <em>“linux-cuda: not
   built — does not fit NVIDIA H100 80 GB SXM: even at q4 it needs 121.4 GB against 72.0 GB usable”</em>.
   If no target fits at all, it errors rather than emitting an artifact that cannot run anywhere.</p>
 <div class="note">
   <p><b>Re-solve on arrival is the operator's step today.</b> Each target is tuned for the host class
   it names, and every file says which. The manifest's <code>RETUNE</code> header and the box README
   tell you to re-detect, re-solve and re-benchmark on a machine that differs —
-  <a href="https://github.com/dshakes/clickllm/blob/main/docs/adr/0005-inference-in-a-box.md">ADR-0005</a>'s
+  <a href="https://github.com/dshakes/onpar/blob/main/docs/adr/0005-inference-in-a-box.md">ADR-0005</a>'s
   automatic version is specified, not built. A config tuned for 80 GB
   is wrong on 24 GB and catastrophic on a Mac, so the box says so rather than assuming.</p>
 </div>
@@ -1232,9 +1232,9 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
   start-up — <code>--speculative-config eagle3</code> without a draft checkpoint is not a
   configuration, it is a crash with a delay.</p>
 <h3>What to change, and where production diverged</h3>
-<p><code>clickllm advise</code> ranks the changes worth making. Feed it what you have actually
+<p><code>onpar advise</code> ranks the changes worth making. Feed it what you have actually
   observed with the <code>--seen-*</code> flags and it compares the plan against reality.</p>
-<pre><span class="u">$ clickllm advise --context 32k --concurrency 8 --ttft-ms 400 \</span>
+<pre><span class="u">$ onpar advise --context 32k --concurrency 8 --ttft-ms 400 \</span>
 <span class="u">    --seen-concurrency 31 --seen-kv-utilisation 0.97</span>
 
   M4 Max · mlx
@@ -1292,65 +1292,65 @@ Qwen3 30B-A3B (MoE) @ q8, 32,768 ctx, concurrency 8
 <!-- ══════════ REFERENCE ══════════ -->
 <hr>
 <h2 id="cli">CLI reference</h2>
-<p>Everything below is registered today — <code>clickllm --help</code> is the authority, and this
+<p>Everything below is registered today — <code>onpar --help</code> is the authority, and this
   list is checked against it by a test.</p>
 <pre><span class="c">## decide</span>
-<span class="u">clickllm build "coding assistant for 20 engineers"</span>   drive the whole loop
+<span class="u">onpar build "coding assistant for 20 engineers"</span>   drive the whole loop
   --context 32k        plan for this context length
   --concurrency 8      plan for this many simultaneous requests
   --ttft-ms / --itl-ms latency budgets to check the plan against
   --prefix-sharing 0.8 fraction of prompt tokens shared across requests
   --on PROFILE         plan for another machine; omit to detect this one
   --save / --resume    the session is a file, not a screen
-<span class="u">clickllm fit</span>          what runs on this machine
+<span class="u">onpar fit</span>          what runs on this machine
   --context 32k        plan for this context length
   --concurrency 8      plan for this many simultaneous requests
   --explain MODEL      show the arithmetic
   --quiet              hide the NOT FEASIBLE section
   --json               machine-readable
-<span class="u">clickllm where MODEL</span>  which hardware can run a given model
-<span class="u">clickllm models</span>       the catalogue with licences
-<span class="u">clickllm advise</span>       what to change, and where production diverged
+<span class="u">onpar where MODEL</span>  which hardware can run a given model
+<span class="u">onpar models</span>       the catalogue with licences
+<span class="u">onpar advise</span>       what to change, and where production diverged
   --seen-concurrency, --seen-prefix-sharing, --seen-ttft-ms,
   --seen-peak-context, --seen-kv-utilisation    what you actually observed
 
 <span class="c">## run</span>
-<span class="u">clickllm run MODEL</span>    resolve weights, launch the engine, wait for healthy
+<span class="u">onpar run MODEL</span>    resolve weights, launch the engine, wait for healthy
   --dry-run            print the plan and the exact command; start nothing
   --quant q4           force a quantisation; default is the best that fits
   --host / --port      bind address and port; loopback by default
-<span class="u">clickllm host MODEL</span>   where to run a model this machine cannot; free tiers first
+<span class="u">onpar host MODEL</span>   where to run a model this machine cannot; free tiers first
   --free-only          only shapes that cost nothing
   --provider NAME      pick this one instead of the cheapest that fits
   --write DIR          emit the deploy artifact
-<span class="u">clickllm box MODEL</span>    build the OCI box: one artifact, every platform
+<span class="u">onpar box MODEL</span>    build the OCI box: one artifact, every platform
   --write DIR          emit the box here
   --receipt FILE       attach the proof; without it the box claims nothing
   --ref REF            the registry reference the printed push commands use
-<span class="u">clickllm cache</span>        what the engines downloaded, and what to evict
+<span class="u">onpar cache</span>        what the engines downloaded, and what to evict
   pin / unpin REPO     never evict this one
   evict --budget 200G  show what would go; needs --yes to delete anything
-<span class="u">clickllm ui</span>           launch the local workbench
-<span class="u">clickllm desktop</span>      install a double-clickable launcher
+<span class="u">onpar ui</span>           launch the local workbench
+<span class="u">onpar desktop</span>      install a double-clickable launcher
 
 <span class="c">## trust</span>
-<span class="u">clickllm prove EVALSET</span>  run the eval suite and print the verdict
-<span class="u">clickllm receipt</span>       render or verify a migration receipt
-<span class="u">clickllm guard</span>         check whether a receipt still holds
-<span class="u">clickllm watch</span>         discover new models on a schedule; stages, never publishes
-<span class="u">clickllm discover</span>      trending models not yet in the catalogue
+<span class="u">onpar prove EVALSET</span>  run the eval suite and print the verdict
+<span class="u">onpar receipt</span>       render or verify a migration receipt
+<span class="u">onpar guard</span>         check whether a receipt still holds
+<span class="u">onpar watch</span>         discover new models on a schedule; stages, never publishes
+<span class="u">onpar discover</span>      trending models not yet in the catalogue
 
 <span class="c">## catalogue</span>
-<span class="u">clickllm catalog</span>         verify catalogue entries against published configs
-<span class="u">clickllm catalog-add</span>     add a model from its published config, no reinstall
-<span class="u">clickllm catalog-sources</span> where the catalogue's models come from
-<span class="u">clickllm kernel</span>          scaffold a vLLM plugin and its proof plan</pre>
+<span class="u">onpar catalog</span>         verify catalogue entries against published configs
+<span class="u">onpar catalog-add</span>     add a model from its published config, no reinstall
+<span class="u">onpar catalog-sources</span> where the catalogue's models come from
+<span class="u">onpar kernel</span>          scaffold a vLLM plugin and its proof plan</pre>
 <p>The one command that is <em>not</em> here is a cutover. Shadow → canary → cut runs through the
   <a href="#gateway">gateway</a>, and the step that moves production traffic is yours: nothing in
   this list has a flag that does it.</p>
 
 <h2 id="sdk">Python SDK <span class="pill live">LIVE</span></h2>
-<pre><span class="k">from</span> clickllm <span class="k">import</span> sdk
+<pre><span class="k">from</span> onpar <span class="k">import</span> sdk
 
 report = sdk.fit(context=<span class="g">"32k"</span>, concurrency=<span class="v">8</span>)
 report.best()                 <span class="c"># highest-capability candidate that isn't slow</span>
@@ -1360,9 +1360,9 @@ report.commercially_clean()   <span class="c"># permissive licence AND verified 
   a measurement anywhere downstream.</p>
 
 <h2 id="mcp">MCP &amp; agents <span class="pill live">LIVE</span></h2>
-<pre><span class="u">$ clickllm-mcp</span>   <span class="c"># JSON-RPC 2.0 over stdio, zero dependencies</span>
+<pre><span class="u">$ onpar-mcp</span>   <span class="c"># JSON-RPC 2.0 over stdio, zero dependencies</span>
 
-  tools: clickllm_fit · clickllm_explain · clickllm_catalog</pre>
+  tools: onpar_fit · onpar_explain · onpar_catalog</pre>
 <div class="note">
   <p><b>Read-only by design.</b> <code>cutover_advance</code> and <code>deploy_apply</code> are not
   exposed, and a test asserts no tool name contains <em>cutover</em>, <em>apply</em>, <em>deploy</em>,
@@ -1381,12 +1381,12 @@ report.commercially_clean()   <span class="c"># permissive licence AND verified 
 </figure>
 <p>Rust for the datapath and weights path — no GC pauses against a p95 budget, and explicit accounting
   for GB-scale fleet memory. Python for the control plane, where the ML ecosystem lives.
-  <a href="https://github.com/dshakes/clickllm/blob/main/docs/adr/0007-tech-stack.md">ADR-0007</a>
+  <a href="https://github.com/dshakes/onpar/blob/main/docs/adr/0007-tech-stack.md">ADR-0007</a>
   has the reasoning, including what was rejected.</p>
 
 <hr>
 <p class="muted" style="color:var(--ink3);font-size:13px">
-  Something wrong or unclear here? <a href="https://github.com/dshakes/clickllm/issues">Open an issue</a> —
+  Something wrong or unclear here? <a href="https://github.com/dshakes/onpar/issues">Open an issue</a> —
   documentation bugs are bugs.</p>
 
 </main>
@@ -1409,8 +1409,8 @@ report.commercially_clean()   <span class="c"># permissive licence AND verified 
   }
 
   /* --- the memory lab -----------------------------------------------------
-     Specs copied from src/clickllm/models.json; the arithmetic is the same as
-     clickllm.fit.solve. If these ever disagree with the CLI, the page is wrong
+     Specs copied from src/onpar/models.json; the arithmetic is the same as
+     onpar.fit.solve. If these ever disagree with the CLI, the page is wrong
      and this is the thing to fix — a teaching tool that contradicts the product
      teaches the wrong lesson twice. */
   (() => {

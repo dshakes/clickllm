@@ -16,9 +16,9 @@
 <text x="56" y="218" class="sub">guard · build</text>
 <rect x="308" y="92" width="248" height="168" rx="8" fill="var(--panel)"/>
 <text x="324" y="118" class="t" style="font-size:13px">resources</text>
-<text x="324" y="146" class="sub">clickllm:///receipt.json</text>
-<text x="324" y="170" class="sub">clickllm:///evalset.json</text>
-<text x="324" y="218" class="sub">confined to CLICKLLM_EVAL_ROOT</text>
+<text x="324" y="146" class="sub">onpar:///receipt.json</text>
+<text x="324" y="170" class="sub">onpar:///evalset.json</text>
+<text x="324" y="218" class="sub">confined to ONPAR_EVAL_ROOT</text>
 <rect x="576" y="92" width="248" height="168" rx="8" fill="var(--panel)"/>
 <text x="592" y="118" class="t" style="font-size:13px">prompts</text>
 <text x="592" y="146" class="sub">size-a-model</text>

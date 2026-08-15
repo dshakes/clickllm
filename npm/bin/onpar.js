@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// A shim, not a port. `clickllm` is a Python distribution — `clickllm-cli` on
+// A shim, not a port. `onpar` is a Python distribution — `onpar` on
 // PyPI, because PyPI refused the bare name as too close to `click-llm`. This
-// exists so `npx clickllm` reaches it without a second implementation to keep
+// exists so `npx onpar` reaches it without a second implementation to keep
 // in step.
 //
 // The version below is pinned to this package's own version, so `npx
-// clickllm@0.1.1` runs exactly clickllm-cli 0.1.1. A floating pin would let an
+// onpar@0.1.1` runs exactly onpar 0.1.1. A floating pin would let an
 // npm install silently change which Python is executed, and `npm/version.test`
 // fails the build if the two ever disagree.
 "use strict";
@@ -13,15 +13,15 @@
 const { spawnSync } = require("node:child_process");
 const { version } = require("../package.json");
 
-const SPEC = `clickllm-cli==${version}`;
+const SPEC = `onpar==${version}`;
 const args = process.argv.slice(2);
 
 // Ordered by how little they leave behind. `uvx` runs it without installing
 // anything permanent, which is the right default for a tool people are trying.
 const RUNNERS = [
-  { cmd: "uvx", args: ["--from", SPEC, "clickllm", ...args] },
-  { cmd: "uv", args: ["tool", "run", "--from", SPEC, "clickllm", ...args] },
-  { cmd: "pipx", args: ["run", "--spec", SPEC, "clickllm", ...args] },
+  { cmd: "uvx", args: ["--from", SPEC, "onpar", ...args] },
+  { cmd: "uv", args: ["tool", "run", "--from", SPEC, "onpar", ...args] },
+  { cmd: "pipx", args: ["run", "--spec", SPEC, "onpar", ...args] },
 ];
 
 function have(cmd) {
@@ -35,7 +35,7 @@ for (const runner of RUNNERS) {
   // Ctrl-C all behave as if it had been invoked directly.
   const run = spawnSync(runner.cmd, runner.args, { stdio: "inherit" });
   if (run.error) {
-    console.error(`clickllm: ${runner.cmd} failed to start: ${run.error.message}`);
+    console.error(`onpar: ${runner.cmd} failed to start: ${run.error.message}`);
     process.exit(70);
   }
   // A signalled child must not look like a clean exit. 128+n is the shell's
@@ -46,19 +46,19 @@ for (const runner of RUNNERS) {
 
 console.error(
   [
-    "clickllm needs a Python runner and none was found.",
+    "onpar needs a Python runner and none was found.",
     "",
     "  Install uv (recommended, installs nothing permanent):",
     "    curl -LsSf https://astral.sh/uv/install.sh | sh",
     "",
     "  Or use pipx:",
-    "    pipx run --spec " + SPEC + " clickllm --help",
+    "    pipx run --spec " + SPEC + " onpar --help",
     "",
     "  Or install the Python package directly:",
     "    pip install " + SPEC.replace("==", "==") + "",
     "",
     "This package is a shim: the tool itself is Python, published to PyPI as",
-    "clickllm-cli. Nothing here reimplements it.",
+    "onpar. Nothing here reimplements it.",
   ].join("\n"),
 );
 process.exit(127);

@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>clickllm — open models, served properly, in one command</title>
+<title>onpar — open models, served properly, in one command</title>
 <meta name="description" content="Open models, served properly, in one command. No config file — it reads your hardware, sizes the KV cache, picks the engine and sets the flags, then proves the model on your own traffic with a quality gate and a rollback button.">
-<meta property="og:title" content="clickllm — Open models, served properly, in one command.">
+<meta property="og:title" content="onpar — Open models, served properly, in one command.">
 <meta property="og:description" content="No config file. Ever. It reads your hardware, sizes the KV cache, picks the engine, sets the flags. Agents drive it natively. Your traffic becomes the benchmark, and the benchmark becomes the proof.">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://dshakes.github.io/clickllm/assets/switch-loop.svg">
+<meta property="og:image" content="https://dshakes.github.io/onpar/assets/switch-loop.svg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
 <style>
   /* ============================================================================
-     clickllm's own visual language, not a borrowed one.
+     onpar's own visual language, not a borrowed one.
 
      The product is a *migration under proof*: expensive traffic on the left,
      proven cheap traffic on the right, a gate in between. So the identity is
@@ -367,7 +367,7 @@
 <div class="bg"></div>
 
 <nav id="nav"><div class="navin">
-  <a class="brand" href="#top"><span class="mark"><i></i><i></i><i></i></span>clickllm</a>
+  <a class="brand" href="#top"><span class="mark"><i></i><i></i><i></i></span>onpar</a>
   <div class="navlinks">
     <a href="#problem">Why</a>
     <a href="#loop">The loop</a>
@@ -375,7 +375,7 @@
     <a href="#learn">Learn</a>
     <a href="#install">Install</a>
     <a href="docs/">Docs</a>
-    <a href="https://github.com/dshakes/clickllm">GitHub</a>
+    <a href="https://github.com/dshakes/onpar">GitHub</a>
   </div>
   <a class="cta" href="#install">Install</a>
   <button class="themetoggle" id="theme" type="button"
@@ -431,9 +431,9 @@
       <div class="termbar">
         <i class="tl" style="background:#fb7185"></i><i class="tl" style="background:#fbbf24"></i>
         <i class="tl" style="background:#34d399"></i>
-        <span class="termtitle">clickllm — ~/payments-api</span>
+        <span class="termtitle">onpar — ~/payments-api</span>
       </div>
-<pre><span class="ln" style="--d:0.00s"><span class="p">$</span> <span class="u">clickllm fit --context 32k --concurrency 8</span></span><span class="ln" style="--d:0.10s">&nbsp;</span><span class="ln" style="--d:0.15s">  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span></span><span class="ln" style="--d:0.25s">&nbsp;</span><span class="ln" style="--d:0.30s">  model                 quant  total   ~tok/s  licence</span><span class="ln" style="--d:0.40s">  <span class="c">─────────────────────────────────────────────────</span></span><span class="ln" style="--d:0.50s">  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">60</span>     Apache-2.0</span><span class="ln" style="--d:0.60s">  Phi-4 14B             q8     66.3G   <span class="k">18</span>      MIT</span><span class="ln" style="--d:0.70s">&nbsp;</span><span class="ln" style="--d:0.75s">  <span class="r">NOT FEASIBLE</span></span><span class="ln" style="--d:0.85s">  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —</span><span class="ln" style="--d:0.95s">                        sparsity cuts compute, not memory</span></span><span class="ln" style="--d:1.05s">&nbsp;</span><span class="ln" style="--d:1.10s"><span class="p">$</span> <span class="u">clickllm guard receipt.json --traffic mix.json</span></span><span class="ln" style="--d:1.20s">  <span class="r">RECEIPT VOID</span> · 17cfed178112</span><span class="ln" style="--d:1.30s">    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name</span><span class="ln" style="--d:1.40s">    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored</span><span class="ln" style="--d:1.50s">  <span class="w">→ re-prove now: the model you proved is not the</span><span class="ln" style="--d:1.60s">    model in production</span></span><span class="ln" style="--d:1.70s">&nbsp;</span></pre>
+<pre><span class="ln" style="--d:0.00s"><span class="p">$</span> <span class="u">onpar fit --context 32k --concurrency 8</span></span><span class="ln" style="--d:0.10s">&nbsp;</span><span class="ln" style="--d:0.15s">  M4 Max · 128 GB · 546 GB/s       usable: <span class="k">96 GB</span></span><span class="ln" style="--d:0.25s">&nbsp;</span><span class="ln" style="--d:0.30s">  model                 quant  total   ~tok/s  licence</span><span class="ln" style="--d:0.40s">  <span class="c">─────────────────────────────────────────────────</span></span><span class="ln" style="--d:0.50s">  Qwen3 30B-A3B (MoE)   q8     56.2G   <span class="k">60</span>     Apache-2.0</span><span class="ln" style="--d:0.60s">  Phi-4 14B             q8     66.3G   <span class="k">18</span>      MIT</span><span class="ln" style="--d:0.70s">&nbsp;</span><span class="ln" style="--d:0.75s">  <span class="r">NOT FEASIBLE</span></span><span class="ln" style="--d:0.85s">  Kimi K3 (2.8T MoE)    <span class="c">weights alone need 1,467 GB at q4 —</span><span class="ln" style="--d:0.95s">                        sparsity cuts compute, not memory</span></span><span class="ln" style="--d:1.05s">&nbsp;</span><span class="ln" style="--d:1.10s"><span class="p">$</span> <span class="u">onpar guard receipt.json --traffic mix.json</span></span><span class="ln" style="--d:1.20s">  <span class="r">RECEIPT VOID</span> · 17cfed178112</span><span class="ln" style="--d:1.30s">    <span class="r">[void]</span> gpt-5: fingerprint changed behind its name</span><span class="ln" style="--d:1.40s">    <span class="r">[void]</span> workload: 45% of traffic in shapes never scored</span><span class="ln" style="--d:1.50s">  <span class="w">→ re-prove now: the model you proved is not the</span><span class="ln" style="--d:1.60s">    model in production</span></span><span class="ln" style="--d:1.70s">&nbsp;</span></pre>
     </div>
   </div>
 
@@ -465,7 +465,7 @@
       <div class="cardtop"><span class="ico">📊</span><span class="tag bad">wrong data</span></div>
       <h3>A benchmark isn't your workload</h3>
       <p>MMLU says nothing about whether a model can extract line items from <em>your</em>
-        invoices. clickllm builds the eval set from traffic you actually served — redacted
+        invoices. onpar builds the eval set from traffic you actually served — redacted
         before it touches disk, clustered by task shape.</p>
     </div>
     <div class="card">
@@ -512,7 +512,7 @@
         moves is <em>measured</em>, so the dollars inherit its uncertainty. Without a rate, a
         capture count, or a week of traffic it says the saving is unknown and names what would
         fix it — it will not extrapolate three days to a month.</p>
-      <p><code>clickllm brief receipt.json</code> turns it into one self-contained page for
+      <p><code>onpar brief receipt.json</code> turns it into one self-contained page for
         whoever signs off: no network, no script, opens offline in six months, and leading
         with what is <em>not</em> proven. A reader who stops after the first screen stops
         having read the caveats.</p>
@@ -697,14 +697,14 @@
 <section id="telemetry"><div class="wrap rise">
   <p class="eyebrow">What the dashboard won't tell you</p>
   <h2>Telemetry that grades the plan<br>that produced&nbsp;it.</h2>
-  <p class="sub">A planner emits a config on assumptions. Then nobody checks. clickllm reports
+  <p class="sub">A planner emits a config on assumptions. Then nobody checks. onpar reports
     only the predictions your deployment <em>falsified</em>.</p>
 
   <div class="term" style="margin-top:34px">
     <div class="termbar">
       <i class="tl" style="background:#fb7185"></i><i class="tl" style="background:#fbbf24"></i>
       <i class="tl" style="background:#34d399"></i>
-      <span class="termtitle">clickllm — engine, right now</span>
+      <span class="termtitle">onpar — engine, right now</span>
     </div>
 <pre>  candidate-local   <span class="r">KV near full — scheduler is preempting</span>
   KV cache   <span class="r">████████████████████████░░</span>  <span class="u">94%</span>
@@ -733,10 +733,10 @@
   <p class="eyebrow">No login, no tokens, no account</p>
   <h2>Try it in ten seconds.</h2>
   <figure>
-    <img src="assets/conversation.gif" alt="A real recording of a bare clickllm session: the user describes a support chatbot for 20 agents, the tool answers with the model, quantisation and memory it would use, shows which inference came from which words, states its assumptions, and asks one follow-up question. The user answers with a prompt length and it is understood with its provenance." loading="lazy" width="100%">
+    <img src="assets/conversation.gif" alt="A real recording of a bare onpar session: the user describes a support chatbot for 20 agents, the tool answers with the model, quantisation and memory it would use, shows which inference came from which words, states its assumptions, and asks one follow-up question. The user answers with a prompt length and it is understood with its provenance." loading="lazy" width="100%">
     <figcaption>One question at a time, asked only when the answer would change the plan.</figcaption>
   </figure>
-  <p class="sub">Run <code>clickllm</code> with no arguments and it asks what you are
+  <p class="sub">Run <code>onpar</code> with no arguments and it asks what you are
     building — one question at a time, only when the answer would change the plan, and you
     can stop at any point and still walk away with the best answer so far. In a script or a
     CI step it stays a usage error rather than waiting on input.</p>
@@ -744,13 +744,13 @@
     leaves your machine — captured traffic is the most sensitive data you have, and export is
     an explicit command, never a background sync.</p>
 
-  <div class="note"><p><b>The package is <code>clickllm-cli</code>; the command is
-    <code>clickllm</code>.</b> PyPI refused the bare name as too similar to the existing
-    <code>click-llm</code>, so <code>pip install clickllm</code> and
-    <code>uvx clickllm</code> both fail — the <code>--from</code> is not optional. npm allowed
+  <div class="note"><p><b>The package is <code>onpar</code>; the command is
+    <code>onpar</code>.</b> PyPI refused the bare name as too similar to the existing
+    <code>click-llm</code>, so <code>pip install onpar</code> and
+    <code>uvx onpar</code> both fail — the <code>--from</code> is not optional. npm allowed
     the name PyPI refused, so there the package and the command are both
-    <code>clickllm</code>, and <code>npx clickllm</code> works. There is no Homebrew tab
-    because there is no clickllm formula in the tap; a tab advertising one would be the
+    <code>onpar</code>, and <code>npx onpar</code> works. There is no Homebrew tab
+    because there is no onpar formula in the tap; a tab advertising one would be the
     same defect as before.</p></div>
 
   <div class="tabs" role="tablist">
@@ -762,7 +762,7 @@
   <div id="cmds"></div>
 
   <div class="note"><p><b>Then ask the inverse.</b>
-    <code>clickllm where deepseek-v3 --context 128k</code> answers <em>what would I need to
+    <code>onpar where deepseek-v3 --context 128k</code> answers <em>what would I need to
     run this?</em> across 20 hardware classes — including TPU v5e, v6e and v5p, sized per
     host because a TPU is not rented by the chip.</p></div>
 </div></section>
@@ -770,7 +770,7 @@
 <footer><div class="wrap foot">
   <span>Apache-2.0</span>
   <a href="docs/">Documentation</a>
-  <a href="https://github.com/dshakes/clickllm">GitHub</a>
+  <a href="https://github.com/dshakes/onpar">GitHub</a>
   <a href="docs/#edu-why">Learn inference</a>
   <span style="margin-left:auto;color:var(--ink3)">Prove it, then move it.</span>
 </div></footer>
@@ -779,26 +779,26 @@
 const CMDS = {
   // Every entry must be runnable. A `brew` tab lived here for months naming a
   // formula that does not exist — see tests/test_docs_lab.py. The distribution is
-  // clickllm-cli and the command is clickllm; dropping the --from breaks the line.
-  uvx:  [['uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8',
+  // onpar and the command is onpar; dropping the --from breaks the line.
+  uvx:  [['uvx --from onpar onpar fit --context 32k --concurrency 8',
           'size what runs on this machine — nothing cloned, nothing installed'],
-         ['uvx --from clickllm-cli==1.2.2 clickllm fit --context 32k --concurrency 8',
+         ['uvx --from onpar==1.2.2 onpar fit --context 32k --concurrency 8',
           'pinned to a build that stays put; unpinned always fetches the newest'],
-         ['uv tool install clickllm-cli',
-          'or put the clickllm command on your PATH']],
-  pip:  [['pip install clickllm-cli', 'gives you the clickllm command; needs Python 3.11+'],
-         ['pipx install clickllm-cli', 'or isolated from your other packages']],
+         ['uv tool install onpar',
+          'or put the onpar command on your PATH']],
+  pip:  [['pip install onpar', 'gives you the onpar command; needs Python 3.11+'],
+         ['pipx install onpar', 'or isolated from your other packages']],
   // Live on npm since 0.1.2. This tab spent four releases saying "not published
   // yet, this 404s today" AFTER it had shipped — the mirror image of the brew
   // defect above, and a worse one: a stale warning steers people away from an
   // install path that works, and nothing complains because the page still reads
   // cautious. tests/test_docs_lab.py now checks both directions.
-  npm:  [['npx clickllm fit --context 32k --concurrency 8',
-          'no Python packaging to name — the shim execs uvx --from clickllm-cli underneath'],
-         ['npx clickllm@1.2.2 fit --context 32k --concurrency 8',
-          'pinned: runs clickllm-cli==1.2.2 exactly, so the two registries cannot drift apart']],
-  git:  [['git clone https://github.com/dshakes/clickllm && cd clickllm', ''],
-         ['PYTHONPATH=src python3 -m clickllm.cli fit', 'zero runtime dependencies — stdlib only']],
+  npm:  [['npx onpar fit --context 32k --concurrency 8',
+          'no Python packaging to name — the shim execs uvx --from onpar underneath'],
+         ['npx onpar@1.2.2 fit --context 32k --concurrency 8',
+          'pinned: runs onpar==1.2.2 exactly, so the two registries cannot drift apart']],
+  git:  [['git clone https://github.com/dshakes/onpar && cd onpar', ''],
+         ['PYTHONPATH=src python3 -m onpar.cli fit', 'zero runtime dependencies — stdlib only']],
 };
 function renderCmds(kind){
   document.getElementById('cmds').innerHTML = CMDS[kind].map(([c, note]) => `
@@ -843,7 +843,7 @@ addEventListener('scroll', () => nav.classList.toggle('stuck', scrollY > 8), { p
 // what they said. Set before paint elsewhere would be better; here the page is
 // dark-by-default so only an explicit light preference needs applying.
 (() => {
-  const root = document.documentElement, KEY = 'clickllm-theme';
+  const root = document.documentElement, KEY = 'onpar-theme';
   const sysLight = matchMedia('(prefers-color-scheme: light)');
   const apply = t => root.setAttribute('data-theme', t);
   const saved = localStorage.getItem(KEY);

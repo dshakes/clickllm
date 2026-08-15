@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""kubectl clickllm — size and plan against the cluster you are pointed at.
+"""kubectl onpar — size and plan against the cluster you are pointed at.
 
-Installed by putting this file on PATH as `kubectl-clickllm`; kubectl discovers
+Installed by putting this file on PATH as `kubectl-onpar`; kubectl discovers
 any executable named `kubectl-*` and exposes it as a subcommand. No plugin
 manifest, no registration, no compilation.
 
-    kubectl clickllm nodes                       what the cluster can actually run
-    kubectl clickllm fit  --context 32k          which models fit the best node
-    kubectl clickllm plan -f workload.yaml       the Deployment an IW would produce
+    kubectl onpar nodes                       what the cluster can actually run
+    kubectl onpar fit  --context 32k          which models fit the best node
+    kubectl onpar plan -f workload.yaml       the Deployment an IW would produce
 
 `plan` runs the same reconcile the controller runs, so what it prints is what
 would be applied — a dry run that cannot drift from the real path because it is
@@ -23,8 +23,8 @@ import sys
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0] + "/src")
 
-from clickllm.k8s.nodes import read_cluster  # noqa: E402
-from clickllm.k8s.reconcile import reconcile, select_node  # noqa: E402
+from onpar.k8s.nodes import read_cluster  # noqa: E402
+from onpar.k8s.reconcile import reconcile, select_node  # noqa: E402
 
 
 def _parse_size(s: str) -> int:
@@ -66,7 +66,7 @@ def cmd_nodes(args) -> int:
 
 
 def cmd_fit(args) -> int:
-    from clickllm import fit as fitmod
+    from onpar import fit as fitmod
 
     nodes = read_cluster(args.context)
     node, why = select_node(nodes)
@@ -174,7 +174,7 @@ def _tiny_yaml(text: str) -> dict:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(
-        prog="kubectl clickllm", description="Size and plan inference against this cluster."
+        prog="kubectl onpar", description="Size and plan inference against this cluster."
     )
     p.add_argument("--context", help="kubectl context to use")
     sub = p.add_subparsers(dest="cmd", required=True)

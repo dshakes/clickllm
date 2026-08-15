@@ -4,7 +4,7 @@
 
 ## Context
 
-Phase 0 was `clickllm fit` — a hardware profiler + model-sizing solver, planned as the free on-ramp. It was built and works ([`src/clickllm/fit.py`](../../src/clickllm/fit.py), 27 tests green).
+Phase 0 was `onpar fit` — a hardware profiler + model-sizing solver, planned as the free on-ramp. It was built and works ([`src/onpar/fit.py`](../../src/onpar/fit.py), 27 tests green).
 
 Then [AlexsJones/llmfit](https://github.com/AlexsJones/llmfit) surfaced. It is:
 
@@ -21,7 +21,7 @@ Our solver produces *roofline estimates*. Theirs produces estimates **corrected 
 
 **Delete the fit layer as a product surface. Depend on llmfit.**
 
-- `clickllm fit` becomes a thin adapter over `llmfit recommend --json` / `llmfit doctor`.
+- `onpar fit` becomes a thin adapter over `llmfit recommend --json` / `llmfit doctor`.
 - Keep only the delta llmfit does not cover:
   1. **Serving-side targets** — llmfit's providers are local (Ollama, llama.cpp, MLX, LM Studio). It has no opinion on vLLM, SGLang, llm-d, KServe, or multi-node k8s fleets. Its sister project `llmserve` covers serving separately.
   2. **Solving at *observed* context and concurrency** — llmfit asks you for these. We read them from captured traffic (stage ②). "What fits at your actual p95 of 18K, not the model's advertised 1M" is only answerable if you have the traffic.
@@ -36,7 +36,7 @@ Our solver produces *roofline estimates*. Theirs produces estimates **corrected 
 - Natural integration partner rather than competitor. Adjacent, not overlapping.
 
 **Bad**
-- Loses the planned free/viral on-ramp. **Mitigation: the on-ramp moves to `clickllm observe`** — the cost dashboard over your existing closed-model spend. Arguably a better wedge anyway: it targets people already paying an API bill, which is exactly the audience for the pivot, whereas `fit` attracted people already running local models (already converted).
+- Loses the planned free/viral on-ramp. **Mitigation: the on-ramp moves to `onpar observe`** — the cost dashboard over your existing closed-model spend. Arguably a better wedge anyway: it targets people already paying an API bill, which is exactly the audience for the pivot, whereas `fit` attracted people already running local models (already converted).
 - A hard runtime dependency on a third-party binary. Mitigation: the retained solver is the offline fallback; llmfit is MIT and forkable.
 - Some work is now dead. Small, and the honest cost of checking prior art late instead of first.
 

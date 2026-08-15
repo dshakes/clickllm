@@ -4,7 +4,7 @@
 
 ## Context
 
-`clickllm_prove` is the one MCP tool where an agent names a filesystem path and
+`onpar_prove` is the one MCP tool where an agent names a filesystem path and
 the contents come back into its context:
 
 ```python
@@ -46,7 +46,7 @@ is why it became this ADR instead.
 ## Decision
 
 **An eval root: a directory the tool may read from, defaulting to the working
-directory, overridable by the operator via `CLICKLLM_EVAL_ROOT`.**
+directory, overridable by the operator via `ONPAR_EVAL_ROOT`.**
 
 Paths are resolved before the check, so a symlink cannot walk out. A path
 outside the root is refused by name, with the root named in the message so the
@@ -72,7 +72,7 @@ launched, which is the party the boundary is supposed to protect.
 
 ## Consequences
 
-**The CLI is unaffected.** `clickllm prove <path>` still reads any path, because
+**The CLI is unaffected.** `onpar prove <path>` still reads any path, because
 the person typing it is the person the confinement exists to protect. Confining
 a command a human typed would be theatre; the two surfaces genuinely have
 different threat models, and this ADR is the record that the difference is
@@ -80,7 +80,7 @@ intentional rather than an inconsistency someone should "fix".
 
 **`tests/test_suite.py` sets the root rather than being rewritten.** The
 four-surfaces test keeps its `tmp_path` and its claim; it points
-`CLICKLLM_EVAL_ROOT` at that directory, which is what a real operator with eval
+`ONPAR_EVAL_ROOT` at that directory, which is what a real operator with eval
 sets on a volume would do. The contract it was written to prove — one
 implementation behind four surfaces — is untouched.
 

@@ -436,9 +436,7 @@ async fn chat_completions(
     // The task cluster comes from the control plane, which has already clustered
     // this workload. A header keeps the datapath from having to classify inline —
     // classification is judgment, and judgment does not belong on the hot path.
-    let cluster = headers
-        .get("x-onpar-cluster")
-        .and_then(|v| v.to_str().ok());
+    let cluster = headers.get("x-onpar-cluster").and_then(|v| v.to_str().ok());
     let key = headers
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())

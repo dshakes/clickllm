@@ -24,7 +24,7 @@ That knowledge is the product. Handing someone a config file and expecting them 
 
 ## Decision
 
-**Deployment is zero-config by default.** The user names a model and a target. clickllm chooses every knob, from evidence it already has: hardware profile (③), observed workload shape (②), and proven quality (④).
+**Deployment is zero-config by default.** The user names a model and a target. onpar chooses every knob, from evidence it already has: hardware profile (③), observed workload shape (②), and proven quality (④).
 
 Auto-tuned, never asked:
 
@@ -47,7 +47,7 @@ The native config file still gets written — because [ADR-0002](0002-runtime-ab
 **Good**
 - Delivers the actual promise. "Deploy the best open model for my job" becomes one command with no LLM-infra expertise required.
 - The auto-tuning is defensible *because* of stages ②③④. Nobody else can tune from observed traffic, because nobody else has it. **The abstraction is downstream of the moat, not a substitute for it.**
-- Still no lock-in: the receipt runs with clickllm uninstalled.
+- Still no lock-in: the receipt runs with onpar uninstalled.
 
 **Bad**
 - **A wrong auto-tune is worse than no auto-tune.** Silently setting `num_speculative_tokens` at concurrency 64 makes a user slower and they will never know why. This is the same class of risk as a wrong equivalence verdict.
@@ -57,6 +57,6 @@ The native config file still gets written — because [ADR-0002](0002-runtime-ab
 
 ## Follows from this
 
-- `clickllm deploy --model X` takes **no tuning flags**. Overrides exist (`--set`), are documented, and are never required.
+- `onpar deploy --model X` takes **no tuning flags**. Overrides exist (`--set`), are documented, and are never required.
 - Every generated artifact carries a header comment: what was chosen, why, and the measurement that ratified it.
 - "Fits but will be slow" and "optimization reverted, it didn't help here" are first-class outputs. Silence about a disabled optimization is a bug.

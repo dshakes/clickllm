@@ -1,10 +1,10 @@
-# clickllm — pitch
+# onpar — pitch
 
 ---
 
 ## One-liner
 
-**clickllm proves which open model can replace your closed one — on your traffic, your hardware, your budget — then moves you there without a risky cutover.**
+**onpar proves which open model can replace your closed one — on your traffic, your hardware, your budget — then moves you there without a risky cutover.**
 
 Stripe made payments a `base_url`. We make *leaving OpenAI* a `base_url`.
 
@@ -34,7 +34,7 @@ So the migration never starts. The bill compounds. The dependency deepens.
 
 ## The solution
 
-Point clickllm at your existing closed-model traffic. One `base_url` change.
+Point onpar at your existing closed-model traffic. One `base_url` change.
 
 It captures your real prompts, distills them into a **private eval set**, works out what your hardware can actually run, and produces the artifact nobody else produces:
 
@@ -132,4 +132,4 @@ Second-order: **switching costs run backwards.** Once ⑦ Guard is watching, we'
 
 ## The 30-second version
 
-> Open models are good enough now. Nobody switches, because nobody can prove it for *their* workload — and every tool that could is paid by the incumbent. clickllm captures your real traffic, turns it into a private benchmark, tells you exactly which open model matches and which tasks still need the closed one, and moves your traffic across with a quality gate and a rollback button. Deployment is solved five times over; the migration is unowned. We're building the migration.
+> Open models are good enough now. Nobody switches, because nobody can prove it for *their* workload — and every tool that could is paid by the incumbent. onpar captures your real traffic, turns it into a private benchmark, tells you exactly which open model matches and which tasks still need the closed one, and moves your traffic across with a quality gate and a rollback button. Deployment is solved five times over; the migration is unowned. We're building the migration.

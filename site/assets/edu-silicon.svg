@@ -259,6 +259,6 @@
 <rect x="46" y="789" width="9" height="9" rx="2.5" fill="var(--s0)"/><text x="60" y="797" class="lb">weights 30.55 GiB</text><rect x="184" y="789" width="9" height="9" rx="2.5" fill="var(--s1)"/><text x="198" y="797" class="lb">runtime overhead 3.94 GiB</text><rect x="375" y="789" width="9" height="9" rx="2.5" fill="var(--s2)"/><text x="389" y="797" class="lb">KV cache 2.00 GiB per sequence</text><rect x="599" y="789" width="9" height="9" rx="2.5" fill="var(--s3)"/><text x="613" y="797" class="lb">over the ceiling</text>
 <text x="28" y="832" class="note">The ceiling is memory, not maths: 18 sequences share one 32.8 GB read and reach 36.0 FLOP/byte — still 8× under the 295 the chip needs — and</text>
 <text x="28" y="848" class="note">the batch stops at 18 because KV cache ran out, not compute. Shrinking that cache (lighter quantisation, shorter context, an MLA model) buys</text>
-<text x="28" y="864" class="note">batch, and batch is the only thing that buys intensity. Figures are a real `clickllm fit` solve; 73.5 tokens/s is a bandwidth estimate, not</text>
-<text x="28" y="880" class="note">a measurement.</text>
+<text x="28" y="864" class="note">batch, and batch is the only thing that buys intensity. Figures are a real `onpar fit` solve; 73.5 tokens/s is a bandwidth estimate, not a</text>
+<text x="28" y="880" class="note">measurement.</text>
 </svg>

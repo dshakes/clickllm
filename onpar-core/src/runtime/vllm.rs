@@ -454,10 +454,7 @@ pub(crate) mod tests {
             assert_eq!(arts.len(), 1, "{target:?}");
             let a = &arts[0];
             assert!(!a.path.is_empty());
-            assert!(
-                a.contents.contains("onpar"),
-                "{target:?} lost provenance"
-            );
+            assert!(a.contents.contains("onpar"), "{target:?} lost provenance");
             assert!(
                 a.contents.contains(&p.model.id),
                 "{target:?} lost the model"
@@ -545,10 +542,7 @@ pub(crate) mod tests {
                 .expect("vllm supports every target");
             assert_eq!(arts.len(), 1, "{t:?}");
             assert!(!arts[0].contents.is_empty(), "{t:?} rendered nothing");
-            assert!(
-                arts[0].contents.contains("onpar"),
-                "{t:?} lacks provenance"
-            );
+            assert!(arts[0].contents.contains("onpar"), "{t:?} lacks provenance");
         }
     }
 }

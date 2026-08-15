@@ -13,7 +13,7 @@ Traceability matrix at the bottom — every capability you've named maps to a mi
 ## Package map
 
 ```
-clickllm-core/          RUST — the datapath. No third-party fit dependency.
+onpar-core/          RUST — the datapath. No third-party fit dependency.
   src/weights/       M1  acquire · convert · cache · licence     (mmap, io_uring, SIMD hash)
   src/runtimes/      M2  mod.rs (Runtime trait) · vllm · sglang · llmd
                          · mlx · llamacpp · ollama            (render + launch)
@@ -26,7 +26,7 @@ clickllm-core/          RUST — the datapath. No third-party fit dependency.
   src/cutover/       M9  shadow · canary · gate · rollback
   src/ffi.rs             PyO3 boundary — narrow and typed
 
-src/clickllm/           PYTHON — the control plane. ML ecosystem lives here.
+src/onpar/           PYTHON — the control plane. ML ecosystem lives here.
   hardware.py        ✅ accelerator + memory + bandwidth detection
   catalog.py         ✅ model specs, licences, verified-architecture flags
   fit.py             ✅ MoE/GQA/MLA-correct solve (control-plane mirror of spec.rs)
@@ -46,7 +46,7 @@ src/clickllm/           PYTHON — the control plane. ML ecosystem lives here.
 ## The two Protocols everything hangs off
 
 ```rust
-// clickllm-core — ADR-0002: no engine-specific type escapes this trait
+// onpar-core — ADR-0002: no engine-specific type escapes this trait
 pub trait Runtime {
     fn name(&self) -> &str;
     fn supports(&self, hw: &Hardware, m: &ModelSpec) -> Feasibility;
@@ -56,7 +56,7 @@ pub trait Runtime {
 }
 ```
 ```python
-# clickllm (Python) — M8, the highest-risk component
+# onpar (Python) — M8, the highest-risk component
 class Grader(Protocol):
     tier: Literal["assert", "task", "judge"]
     def grade(self, item: EvalItem, cand: Response, base: Response) -> Score: ...
@@ -82,7 +82,7 @@ Nothing downstream can run without local weights.
 - Quantize/convert once per (model, quant, format): GGUF, MLX, AWQ/GPTQ. Cache keyed by content hash, shared across boxes
 - Disk budget with LRU eviction
 
-**Done when:** `clickllm pull glm-5.2 --quant q4` resumes after `^C`, verifies, and a second box reuses the cache.
+**Done when:** `onpar pull glm-5.2 --quant q4` resumes after `^C`, verifies, and a second box reuses the cache.
 
 ### M2 · Runtimes — the Protocol and six backends *(3 wks)*
 - `Runtime` trait + `Feasibility`/`RuntimePlan`/`Endpoint` types
@@ -205,7 +205,7 @@ The last gate is the one that matters. Everything downstream of it moves product
 | Load balancing across models | M5, then GAIE post-cutover |
 | Custom router | M5 + M9 hybrid policy |
 | Best-in-class UX / web interface | ‖ surfaces, console at M8 |
-| Self-service / kiosk | CLI `clickllm switch` from M4 |
+| Self-service / kiosk | CLI `onpar switch` from M4 |
 | SDK support | ‖ M5 |
 | Suggestions on what LLM fits | ✅ ships · + M8 evidence |
 | Suggestions on what optimizations to apply | M3 |

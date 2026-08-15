@@ -11,10 +11,10 @@ others:
 
 | where | the absence | how it rendered |
 |---|---|---|
-| `prove/gate.py` ([#84](https://github.com/dshakes/clickllm/issues/84)) | every scored cluster pinned, so nothing left to judge | **ADVANCE** — *"0% of traffic is proven … is supported"* |
-| `prove/receipt.py` ([#83](https://github.com/dshakes/clickllm/issues/83)) | the `digest` key missing | tamper check skipped, forged receipt **accepted** |
-| `plan.py` ([#97](https://github.com/dshakes/clickllm/issues/97)) | `bandwidth_gbps` unknown, so no throughput estimate | `meets_requirements = **True**` for an impossible budget |
-| `watch.py` ([#113](https://github.com/dshakes/clickllm/issues/113)) | the index malformed | `offline=True` — *"nothing new upstream"* |
+| `prove/gate.py` ([#84](https://github.com/dshakes/onpar/issues/84)) | every scored cluster pinned, so nothing left to judge | **ADVANCE** — *"0% of traffic is proven … is supported"* |
+| `prove/receipt.py` ([#83](https://github.com/dshakes/onpar/issues/83)) | the `digest` key missing | tamper check skipped, forged receipt **accepted** |
+| `plan.py` ([#97](https://github.com/dshakes/onpar/issues/97)) | `bandwidth_gbps` unknown, so no throughput estimate | `meets_requirements = **True**` for an impossible budget |
+| `watch.py` ([#113](https://github.com/dshakes/onpar/issues/113)) | the index malformed | `offline=True` — *"nothing new upstream"* |
 
 Four modules. One shape: **a state meaning *we do not know* was represented by
 the same value as *we checked, and it is fine*.**
@@ -26,7 +26,7 @@ The failure is representational, not attentional: when "unknown" and "fine"
 share a representation, the compiler, the tests and the reviewer all see one
 value, and the difference exists only in someone's head.
 
-It is also the failure this product can least afford. clickllm's entire claim is
+It is also the failure this product can least afford. onpar's entire claim is
 that it hands you evidence rather than assurance — `?` rather than a fabricated
 score, a confidence interval on every number, judge agreement disclosed. A
 silent "fine" where the answer is "unknown" is the precise inversion of that
@@ -78,7 +78,7 @@ bug someone fixes, a fabricated pass is a decision someone makes on bad evidence
 **What it does not cover.** This is a rule about representation, not about
 coverage. It does nothing for a check that was never written — `demo()`
 sensitivity is the ratchet for that
-([#135](https://github.com/dshakes/clickllm/pull/135)), and nothing here replaces
+([#135](https://github.com/dshakes/onpar/pull/135)), and nothing here replaces
 running the product on real traffic.
 
 ## Alternatives considered

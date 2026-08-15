@@ -38,7 +38,7 @@ Still true, and it is the larger half. There is no SGLang, no llm-d, no KServe, 
 
 The distinction that survives, and it is the whole thesis:
 
-| | llmfit `quality.rs` | clickllm stage ④ |
+| | llmfit `quality.rs` | onpar stage ④ |
 |---|---|---|
 | Test set | 13 fixed generic roles | **clustered from your captured production traffic** |
 | Reference | rubric score, absolute | **your incumbent's actual responses to those exact prompts** |

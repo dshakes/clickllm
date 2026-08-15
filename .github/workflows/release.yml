@@ -128,23 +128,23 @@ jobs:
         run: |
           set -euo pipefail
           # A dedicated outdir, not `dist/`: that directory is gitignored and is where a
-          # locally-built `clickllm_core` wheel lands, and a publish of `dist/*` would
+          # locally-built `onpar_core` wheel lands, and a publish of `dist/*` would
           # happily push whatever else it found there.
           rm -rf dist-pypi
           uv build --out-dir dist-pypi
           ls -l dist-pypi/
 
-      # The distribution is `clickllm-cli` (PyPI rejected `clickllm` as too close to the
-      # existing `click-llm`) but the command it installs is `clickllm`. That promise is
+      # The distribution is `onpar` (PyPI rejected `onpar` as too close to the
+      # existing `click-llm`) but the command it installs is `onpar`. That promise is
       # made on every install surface, and a rename of either side breaks it invisibly —
       # the wheel still builds, still publishes, and installs a command nobody documented.
       # Check the artifact itself, not the source.
-      - name: The wheel must install the `clickllm` command
+      - name: The wheel must install the `onpar` command
         run: |
           set -euo pipefail
           unzip -p dist-pypi/*.whl '*/entry_points.txt' | tee /dev/stderr \
-            | grep -qE '^clickllm *= *clickllm\.cli:main$' \
-            || { echo "::error::the built wheel does not declare a \`clickllm\` console script — \`pip install clickllm-cli\` would not give you \`clickllm\`"; exit 1; }
+            | grep -qE '^onpar *= *onpar\.cli:main$' \
+            || { echo "::error::the built wheel does not declare a \`onpar\` console script — \`pip install onpar\` would not give you \`onpar\`"; exit 1; }
 
       - name: Create and push the tag (idempotent)
         env:
@@ -157,7 +157,7 @@ jobs:
             # Runners have no git identity; annotated tags need one (empty-ident fatal).
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$VERSION" -m "clickllm $VERSION"
+            git tag -a "$VERSION" -m "onpar $VERSION"
             git push origin "refs/tags/$VERSION"
           fi
 
@@ -170,7 +170,7 @@ jobs:
           # --generate-notes, not a CHANGELOG extract: this repo has no CHANGELOG.md, and
           # the awk that assumed one made every release fail on step two.
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release create "$VERSION" --latest --title "$VERSION — clickllm" --generate-notes
+            gh release create "$VERSION" --latest --title "$VERSION — onpar" --generate-notes
           fi
           gh release upload "$VERSION" dist-pypi/*.whl dist-pypi/*.tar.gz --clobber
 
@@ -193,7 +193,7 @@ jobs:
       cancel-in-progress: false
     environment:
       name: pypi
-      url: https://pypi.org/p/clickllm-cli
+      url: https://pypi.org/p/onpar
     permissions:
       id-token: write   # OIDC — trusted publishing, no API token/secret stored
     steps:
@@ -234,18 +234,18 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${RELEASE_VERSION}"
-          echo "checking clickllm-cli ${VERSION} on PyPI"
+          echo "checking onpar ${VERSION} on PyPI"
           FILES="import json,sys; print(' '.join(u['filename'] for u in json.load(sys.stdin)['urls']))"
           COUNT="import json,sys; print(len(json.load(sys.stdin).get('attestation_bundles') or []))"
           for attempt in 1 2 3 4 5; do
             sleep $((attempt * 10))   # PyPI indexes attestations a moment after upload
-            RESP="$(curl -fsSL "https://pypi.org/pypi/clickllm-cli/${VERSION}/json")" || continue
+            RESP="$(curl -fsSL "https://pypi.org/pypi/onpar/${VERSION}/json")" || continue
             MISSING=""
             # Ask the integrity API, not the JSON API: PyPI does NOT populate an
             # "attestations" field on /pypi/<pkg>/<ver>/json, so checking it there reports
             # a false negative even when the bundle exists.
             for FN in $(printf '%s' "$RESP" | python3 -c "$FILES"); do
-              N="$(curl -fsSL "https://pypi.org/integrity/clickllm-cli/${VERSION}/${FN}/provenance" 2>/dev/null | python3 -c "$COUNT" 2>/dev/null || echo 0)"
+              N="$(curl -fsSL "https://pypi.org/integrity/onpar/${VERSION}/${FN}/provenance" 2>/dev/null | python3 -c "$COUNT" 2>/dev/null || echo 0)"
               [ "${N:-0}" -ge 1 ] || MISSING="$MISSING $FN"
             done
             if [ -z "$MISSING" ]; then
@@ -254,7 +254,7 @@ jobs:
             fi
             echo "attempt ${attempt}: still missing attestations on —${MISSING}"
           done
-          echo "::error::PyPI does not report clickllm-cli ${VERSION} with PEP 740 attestations. Either the upload never landed (skip-existing hides that) or the publish failed to attest."
+          echo "::error::PyPI does not report onpar ${VERSION} with PEP 740 attestations. Either the upload never landed (skip-existing hides that) or the publish failed to attest."
           exit 1
 
       - name: Say what was published
@@ -263,17 +263,17 @@ jobs:
         run: |
           {
             printf '## Published to PyPI\n\n'
-            printf '`pip install clickllm-cli` resolves at %s, and installs the `clickllm` command.\n\n' "$VERSION"
-            printf 'Add `clickllm-cli` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py` '
+            printf '`pip install onpar` resolves at %s, and installs the `onpar` command.\n\n' "$VERSION"
+            printf 'Add `onpar` to `PUBLISHED_PACKAGE_NAMES` in `tests/test_docs_lab.py` '
             printf 'so the docs may use bare-name install commands again.\n'
           } >>"$GITHUB_STEP_SUMMARY"
 
 # ── PyPI trusted publishing setup (one-time, on pypi.org) ──────────────────────
 # PyPI → Your projects → Publishing → Add a new pending publisher. All four must
 # match this file exactly or the OIDC claim is rejected:
-#   PyPI Project Name : clickllm-cli
+#   PyPI Project Name : onpar
 #   Owner             : dshakes
-#   Repository        : clickllm
+#   Repository        : onpar
 #   Workflow name     : release.yml
 #   Environment       : pypi
 # No API token is ever stored — auth is OIDC, scoped to the publish-pypi job.
@@ -290,11 +290,11 @@ jobs:
 
   # The two compiled distributions, without which half the README is unreachable.
   #
-  # `clickllm fit` is pure Python and must stay installable with nothing else —
+  # `onpar fit` is pure Python and must stay installable with nothing else —
   # that promise is why these are separate distributions rather than
-  # dependencies. But `clickllm observe` needs the gateway binary and
-  # `clickllm distill` needs the compiled extension, and neither was ever
-  # published. A user who ran `pip install clickllm-cli` got the sizing half of
+  # dependencies. But `onpar observe` needs the gateway binary and
+  # `onpar distill` needs the compiled extension, and neither was ever
+  # published. A user who ran `pip install onpar` got the sizing half of
   # the product and, for the evidence half, an instruction to install a Rust
   # toolchain and run `cargo build`. CI has built the extension on every PR
   # since the seam job existed and thrown it away each time.
@@ -330,18 +330,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build the compiled extension (clickllm-core)
+      - name: Build the compiled extension (onpar-core)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m clickllm-py/Cargo.toml
+          args: --release --out dist -m onpar-py/Cargo.toml
           manylinux: ${{ matrix.os == 'ubuntu-latest' && '2_28' || 'auto' }}
 
-      - name: Build the gateway binary wheel (clickllm-gateway)
+      - name: Build the gateway binary wheel (onpar-gateway)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m clickllm-gateway/Cargo.toml
+          args: --release --out dist -m onpar-gateway/Cargo.toml
           manylinux: ${{ matrix.os == 'ubuntu-latest' && '2_28' || 'auto' }}
 
       # A wheel that installs but whose binary will not run is worse than no
@@ -353,13 +353,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv /tmp/checkwheel
-          /tmp/checkwheel/bin/pip install --quiet dist/clickllm_gateway-*.whl
-          /tmp/checkwheel/bin/clickllm-gateway --help | head -1
+          /tmp/checkwheel/bin/pip install --quiet dist/onpar_gateway-*.whl
+          /tmp/checkwheel/bin/onpar-gateway --help | head -1
           # And the CLI must FIND it — `find_gateway` looks beside the running
           # interpreter, which is the case a PATH-based lookup misses.
           /tmp/checkwheel/bin/pip install --quiet .
           /tmp/checkwheel/bin/python -c "
-          from clickllm.observe import find_gateway
+          from onpar.observe import find_gateway
           p = find_gateway()
           assert p is not None, 'the CLI cannot find the gateway it just installed'
           print('found', p)
@@ -375,9 +375,9 @@ jobs:
   # an artifact and uploads it, and by nothing that runs shell against a
   # checkout.
   #
-  # NOTE FOR THE FIRST RUN: `clickllm-core` and `clickllm-gateway` do not exist
+  # NOTE FOR THE FIRST RUN: `onpar-core` and `onpar-gateway` do not exist
   # on PyPI, so trusted publishing has nothing to trust yet. Create a *pending
-  # publisher* for each on PyPI (owner `dshakes`, repo `clickllm`, workflow
+  # publisher* for each on PyPI (owner `dshakes`, repo `onpar`, workflow
   # `release.yml`, environment `pypi`) before this can succeed. It fails loudly
   # until then rather than silently skipping, because a release that quietly
   # ships one of three distributions is what this whole job exists to end.
@@ -426,8 +426,8 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      # npm is a SHIM over the PyPI distribution — `npx clickllm` execs
-      # `uvx --from clickllm-cli==<version> clickllm`. It publishes after PyPI on
+      # npm is a SHIM over the PyPI distribution — `npx onpar` execs
+      # `uvx --from onpar==<version> onpar`. It publishes after PyPI on
       # purpose: the npm package names an exact PyPI version, so publishing it
       # first would ship a package pointing at something that does not exist yet.
       #
@@ -462,7 +462,7 @@ jobs:
             # Single quotes and no backticks: inside double quotes those were
             # command substitution, so the failure path tried to RUN npx while
             # reporting that it should not be run.
-            printf '::error::npm package is %s but the tag is %s. npx clickllm@%s would run the wrong Python.\n' \
+            printf '::error::npm package is %s but the tag is %s. npx onpar@%s would run the wrong Python.\n' \
               "$pkg" "${VERSION#v}" "${VERSION#v}"
             exit 1
           fi
@@ -482,8 +482,8 @@ jobs:
           # nothing left to do. A documented property that nothing enforces is
           # the defect this repo keeps finding; here the document was the
           # workflow's own header.
-          if npm view "clickllm@${VERSION#v}" version >/dev/null 2>&1; then
-            printf '::notice::npm already has clickllm@%s — nothing to publish\n' "${VERSION#v}"
+          if npm view "onpar@${VERSION#v}" version >/dev/null 2>&1; then
+            printf '::notice::npm already has onpar@%s — nothing to publish\n' "${VERSION#v}"
           else
             # --provenance ties the tarball to this workflow run, the same
             # property PEP 740 attestations give the wheel.
@@ -507,15 +507,15 @@ jobs:
           # far longer than propagation takes and still bounded.
           served=""
           for attempt in 1 2 3 4 5 6; do
-            if npm view "clickllm@${VERSION#v}" version >/dev/null 2>&1; then
+            if npm view "onpar@${VERSION#v}" version >/dev/null 2>&1; then
               served="yes"
               break
             fi
-            printf 'npm has not served clickllm@%s yet (attempt %s) — waiting\n' "${VERSION#v}" "$attempt"
+            printf 'npm has not served onpar@%s yet (attempt %s) — waiting\n' "${VERSION#v}" "$attempt"
             sleep 10
           done
           if [ -z "$served" ]; then
-            printf '::error::npm does not serve clickllm@%s 60s after publishing\n' "${VERSION#v}"
+            printf '::error::npm does not serve onpar@%s 60s after publishing\n' "${VERSION#v}"
             exit 1
           fi
 
@@ -524,8 +524,8 @@ jobs:
         run: |
           {
             printf '## npm shim NOT published\n\n'
-            printf '`NPM_TOKEN` is not set, so `npx clickllm` still resolves nothing.\n'
-            printf 'PyPI is unaffected: `pip install clickllm-cli` works.\n'
+            printf '`NPM_TOKEN` is not set, so `npx onpar` still resolves nothing.\n'
+            printf 'PyPI is unaffected: `pip install onpar` works.\n'
           } >>"$GITHUB_STEP_SUMMARY"
 
   # The Homebrew bump runs AFTER the package is actually published, in its own
@@ -536,9 +536,9 @@ jobs:
   # branch and opening no PR while the job stayed green, so `brew install` had
   # never once worked. Fatal was right. Fatal *inside `build`* was not — with
   # `publish-pypi` gated on `needs: build`, a formula bump that could not open a
-  # PR stopped clickllm 1.0.0 reaching PyPI at all, while the GitHub Release,
+  # PR stopped onpar 1.0.0 reaching PyPI at all, while the GitHub Release,
   # the README and every install pin already said 1.0.0. A broken `brew install`
-  # became a broken `uvx --from clickllm-cli==1.0.0`, which is strictly worse.
+  # became a broken `uvx --from onpar==1.0.0`, which is strictly worse.
   #
   # Ordering it after the publish is also just correct: a formula pointing at a
   # release whose artifacts are not on PyPI yet is premature.
@@ -634,13 +634,13 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          # Users install via `brew install dshakes/tap/clickllm`, which reads the shared
+          # Users install via `brew install dshakes/tap/onpar`, which reads the shared
           # tap repo — so each release must push the bumped formula there too. Cross-repo
           # write needs a PAT (the default GITHUB_TOKEN is scoped to this repo only).
           formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
           [ -n "$formula" ] || exit 0
           if [ -z "${TAP_PAT:-}" ]; then
-            echo "::error::HOMEBREW_TAP_TOKEN not set — the tap was NOT updated, so \`brew install clickllm\` still points at the previous release (or does not resolve at all). Add a fine-grained PAT with contents:write on dshakes/homebrew-tap. Failing rather than warning: this step reported success while skipping on every release up to v1.1.1, which is why the tap never had a formula."
+            echo "::error::HOMEBREW_TAP_TOKEN not set — the tap was NOT updated, so \`brew install onpar\` still points at the previous release (or does not resolve at all). Add a fine-grained PAT with contents:write on dshakes/homebrew-tap. Failing rather than warning: this step reported success while skipping on every release up to v1.1.1, which is why the tap never had a formula."
             exit 1
           fi
           tmp="$(mktemp -d)"
@@ -652,20 +652,20 @@ jobs:
           mkdir -p "$tmp/tap/Formula"
           # Copy under THIS project's formula name. The tap is shared with other projects,
           # so a hardcoded name carried over from whichever repo this workflow was copied
-          # from would overwrite a different tool's formula on every clickllm release.
+          # from would overwrite a different tool's formula on every onpar release.
           cp "$formula" "$tmp/tap/Formula/$(basename "$formula")"
           cd "$tmp/tap"
           # `git add` first, and `git diff --cached` after it. `git diff` alone
-          # reports only TRACKED changes, and clickllm.rb was untracked in that
+          # reports only TRACKED changes, and onpar.rb was untracked in that
           # clone — the tap has never had it. So the check said "clean", the step
           # exited 0, and the formula was never committed: a sync that reported
           # success on every release while being structurally incapable of
           # bootstrapping a formula that did not already exist. `brew install
-          # clickllm` has never resolved because of this line.
+          # onpar` has never resolved because of this line.
           git add -A
           if git diff --cached --quiet; then echo "tap already current for $VERSION"; exit 0; fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qm "clickllm $VERSION"
+          git commit -qm "onpar $VERSION"
           git push
-          echo "synced clickllm $VERSION into dshakes/homebrew-tap"
+          echo "synced onpar $VERSION into dshakes/homebrew-tap"

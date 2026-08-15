@@ -5,11 +5,11 @@ these clusters cleared this bar*. Moments end. The model behind a name changes,
 the traffic moves, and the proof that justified running an open model in
 production quietly stops being about production.
 
-`clickllm guard` is the check, and it exits nonzero, so it works as a CI step
+`onpar guard` is the check, and it exits nonzero, so it works as a CI step
 without anything parsing its output.
 
 ```bash
-clickllm guard receipt.json
+onpar guard receipt.json
 echo $?     # 0 — still holds
 ```
 
@@ -68,7 +68,7 @@ jobs:
       # beside the code it justifies, and moves under review like anything else.
       - name: does the proof still hold
         run: |
-          uvx --from clickllm-cli clickllm guard proof/receipt.json \
+          uvx --from onpar onpar guard proof/receipt.json \
             --fingerprints proof/fingerprints.json \
             --traffic proof/traffic.json \
             --fail-on any
@@ -82,7 +82,7 @@ issued against; the guard reads what is running now; a mismatch is the finding.
 So the receipt has to have been issued with them:
 
 ```bash
-clickllm prove evalset.json --candidate-endpoint $CAND \
+onpar prove evalset.json --candidate-endpoint $CAND \
                             --fingerprints proof/issued-against.json \
                             --out proof/receipt.json
 ```
@@ -108,8 +108,8 @@ can check is not a proof you should ship behind.
 window:
 
 ```bash
-clickllm observe --upstream $PROVIDER    # for a while
-clickllm distill --out fresh.json
+onpar observe --upstream $PROVIDER    # for a while
+onpar distill --out fresh.json
 jq '.shares' fresh.json > proof/traffic.json
 ```
 
@@ -120,8 +120,8 @@ the receipt is the one that was issued — for that, re-run the eval set and
 compare:
 
 ```bash
-clickllm prove evalset.json --candidate-endpoint $CAND --out rerun.json
-clickllm receipt rerun.json --against proof/receipt.json
+onpar prove evalset.json --candidate-endpoint $CAND --out rerun.json
+onpar receipt rerun.json --against proof/receipt.json
 echo $?     # 0 — the evidence agrees
 ```
 
@@ -138,7 +138,7 @@ without trusting whoever issued it.
 
 It cannot tell you the proof was ever any good. A receipt over twelve items with
 a wide interval is still a receipt, and `guard` will happily report that it still
-holds. Read the receipt — `clickllm receipt receipt.json` prints what is proven,
+holds. Read the receipt — `onpar receipt receipt.json` prints what is proven,
 what must stay on the incumbent, and what is unproven either way, in that order.
 
 Nothing here moves traffic. `guard` reports; a human decides. See

@@ -94,5 +94,5 @@
 <text class="t tag" x="1108" y="514" text-anchor="end" fill="#d29922">RULES OUT A MODEL THAT FITS EASILY</text>
 <text class="t cap" x="1108" y="532" text-anchor="end">"buy another node" vs "it already fits"</text>
 
-<text class="t foot" x="64" y="576">Every figure above is what <tspan class="m" fill="#c9d1d9">clickllm fit --explain</tspan> prints, with the arithmetic shown, so you check it rather than trust it.</text>
+<text class="t foot" x="64" y="576">Every figure above is what <tspan class="m" fill="#c9d1d9">onpar fit --explain</tspan> prints, with the arithmetic shown, so you check it rather than trust it.</text>
 </svg>

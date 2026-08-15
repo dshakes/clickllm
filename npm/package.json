@@ -1,9 +1,9 @@
 {
-  "name": "clickllm",
+  "name": "onpar",
   "version": "1.2.2",
   "description": "Prove which open model can replace your closed one \u2014 on your own traffic, hardware and budget.",
   "bin": {
-    "clickllm": "bin/clickllm.js"
+    "onpar": "bin/onpar.js"
   },
   "files": [
     "bin/",
@@ -15,9 +15,9 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dshakes/clickllm.git"
+    "url": "git+https://github.com/dshakes/onpar.git"
   },
-  "homepage": "https://dshakes.github.io/clickllm/",
+  "homepage": "https://dshakes.github.io/onpar/",
   "keywords": [
     "llm",
     "inference",

@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Router as AxumRouter, http::StatusCode};
+use futures_util::StreamExt;
 use onpar_gateway::proxy::{AppState, app};
 use onpar_gateway::router::{Backend, Phase, Route, Router};
-use futures_util::StreamExt;
 
 /// Spawn a server on an ephemeral port and return its address.
 async fn spawn(router: AxumRouter) -> SocketAddr {
@@ -100,10 +100,7 @@ async fn streaming_response_reaches_the_client_incrementally() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(
-        resp.headers().get("x-onpar-backend").unwrap(),
-        "incumbent"
-    );
+    assert_eq!(resp.headers().get("x-onpar-backend").unwrap(), "incumbent");
 
     // The first byte must arrive long before the last frame is produced.
     // 5 frames x 60ms means a buffering proxy cannot answer before ~300ms.
@@ -235,10 +232,7 @@ async fn shadow_phase_never_returns_the_candidate_to_the_client() {
             .send()
             .await
             .unwrap();
-        assert_eq!(
-            resp.headers().get("x-onpar-backend").unwrap(),
-            "incumbent"
-        );
+        assert_eq!(resp.headers().get("x-onpar-backend").unwrap(), "incumbent");
     }
     assert!(
         st.records().iter().all(|r| r.backend == "incumbent"),

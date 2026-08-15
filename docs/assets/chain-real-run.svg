@@ -42,7 +42,7 @@
 
 <!-- 1 observe -->
 <text class="t step" x="88"  y="182">① OBSERVE</text>
-<text class="cmd"    x="88"  y="206">clickllm observe</text>
+<text class="cmd"    x="88"  y="206">onpar observe</text>
 <text class="t big"  x="88"  y="252">15</text>
 <text class="t unit" x="88"  y="272">requests through the proxy</text>
 <text class="t big ok" x="88" y="310">0</text>
@@ -50,7 +50,7 @@
 
 <!-- 2 distill -->
 <text class="t step" x="364" y="182">② DISTILL</text>
-<text class="cmd"    x="364" y="206">clickllm distill</text>
+<text class="cmd"    x="364" y="206">onpar distill</text>
 <text class="t big"  x="364" y="252">2</text>
 <text class="t unit" x="364" y="272">task shapes, found not guessed</text>
 <text class="t big"  x="364" y="310">15</text>
@@ -58,7 +58,7 @@
 
 <!-- 3 prove -->
 <text class="t step" x="640" y="182">③ PROVE</text>
-<text class="cmd"    x="640" y="206">clickllm prove</text>
+<text class="cmd"    x="640" y="206">onpar prove</text>
 <text class="t big"  x="640" y="252">100%</text>
 <text class="t unit" x="640" y="272">of items matched the incumbent</text>
 <text class="t big warn" x="640" y="310">[81–100]</text>

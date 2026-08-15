@@ -42,7 +42,7 @@
 <rect x="440" y="214" width="433" height="64" rx="10" fill="var(--panel)" stroke="var(--s0)"/>
 <text x="458" y="239" class="m" style="fill:var(--s0)">vllm.general_plugins</text>
 <text x="458" y="260" class="ax">An entry point vLLM imports in every process it spawns.</text>
-<text x="28" y="226" class="ax">clickllm generates the config behind boxes 2–3. Box 4 is</text>
+<text x="28" y="226" class="ax">onpar generates the config behind boxes 2–3. Box 4 is</text>
 <text x="28" y="243" class="ax">vLLM's, and forking it is a permanent tax. Box 5 is the only</text>
 <text x="28" y="260" class="ax">sanctioned seam — and register() runs once per worker, so it</text>
 <text x="28" y="277" class="ax">must be idempotent or tensor parallelism breaks it on rank 1.</text>

@@ -10,7 +10,7 @@
 ┌──────────────── your app (unchanged, base_url swapped) ─────────────────┐
 └──────────────────────────────────┬──────────────────────────────────────┘
                                    ▼
-              ┌────────── clickllm proxy (datapath) ──────────┐
+              ┌────────── onpar proxy (datapath) ──────────┐
               │  capture · redact · shadow · canary · gate    │   ← ours (thin)
               │  transport: LiteLLM adapters                  │   ← theirs
               └───────┬──────────────────────────┬────────────┘
@@ -159,7 +159,7 @@ Three tiers, cheapest first, escalating only when needed:
 
 | Surface | For | Priority |
 |---|---|---|
-| **CLI** (`clickllm`) | primary; scriptable, CI-native, non-interactive flags on everything | P0 |
+| **CLI** (`onpar`) | primary; scriptable, CI-native, non-interactive flags on everything | P0 |
 | **TUI** | live loop status, shadow-mode scoring, cutover gates | P1 |
 | **Local web console** | equivalence matrix, drill-down, shareable report | P0 for stage ④ — the matrix needs pixels |
 | **MCP server** | Claude Code / Cursor drive the loop conversationally | P1 |
