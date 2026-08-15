@@ -201,7 +201,7 @@ clickllm observe --upstream https://api.openai.com/v1
   capture   ~/.clickllm/captures.log (key: ~/.clickllm/capture.key)
   upstream  https://api.openai.com/v1
   listening http://127.0.0.1:8787
-  point your base_url here and nothing else changes.
+  point your base_url at http://127.0.0.1:8787/v1 and nothing else changes.
 ```
 
 Redaction runs *inside* the write path, so there is no code path that

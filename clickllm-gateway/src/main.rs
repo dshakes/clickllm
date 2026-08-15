@@ -232,7 +232,14 @@ async fn main() {
         println!("  candidate {c}  [{phase_desc}]");
     }
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
-    println!("  listening http://{addr}\n  point your base_url here and nothing else changes.\n");
+    // The base_url must include `/v1`, because that is the only route served
+    // (proxy.rs registers `/v1/chat/completions`). Printing the bare address
+    // under "point your base_url here and nothing else changes" sent every
+    // request to a 404: found by running the chain end to end and getting four
+    // 404s from an invocation that followed the banner exactly.
+    println!(
+        "  listening http://{addr}\n  point your base_url at http://{addr}/v1 and nothing else changes.\n"
+    );
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,

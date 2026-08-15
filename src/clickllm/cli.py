@@ -739,7 +739,7 @@ def cmd_observe(args: argparse.Namespace) -> int:
     where the prompts will land, and never moves traffic — see ADR-0015 and the
     gateway's own refusal of a startup `--percent`.
     """
-    from . import observe
+    from . import core, observe
 
     try:
         binary = observe.find_gateway()
@@ -758,6 +758,25 @@ def cmd_observe(args: argparse.Namespace) -> int:
 
     home = observe.state_dir()
     capture = pathlib.Path(args.capture) if args.capture else home / "captures.log"
+
+    # Say this BEFORE traffic is captured, not after. `observe` writes encrypted
+    # captures through the Rust gateway, but reading them back needs the
+    # compiled extension — so without it the chain collects happily and fails at
+    # `distill`, by which point the traffic has been through the proxy and the
+    # user has an unreadable log. Found by running the chain end to end: six
+    # real requests captured, 2859 bytes on disk, and distill answered "the
+    # compiled extension is not installed".
+    #
+    # A warning rather than a refusal: the capture itself is real and the file
+    # keeps its value the moment clickllm-core is installed. Refusing would
+    # throw away traffic that is already fine.
+    if not args.no_capture and not core.available():
+        print(
+            f"\n  Heads up: captures will be written but cannot be read back yet.\n"
+            f"  {core.why_unavailable()}\n"
+            f"  `clickllm distill` needs it. Install it before you rely on this run.\n",
+            file=sys.stderr,
+        )
     argv = observe.gateway_argv(
         binary,
         args.upstream,
