@@ -134,17 +134,17 @@ jobs:
           uv build --out-dir dist-pypi
           ls -l dist-pypi/
 
-      # The distribution is `onpar` (PyPI rejected `onpar` as too close to the
-      # existing `click-llm`) but the command it installs is `onpar`. That promise is
-      # made on every install surface, and a rename of either side breaks it invisibly —
-      # the wheel still builds, still publishes, and installs a command nobody documented.
+      # The distribution, the console script and the import are all `onpar`. That
+      # promise is made on every install surface, and a rename of any side breaks it
+      # invisibly — the wheel still builds, still publishes, and installs a command
+      # nobody documented.
       # Check the artifact itself, not the source.
       - name: The wheel must install the `onpar` command
         run: |
           set -euo pipefail
           unzip -p dist-pypi/*.whl '*/entry_points.txt' | tee /dev/stderr \
             | grep -qE '^onpar *= *onpar\.cli:main$' \
-            || { echo "::error::the built wheel does not declare a \`onpar\` console script — \`pip install onpar\` would not give you \`onpar\`"; exit 1; }
+            || { echo "::error::the built wheel does not declare an \`onpar\` console script — \`pip install onpar\` would install the package but leave no \`onpar\` command"; exit 1; }
 
       - name: Create and push the tag (idempotent)
         env:
