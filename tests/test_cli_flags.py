@@ -168,7 +168,7 @@ def test_the_exit_code_says_which_kind_of_failure_it_was():
     assert main([]) == 2, "a missing required argument stays a usage error"
 
 
-def test_every_surface_that_prints_throughput_says_it_is_an_estimate(capsys):
+def test_every_surface_that_prints_throughput_says_it_is_an_estimate(monkeypatch, capsys):
     """A number nobody has measured must not be the one with no qualifier.
 
     `--explain` has carried "(roofline estimate, not measured)" all along and
@@ -181,6 +181,27 @@ def test_every_surface_that_prints_throughput_says_it_is_an_estimate(capsys):
     every figure in that column and has never been checked against a
     measurement (#222).
     """
+    # A synthetic machine, because `fit` reads the host. Without this the
+    # assertion below failed on macos-latest with "no feasible rows" — a fact
+    # about the runner, not about clickllm. `test_cli_golden.py` pins a machine
+    # for exactly this reason and this test should have from the start; a test
+    # that skips on CI is a test that does not run where it matters.
+    from clickllm import hardware
+    from clickllm.hardware import Hardware
+
+    monkeypatch.setattr(
+        hardware,
+        "detect",
+        lambda: Hardware(
+            kind="apple",
+            name="M4 Max",
+            total_bytes=128 * 1024**3,
+            usable_bytes=96 * 1024**3,
+            bandwidth_gbps=546.0,
+            cores=16,
+        ),
+    )
+
     assert main(["fit"]) == 0
     table = capsys.readouterr().out
     assert "roofline" in table.lower(), (
@@ -190,5 +211,5 @@ def test_every_surface_that_prints_throughput_says_it_is_an_estimate(capsys):
     assert main(["fit", "--json"]) == 0
     rows = json.loads(capsys.readouterr().out)
     feasible = rows.get("feasible") or []
-    assert feasible, "no feasible rows to check"
+    assert feasible, "the synthetic machine below should fit something"
     assert "estimate_basis" in feasible[0], "--json dropped the estimate basis"
