@@ -194,6 +194,11 @@ class Measurement:
     load_before: Load
     load_after: Load
     roofline_tokens_per_sec: float | None = None
+    #: What the roofline describes: an explicit `--quant`, an assumed best fit,
+    #: or empty when there is no roofline. Carried into JSON too — a ratio with
+    #: no stated basis looks like a fact about the endpoint when part of it is a
+    #: fact about a quantisation nobody confirmed.
+    roofline_basis: str = ""
     #: Populated when this is not usable as a measurement. Non-empty means the
     #: estimate stands and this must not overwrite it.
     refused: tuple[str, ...] = field(default_factory=tuple)
@@ -252,6 +257,8 @@ class Measurement:
             lines.append(f"    roofline {self.roofline_tokens_per_sec:7.2f} tok/s   estimate")
             if self.ratio_to_roofline is not None:
                 lines.append(f"    measured is {self.ratio_to_roofline * 100:.0f}% of the estimate")
+            if self.roofline_basis:
+                lines.append(f"\n    roofline basis: {self.roofline_basis}")
         lines += [
             "",
             f"    before: {self.load_before.render()}",
@@ -397,6 +404,7 @@ def measure(
     prompt: str = "Count slowly from one to two hundred, one number per line.",
     timeout: float = 300.0,
     roofline: float | None = None,
+    roofline_basis: str = "",
     api_key: str = "",
     sampler: Any = None,
     load_reader: Any = None,
@@ -435,6 +443,7 @@ def measure(
         load_before=before,
         load_after=after,
         roofline_tokens_per_sec=roofline,
+        roofline_basis=roofline_basis,
     )
 
     refused: list[str] = []
@@ -495,6 +504,7 @@ def measure(
         load_before=before,
         load_after=after,
         roofline_tokens_per_sec=roofline,
+        roofline_basis=roofline_basis,
         refused=tuple(refused),
         caveats=tuple(caveats),
     )

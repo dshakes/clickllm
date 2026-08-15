@@ -1003,8 +1003,22 @@ def cmd_measure(args: argparse.Namespace) -> int:
             # the two numbers described different models.
             ctx = _parse_size(args.context)
             if getattr(args, "quant", None):
+                if args.quant not in spec.quants:
+                    raise ValueError(
+                        f"{spec.id} does not publish {args.quant!r}; it has "
+                        f"{', '.join(spec.quants)}"
+                    )
                 fit_result = fit.solve(spec, args.quant, hw, ctx, args.concurrency)
                 quant_basis = f"--quant {args.quant}"
+                if not fit_result.feasible:
+                    # Disclosed rather than refused, the same choice `fit.Fit`
+                    # makes for `beyond_published_context`: the number is still
+                    # the correct bandwidth arithmetic, it just does not describe
+                    # a config this machine could actually hold.
+                    quant_basis += (
+                        " — does not fit this machine at this context/concurrency; "
+                        "roofline assumes the same bandwidth on hardware that could"
+                    )
             else:
                 fit_result = fit.best_quant(spec, hw, ctx, args.concurrency)
                 quant_basis = (
@@ -1026,6 +1040,7 @@ def cmd_measure(args: argparse.Namespace) -> int:
         samples=args.samples,
         max_tokens=args.max_tokens,
         roofline=roofline,
+        roofline_basis=quant_basis,
         api_key=os.environ.get("CLICKLLM_API_KEY", ""),
     )
 
@@ -1033,12 +1048,7 @@ def cmd_measure(args: argparse.Namespace) -> int:
         print(result.to_json())
     else:
         print(result.render())
-        if quant_basis and result.roofline_tokens_per_sec is not None:
-            # Say which model the roofline describes. Without this the ratio
-            # looks like a fact about the endpoint when it is partly a fact
-            # about a quantisation nobody confirmed.
-            print(f"\n  roofline basis: {quant_basis}")
-        elif roofline is None and args.model:
+        if roofline is None and args.model:
             print(
                 f"  No roofline to compare against: {args.model!r} is not in the\n"
                 "  catalogue, or nothing fits on this machine at that context.\n"

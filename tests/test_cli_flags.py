@@ -311,3 +311,149 @@ def test_measure_cli_still_prints_the_measurement_alongside_the_roofline_basis(c
     out = capsys.readouterr().out
     assert rc in (0, 1)
     assert "median" in out
+
+
+def test_measure_rejects_a_quant_the_model_does_not_publish(capsys, monkeypatch):
+    """`--quant` went straight to `fit.solve`, which indexes `QUANT_BITS[quant]`
+    and raises a bare `KeyError` for anything not in that global table — a
+    typo like `q4_k_m` printed `error: 'q4_k_m'` with no hint of what was
+    expected. `launch.plan` already validates a declared quant against the
+    model's own `spec.quants` (`{model.id} does not publish ...`); `measure`
+    must reject the same way, naming the offending value and what qwen3-32b
+    actually publishes.
+    """
+    from clickllm.hardware import Hardware
+
+    monkeypatch.setattr(
+        "clickllm.cli.hardware.detect",
+        lambda: Hardware(
+            kind="apple",
+            name="M4 Max",
+            total_bytes=128 * 1024**3,
+            usable_bytes=96 * 1024**3,
+            bandwidth_gbps=546.0,
+            cores=16,
+        ),
+    )
+
+    rc = main(
+        [
+            "measure",
+            "--endpoint",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "qwen3-32b",
+            "--quant",
+            "q4_k_m",
+            "--samples",
+            "2",
+        ]
+    )
+    err = capsys.readouterr().err
+    assert rc == 1, "an unpublished quant is well-formed input that failed, not a usage error"
+    assert "q4_k_m" in err, "the offending value must be in the message"
+    assert "q4" in err and "q8" in err, "what the model actually publishes must be in the message"
+
+
+def test_measure_json_carries_the_roofline_basis(monkeypatch, capsys):
+    """`--json` and `--out` printed `roofline_tokens_per_sec` and
+    `ratio_to_roofline` with no way to tell whether the roofline came from a
+    declared `--quant` or a guessed best fit — the human render grew a
+    "roofline basis" line but the machine-readable payload stayed silent, so a
+    script reading the JSON still had the exact mismatch this feature exists
+    to prevent.
+    """
+    from clickllm import measure as M
+    from clickllm.hardware import Hardware
+
+    def fake_decode_once(endpoint, model, prompt, *, max_tokens, timeout, api_key=""):
+        return M.Sample(tokens=20, decode_seconds=1.0, ttft_seconds=0.05)
+
+    monkeypatch.setattr(M, "_decode_once", fake_decode_once)
+    monkeypatch.setattr(
+        "clickllm.cli.hardware.detect",
+        lambda: Hardware(
+            kind="apple",
+            name="M4 Max",
+            total_bytes=128 * 1024**3,
+            usable_bytes=96 * 1024**3,
+            bandwidth_gbps=546.0,
+            cores=16,
+        ),
+    )
+
+    rc = main(
+        [
+            "measure",
+            "--endpoint",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "qwen3-32b",
+            "--quant",
+            "q4",
+            "--samples",
+            "2",
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert rc in (0, 1)
+    assert payload["roofline_basis"] == "--quant q4", (
+        "the JSON payload must say which quant the roofline describes, same as the "
+        "human-readable render"
+    )
+
+
+def test_measure_discloses_a_declared_quant_that_does_not_fit_this_machine(monkeypatch, capsys):
+    """A prior version treated `fit.solve`'s non-`None` return as proof the
+    config fits, unlike the old `best_quant` path it replaced, which returned
+    `None` when nothing did. `fit.solve` returns a `Fit` — with a computed
+    `tokens_per_sec` — even when `fit_result.feasible` is `False`, so a
+    declared `--quant` too large for the detected machine produced a roofline
+    with no sign it described a config the machine could not hold.
+
+    The fix disclosed rather than refused, matching `Fit.beyond_published_context`:
+    the bandwidth arithmetic is still correct, so the number stays, but the
+    basis line must say the config does not fit.
+    """
+    from clickllm import measure as M
+    from clickllm.hardware import Hardware
+
+    def fake_decode_once(endpoint, model, prompt, *, max_tokens, timeout, api_key=""):
+        return M.Sample(tokens=20, decode_seconds=1.0, ttft_seconds=0.05)
+
+    monkeypatch.setattr(M, "_decode_once", fake_decode_once)
+    # A machine too small to hold qwen3-32b at fp16, so the declared quant
+    # below is a published one that nonetheless does not fit here.
+    monkeypatch.setattr(
+        "clickllm.cli.hardware.detect",
+        lambda: Hardware(
+            kind="apple",
+            name="M1",
+            total_bytes=8 * 1024**3,
+            usable_bytes=6 * 1024**3,
+            bandwidth_gbps=68.0,
+            cores=8,
+        ),
+    )
+
+    rc = main(
+        [
+            "measure",
+            "--endpoint",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "qwen3-32b",
+            "--quant",
+            "fp16",
+            "--samples",
+            "2",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc in (0, 1)
+    assert "roofline basis: --quant fp16" in out
+    assert "does not fit this machine" in out, (
+        "an infeasible declared quant must say so, not print a bare roofline as if "
+        "the config were real"
+    )
