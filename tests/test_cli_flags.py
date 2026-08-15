@@ -166,3 +166,29 @@ def test_the_exit_code_says_which_kind_of_failure_it_was():
 
     # Usage: no subcommand, which is what argparse itself reports as 2.
     assert main([]) == 2, "a missing required argument stays a usage error"
+
+
+def test_every_surface_that_prints_throughput_says_it_is_an_estimate(capsys):
+    """A number nobody has measured must not be the one with no qualifier.
+
+    `--explain` has carried "(roofline estimate, not measured)" all along and
+    `--json` carries `estimate_basis`, but the default table — the surface
+    nearly everyone reads — printed `~tok/s` bare. Two of three obeying a
+    convention is the drift shape this repo keeps finding: a fact stated in
+    several places and maintained in some of them.
+
+    It matters more than a label usually would. `BANDWIDTH_EFFICIENCY` scales
+    every figure in that column and has never been checked against a
+    measurement (#222).
+    """
+    assert main(["fit"]) == 0
+    table = capsys.readouterr().out
+    assert "roofline" in table.lower(), (
+        "the default fit table prints ~tok/s with no indication it is unmeasured"
+    )
+
+    assert main(["fit", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    feasible = rows.get("feasible") or []
+    assert feasible, "no feasible rows to check"
+    assert "estimate_basis" in feasible[0], "--json dropped the estimate basis"

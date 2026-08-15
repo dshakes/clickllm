@@ -28,5 +28,6 @@
              Apple silicon: the CUDA engines cannot run here at all. MLX has the better
              batching story of the two Metal options.
 
+  ~tok/s is a memory-bandwidth roofline, not a measurement — `clickllm measure` measures.
   clickllm fit --explain <model-id>   # show the arithmetic
 
