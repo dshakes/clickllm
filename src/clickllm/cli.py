@@ -1038,6 +1038,7 @@ def cmd_measure(args: argparse.Namespace) -> int:
         args.served_model or args.model,
         cores=hw.cores,
         samples=args.samples,
+        warmup=args.warmup,
         max_tokens=args.max_tokens,
         roofline=roofline,
         roofline_basis=quant_basis,
@@ -2190,6 +2191,15 @@ def main(argv: list[str] | None = None) -> int:
     ms.add_argument("--samples", type=int, default=M_DEFAULT_SAMPLES)
     ms.add_argument("--max-tokens", type=int, default=M_DEFAULT_MAX_TOKENS, dest="max_tokens")
     ms.add_argument("--context", default="32k", help="context for the roofline comparison")
+    ms.add_argument(
+        "--warmup",
+        type=int,
+        default=0,
+        metavar="N",
+        help="decodes to run and discard before sampling, to reach thermal equilibrium. "
+        "On hardware that throttles the first samples are the fastest, so a cold run "
+        "measures the burst rate rather than what the machine sustains",
+    )
     ms.add_argument(
         "--quant",
         help="quantisation the endpoint actually serves (q4, q8, ...); "

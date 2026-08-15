@@ -435,6 +435,11 @@ def measure(
     cores: int,
     samples: int = DEFAULT_SAMPLES,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    #: Decodes to run and discard before sampling, to reach thermal
+    #: equilibrium. 0 keeps the historical behaviour: a caller who does not ask
+    #: for warmup gets exactly what it got before, so this cannot change a
+    #: number underneath anyone.
+    warmup: int = 0,
     prompt: str = "Count slowly from one to two hundred, one number per line.",
     timeout: float = 300.0,
     roofline: float | None = None,
@@ -466,6 +471,26 @@ def measure(
         )
     )
     look = load_reader or (lambda: read_load(cores))
+
+    # Warm to thermal equilibrium before the sampled window, or the median is a
+    # fact about when you looked rather than about the machine.
+    #
+    # Measured on an idle M4 Max (#241): a 32B model fell 22.1 -> 16.2 tok/s
+    # across fifteen samples, correlating -0.90 with sample order, with load
+    # flat at 0.39/core throughout. Nothing was competing; the silicon was
+    # clocking down. Sampling from cold therefore reported anywhere between
+    # 1.04x and 0.84x of the same roofline depending on where the window
+    # happened to fall.
+    #
+    # Discarded, not counted. A warmup sample is a decode whose only job is to
+    # heat the machine, and folding it into the result would reintroduce exactly
+    # the cold-start bias this removes.
+    warmup_rates: list[float] = []
+    if warmup > 0:
+        for _ in range(warmup):
+            warmed = take()
+            if warmed.tokens_per_sec > 0:
+                warmup_rates.append(warmed.tokens_per_sec)
     before = look()
     taken = [take() for _ in range(samples)]
     after = look()
@@ -481,7 +506,18 @@ def measure(
     )
 
     refused: list[str] = []
+
     caveats: list[str] = []
+    # A warmup that did not reach equilibrium must not read like one that did.
+    # If the discarded decodes were still falling when sampling began, the
+    # samples inherit that, and saying so is the difference between "this run
+    # is comparable" and "this run started mid-descent".
+    if warmup_rates and _decline(warmup_rates) is not None:
+        caveats.append(
+            f"still slowing when sampling began: the {len(warmup_rates)} warmup decodes "
+            f"were themselves on a downward trend, so equilibrium was not reached — "
+            f"raise --warmup"
+        )
 
     # The second door to the same failure. `_decode_once` refuses a completion
     # that arrived in one frame, because first and last are then the same

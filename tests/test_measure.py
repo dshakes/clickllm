@@ -844,3 +844,36 @@ def test_a_run_that_slows_is_not_a_run_that_disagrees():
 
     # Too few samples to judge is None, not a guess.
     assert _decline([22.0, 18.0, 16.0]) is None
+
+
+def test_warmup_decodes_are_discarded_not_counted():
+    """A warmup sample heats the machine; folding it in reintroduces the bias.
+
+    The whole point of warming is to leave the cold, fast decodes out of the
+    result. Counting them would put the burst rate back into the median, which
+    is the thing #241 exists to remove.
+    """
+    from clickllm.measure import Load, Sample, measure
+
+    rates = iter([50.0, 40.0, 30.0, 10.0, 10.0, 10.0])  # 3 hot warmups, 3 steady
+    quiet = Load(one_minute=0.5, cores=16, top=())
+
+    def sampler():
+        return Sample(tokens=100, decode_seconds=100 / next(rates), ttft_seconds=0.1)
+
+    m = measure(
+        "http://x/v1",
+        "m",
+        cores=16,
+        samples=3,
+        warmup=3,
+        sampler=sampler,
+        load_reader=lambda: quiet,
+    )
+
+    assert len(m.samples) == 3, "warmup decodes must not appear in the samples"
+    assert m.median is not None
+    assert abs(m.median - 10.0) < 0.01, (
+        f"median {m.median} includes the discarded warmup rates — "
+        "the cold, fast decodes are back in the result"
+    )
