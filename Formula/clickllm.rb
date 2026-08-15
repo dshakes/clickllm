@@ -6,10 +6,10 @@ class Clickllm < Formula
 
   desc "Prove which open model can replace your closed one, then migrate safely"
   homepage "https://dshakes.github.io/clickllm/"
-  url "https://github.com/dshakes/clickllm/archive/refs/tags/v1.2.0.tar.gz"
+  url "https://github.com/dshakes/clickllm/archive/refs/tags/v1.2.1.tar.gz"
   # Filled in by the release workflow from the tarball GitHub actually published,
   # never from one built locally — the point of the checksum is that they match.
-  sha256 "45b5fb011f3d190146ede37ccdf65181dbc23887e6785e631a50b142a2725549"
+  sha256 "62cad8d40c27ece5e273c0ce24e9b66c949f8d08c3f12878570e18b790da9f78"
   license "Apache-2.0"
   head "https://github.com/dshakes/clickllm.git", branch: "main"
 
