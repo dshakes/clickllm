@@ -13,9 +13,9 @@ import json
 
 import pytest
 
-from clickllm.prove import EvalItem, cost, suite
-from clickllm.prove.receipt import FORMAT, SUPPORTED_FORMATS, Claim, Receipt
-from clickllm.prove.stats import wilson
+from onpar.prove import EvalItem, cost, suite
+from onpar.prove.receipt import FORMAT, SUPPORTED_FORMATS, Claim, Receipt
+from onpar.prove.stats import wilson
 
 
 def _items(n: int = 200, differing: int = 0) -> list[EvalItem]:
@@ -238,7 +238,7 @@ def _v1_receipt() -> Receipt:
         traffic_captures=400,
         traffic_window="14 days",
         tool_version="1.0.0",
-        format="clickllm.receipt/v1",
+        format="onpar.receipt/v1",
     )
 
 
@@ -272,7 +272,7 @@ def test_a_receipt_issued_by_1_0_0_still_verifies():
     acts on it.
     """
     r = Receipt.from_json(_v1_receipt_json())
-    assert r.format == "clickllm.receipt/v1"
+    assert r.format == "onpar.receipt/v1"
     assert r.incumbent_cost == 0.0
     # And it round-trips without acquiring a new identity.
     assert Receipt.from_json(r.to_json()).digest() == r.digest()
@@ -295,7 +295,7 @@ def test_a_v1_receipt_cannot_carry_a_cost_outside_its_own_digest():
             regret=(),
             unproven=(),
             incumbent_cost=5000.0,
-            format="clickllm.receipt/v1",
+            format="onpar.receipt/v1",
         )
 
 
@@ -342,10 +342,10 @@ def test_the_new_cost_fields_are_inside_the_v2_digest():
 
 def test_an_unknown_format_is_still_rejected():
     blob = json.loads(_v1_receipt_json())
-    blob["receipt"]["format"] = "clickllm.receipt/v9"
+    blob["receipt"]["format"] = "onpar.receipt/v9"
     with pytest.raises(ValueError, match="unknown receipt format"):
         Receipt.from_json(json.dumps(blob))
-    assert "clickllm.receipt/v1" in SUPPORTED_FORMATS and FORMAT in SUPPORTED_FORMATS
+    assert "onpar.receipt/v1" in SUPPORTED_FORMATS and FORMAT in SUPPORTED_FORMATS
 
 
 def test_claim_is_importable_here():
@@ -358,12 +358,12 @@ def test_claim_is_importable_here():
     [
         (
             "downgrade keeping the cost",
-            lambda b: b["receipt"].update(format="clickllm.receipt/v1"),
+            lambda b: b["receipt"].update(format="onpar.receipt/v1"),
         ),
         (
             "downgrade and strip the cost",
             lambda b: b["receipt"].update(
-                format="clickllm.receipt/v1", incumbent_cost=0.0, candidate_cost=0.0
+                format="onpar.receipt/v1", incumbent_cost=0.0, candidate_cost=0.0
             ),
         ),
         (

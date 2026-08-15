@@ -13,8 +13,8 @@ import pathlib
 
 import pytest
 
-from clickllm.intent import _SANE_MAX, _digits, _whole, read
-from clickllm.plan import Workload
+from onpar.intent import _SANE_MAX, _digits, _whole, read
+from onpar.plan import Workload
 
 
 def infer(text: str, field: str):
@@ -130,7 +130,7 @@ WORKLOADS = [
     (Workload.BATCH, "triage 2 million support tickets"),
     (Workload.BATCH, "2 million support tickets to triage"),
     (Workload.BATCH, "summarization of 2 million support tickets"),
-    # clickllm's own vocabulary: evaluating a captured corpus is the thing
+    # onpar's own vocabulary: evaluating a captured corpus is the thing
     # this tool exists to do, and none of it was in the verb or noun lists.
     (Workload.BATCH, "evaluate 1 million captured prompts"),
     (Workload.BATCH, "eval 1 million captured requests"),
@@ -458,7 +458,7 @@ def test_every_rounding_in_this_module_goes_through_the_one_guarded_helper():
     # the fourth overflow waiting to be found by an input rather than a review.
     import ast
 
-    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/intent.py"
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/onpar/intent.py"
     tree = ast.parse(src.read_text())
 
     def rounds(node):
@@ -487,7 +487,7 @@ def test_no_captured_digit_string_is_converted_outside_the_one_helper():
     # int(0.92 * n), so this parses.
     import ast
 
-    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/intent.py"
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/onpar/intent.py"
     tree = ast.parse(src.read_text())
 
     def group_ints(node):

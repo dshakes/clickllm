@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import migrate
-from clickllm.prove import EvalItem, suite
+from onpar import migrate
+from onpar.prove import EvalItem, suite
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,7 +59,7 @@ def _rows(n_text: int = 60, n_tool: int = 0) -> list[dict]:
 def _judge(comparison):
     """A judge that always agrees. Its verdict does not matter here — what
     matters is that one *ran*, which is what puts scores in the JUDGE tier."""
-    from clickllm.prove.judge import Reply
+    from onpar.prove.judge import Reply
 
     return Reply(winner="tie", reason="identical")
 
@@ -129,7 +129,7 @@ def test_nothing_in_the_module_writes_a_nonzero_stage():
     A future edit that sets `stage_percent` from a decision would be the one
     change here that matters, and it would look entirely reasonable in a diff.
     """
-    src = (ROOT / "src" / "clickllm" / "migrate.py").read_text()
+    src = (ROOT / "src" / "onpar" / "migrate.py").read_text()
     # Assignments only. The lookaheads exclude the dataclass's own
     # `stage_percent: int = 0` annotation and the `== 0` comparisons in this
     # module's `demo()` — the first two versions of this regex reported each of
@@ -319,13 +319,13 @@ def test_the_schedule_is_printed_and_not_installed():
     """Same rule as `watch`: a recurring job that reads your captured traffic is
     your decision."""
     fragment, where = migrate.install_schedule(interval_hours=6)
-    assert "clickllm migrate --step" in fragment
+    assert "onpar migrate --step" in fragment
     assert "*/6" in fragment
     assert "crontab" in where
 
 
 def test_the_cli_exposes_the_loop_and_no_way_to_apply_its_proposal():
-    src = (ROOT / "src" / "clickllm" / "cli.py").read_text()
+    src = (ROOT / "src" / "onpar" / "cli.py").read_text()
     block = re.search(r'mg = sub\.add_parser\("migrate".*?mg\.set_defaults', src, re.S)
     assert block, "the migrate parser moved"
     for verb in ("--apply", "--advance", "--promote", "--percent", "--cutover"):
@@ -342,7 +342,7 @@ def test_migrate_will_not_grade_answers_nobody_gave():
     """
     import re as _re
 
-    src = (ROOT / "src" / "clickllm" / "cli.py").read_text()
+    src = (ROOT / "src" / "onpar" / "cli.py").read_text()
     # One implementation, both callers — the point of the fix. Two copies would
     # be this defect again, waiting for the next divergence.
     assert src.count("def _refuse_ungraded(") == 1
@@ -356,7 +356,7 @@ def test_migrate_refuses_a_blank_candidate_without_an_endpoint(monkeypatch, tmp_
     every candidate answer blank, and without `--candidate-endpoint` to fill
     them, scoring them as-is would report a fabricated 0% verdict — a HOLD
     recorded and rendered with the same confidence as a real comparison."""
-    from clickllm import cli, core
+    from onpar import cli, core
 
     log, key = tmp_path / "captures.log", tmp_path / "capture.key"
     log.write_bytes(b"not read, only checked for existence")

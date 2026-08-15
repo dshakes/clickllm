@@ -1,6 +1,6 @@
 
-  built-in  <repo>/src/clickllm/models.json
+  built-in  <repo>/src/onpar/models.json
 
   14 models · later files override earlier ones by id
-  drop new ones into <config-home>/clickllm/models.d/ — no reinstall
+  drop new ones into <config-home>/onpar/models.d/ — no reinstall
 

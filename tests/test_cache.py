@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import cache
-from clickllm.cli import main
+from onpar import cache
+from onpar.cli import main
 
 GB = 1024**3
 
@@ -236,7 +236,7 @@ def test_a_non_repo_directory_inside_the_root_is_refused(hub):
 # --- pins and budget persist outside HF's cache --------------------------------
 
 
-def test_pins_live_in_clickllm_state_not_in_the_hub_cache(hub, tmp_path):
+def test_pins_live_in_onpar_state_not_in_the_hub_cache(hub, tmp_path):
     state = tmp_path / "cache.json"
     cache.pin("acme/incumbent-70b", state)
 

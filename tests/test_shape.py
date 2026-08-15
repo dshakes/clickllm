@@ -8,7 +8,7 @@ and nothing downstream can tell that it happened.
 
 from __future__ import annotations
 
-from clickllm.distill.shape import Capture, extract_shape
+from onpar.distill.shape import Capture, extract_shape
 
 
 def cap(tools=(), tool_calls=({"name": "x"},), **kw):

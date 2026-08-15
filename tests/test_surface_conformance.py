@@ -35,8 +35,8 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm import hardware, mcp, sdk, ui
-from clickllm.hardware import Hardware
+from onpar import hardware, mcp, sdk, ui
+from onpar.hardware import Hardware
 
 GB = 1024**3
 
@@ -129,7 +129,7 @@ def test_every_surface_recommends_the_same_runtime():
     strict=True,
     reason=(
         "Known and recorded in ADR-0016. Converging these renames a field in "
-        "three published shapes at once — the MCP tool schema, `clickllm fit "
+        "three published shapes at once — the MCP tool schema, `onpar fit "
         "--json`, and the SDK's to_dict — all of which became contracts when "
         "1.0.0 shipped. That is a deliberate, versioned change, not a drive-by "
         "fix inside the PR that adds the test. strict=True so this fails loudly "
@@ -158,7 +158,7 @@ def test_feasible_rows_share_one_schema():
     strict=True,
     reason=(
         "Known and recorded in ADR-0016. Converging these renames a field in "
-        "three published shapes at once — the MCP tool schema, `clickllm fit "
+        "three published shapes at once — the MCP tool schema, `onpar fit "
         "--json`, and the SDK's to_dict — all of which became contracts when "
         "1.0.0 shipped. That is a deliberate, versioned change, not a drive-by "
         "fix inside the PR that adds the test. strict=True so this fails loudly "
@@ -249,10 +249,10 @@ def test_every_machine_readable_surface_says_the_throughput_is_an_estimate():
     """Invariant 6: never report a number without its confidence.
 
     Every throughput figure in this project is a memory-bandwidth roofline.
-    `clickllm fit --explain` says so — "roofline estimate, not measured" — and
+    `onpar fit --explain` says so — "roofline estimate, not measured" — and
     `mcp`, `sdk` and `ui` all carry `estimate_basis` beside the number.
 
-    `clickllm fit --json` carried neither. A human reading the table sees a `~`
+    `onpar fit --json` carried neither. A human reading the table sees a `~`
     and a pointer to `--explain`; a program reading the JSON sees
     `tokens_per_sec: 15` and has no way to know it is a projection. That is the
     surface most likely to be piped into someone's capacity planning.
@@ -265,7 +265,7 @@ def test_every_machine_readable_surface_says_the_throughput_is_an_estimate():
     import io
     import json as _json
 
-    from clickllm import cli
+    from onpar import cli
 
     def _cli_json() -> dict:
         """Run the command; do not read its golden.

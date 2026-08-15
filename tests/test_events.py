@@ -19,8 +19,8 @@ import socket
 
 import pytest
 
-from clickllm import events
-from clickllm.events import LOGGER, event, span
+from onpar import events
+from onpar.events import LOGGER, event, span
 
 
 @pytest.fixture
@@ -178,7 +178,7 @@ def test_no_exporter_or_endpoint_setting_exists():
     )
     # And nothing that would carry one in indirectly.
     assert "opentelemetry" not in imported and "structlog" not in imported, (
-        "clickllm fit must work under uvx with zero runtime dependencies"
+        "onpar fit must work under uvx with zero runtime dependencies"
     )
 
 
@@ -223,8 +223,8 @@ def test_a_missing_value_is_absent_not_the_word_none(captured):
 
 
 def test_the_engine_emits_what_it_decided(captured):
-    from clickllm import engine
-    from clickllm.hardware import Hardware
+    from onpar import engine
+    from onpar.hardware import Hardware
 
     gb = 1024**3
     hw = Hardware(
@@ -243,7 +243,7 @@ def test_the_engine_emits_what_it_decided(captured):
 
 
 def test_a_prove_run_emits_its_shape(captured):
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(item_id=str(i), cluster="c", prompt=f"p{i}", baseline="a", candidate="a")
@@ -261,11 +261,11 @@ def test_a_prove_run_emits_its_shape(captured):
 def test_a_failure_points_at_the_diagnostics(monkeypatch, capsys):
     """The one moment a user needs to know these exist.
 
-    There is no env-var section in the docs to find `CLICKLLM_LOG` in, so a
+    There is no env-var section in the docs to find `ONPAR_LOG` in, so a
     feature nobody can discover is a feature nobody has. Pointing at it from the
     failure path costs a line and lands exactly when it is useful.
     """
-    from clickllm import cli
+    from onpar import cli
 
     monkeypatch.delenv(events.ENV, raising=False)
     assert cli.main(["prove", "/definitely/not/here.json"]) == 1
@@ -279,7 +279,7 @@ def test_a_failure_points_at_the_diagnostics(monkeypatch, capsys):
 
 def test_the_hint_is_suppressed_when_the_user_already_has_it_on(monkeypatch, capsys):
     """Otherwise the advice is 'do what you are already doing'."""
-    from clickllm import cli
+    from onpar import cli
 
     monkeypatch.setenv(events.ENV, "debug")
     assert cli.main(["prove", "/definitely/not/here.json"]) == 1

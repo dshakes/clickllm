@@ -7,9 +7,9 @@ itself, which are all promises about what it will *not* say:
    declared rather than quietly absent
 2. `weights.lock` never claims a revision it does not have
 3. no eval score exists without a receipt behind it
-4. nothing generated needs clickllm installed (NFR-4)
+4. nothing generated needs onpar installed (NFR-4)
 5. the argv in `targets/` is the engine's own, from the same adapter
-   `clickllm run` uses — a box that drifts from the launcher is two answers
+   `onpar run` uses — a box that drifts from the launcher is two answers
 6. nothing reads anything credential-shaped, and nothing is pushed
 
 Every test is offline: `exists` and `revision` are injected, and the resolution
@@ -26,14 +26,14 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import box, catalog
-from clickllm.engines import adapter_for
-from clickllm.hardware_catalog import get as profile_by_id
-from clickllm.plan import Requirements, Workload
-from clickllm.plan import plan as configure
-from clickllm.prove.equivalence import CandidateReport, ClusterScore
-from clickllm.prove.receipt import Receipt, issue
-from clickllm.prove.stats import wilson
+from onpar import box, catalog
+from onpar.engines import adapter_for
+from onpar.hardware_catalog import get as profile_by_id
+from onpar.plan import Requirements, Workload
+from onpar.plan import plan as configure
+from onpar.prove.equivalence import CandidateReport, ClusterScore
+from onpar.prove.receipt import Receipt, issue
+from onpar.prove.stats import wilson
 
 MODEL = "qwen3-30b-a3b"
 TODAY = "2026-07-28"
@@ -203,13 +203,13 @@ def test_bench_json_says_it_measured_nothing(built):
 # --- standalone ----------------------------------------------------------------
 
 
-def test_nothing_generated_imports_or_installs_clickllm(built):
+def test_nothing_generated_imports_or_installs_onpar(built):
     """NFR-4: delete this tool and the box still deploys."""
     for name, content in built.files:
-        assert not re.search(r"\b(import|install)\s+clickllm\b", content), name
-        assert "from clickllm import" not in content, name
+        assert not re.search(r"\b(import|install)\s+onpar\b", content), name
+        assert "from onpar import" not in content, name
         # The word may appear in provenance, but never as something to run.
-        assert not re.search(r"^\s*(RUN|CMD|exec|\$)\s.*clickllm", content, re.M), name
+        assert not re.search(r"^\s*(RUN|CMD|exec|\$)\s.*onpar", content, re.M), name
 
 
 def test_the_container_files_are_the_engines_own_image_and_flags(built):
@@ -253,7 +253,7 @@ def test_the_kubernetes_target_carries_a_deployment_and_a_service(built):
     assert 'kind: "Deployment"' in manifests and 'kind: "Service"' in manifests
     assert manifests.count("---") == 1
     # The operator's own provenance annotation, so a cluster and a box agree.
-    assert "clickllm.dev/standalone" in manifests
+    assert "onpar.dev/standalone" in manifests
 
 
 def test_the_native_target_is_a_launch_spec_not_a_container(built):
@@ -282,7 +282,7 @@ def test_the_native_target_is_a_launch_spec_not_a_container(built):
     ],
 )
 def test_the_argv_is_what_the_engine_adapter_produces_for_these_settings(built, target_id, path):
-    """The drift guard. A box whose flags disagree with `clickllm run`'s flags
+    """The drift guard. A box whose flags disagree with `onpar run`'s flags
     is two answers to one question, and only one of them ever ran."""
     t = next(t for t in built.targets if t.target.id == target_id)
     hw = profile_by_id(t.target.profile_id).to_hardware()
@@ -376,7 +376,7 @@ SOURCE = Path(box.__file__).read_text()
 
 
 def test_no_code_path_reads_anything_that_looks_like_a_credential():
-    """clickllm holds no registry credential: never prompted for, never read,
+    """onpar holds no registry credential: never prompted for, never read,
     never stored. Enforced against the source, not by convention."""
     reads = []
     for node in ast.walk(ast.parse(SOURCE)):
@@ -418,7 +418,7 @@ def test_publishing_is_a_command_you_run_never_something_the_build_did(built, tm
     assert all("--password" not in c and "login" not in c for c in commands)
     assert box.ARTIFACT_TYPE in " ".join(commands)
     # The README says who runs them.
-    assert "clickllm does not push" in dict(built.files)["README.md"]
+    assert "onpar does not push" in dict(built.files)["README.md"]
 
 
 def test_a_custom_ref_is_the_one_that_gets_printed(tmp_path):

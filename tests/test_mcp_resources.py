@@ -17,13 +17,13 @@ import json
 
 import pytest
 
-from clickllm import mcp
+from onpar import mcp
 
 
 @pytest.fixture
 def root(tmp_path, monkeypatch):
     """An eval root holding one real receipt and several things that are not."""
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(item_id=str(i), cluster="c", prompt=f"p{i}", baseline="a", candidate="a")
@@ -50,7 +50,7 @@ def root(tmp_path, monkeypatch):
     elsewhere.write_text(r.to_json())
     (tmp_path / "borrowed.json").symlink_to(elsewhere)
 
-    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("ONPAR_EVAL_ROOT", str(tmp_path))
     return tmp_path
 
 
@@ -60,12 +60,12 @@ def root(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "uri",
     [
-        "clickllm:///../outside.txt",
-        "clickllm:///../../../../etc/passwd",
-        "clickllm:///sneaky.json",  # a symlink pointing out of the root
-        "clickllm:///borrowed.json",  # ...and one pointing at a real receipt out there
+        "onpar:///../outside.txt",
+        "onpar:///../../../../etc/passwd",
+        "onpar:///sneaky.json",  # a symlink pointing out of the root
+        "onpar:///borrowed.json",  # ...and one pointing at a real receipt out there
         "file:///etc/passwd",
-        "clickllm://../etc/passwd",
+        "onpar://../etc/passwd",
         "/etc/passwd",
         "",
     ],
@@ -79,7 +79,7 @@ def test_a_resource_read_cannot_leave_the_eval_root(root, uri):
     # OSError — including "file not found", which every one of these URIs would
     # raise even with the confinement deleted. A negative test that cannot tell
     # the guard firing from an unrelated failure upstream of it is not testing
-    # the guard. (Exactly this shape shipped a hole in `clickllm_distill`: the
+    # the guard. (Exactly this shape shipped a hole in `onpar_distill`: the
     # escape test passed on a refusal that came from a missing key.)
     #
     # Two intended refusals, because two of these URIs are malformed and get
@@ -95,8 +95,8 @@ def test_it_serves_its_own_artifacts_not_whatever_json_is_lying_around(root):
     file-read primitive with extra steps. A directory of JSON is not a directory
     of receipts, and one of these files is somebody's API key.
     """
-    with pytest.raises(ValueError, match="not a clickllm receipt or eval set"):
-        mcp.read_resource("clickllm:///notes.json")
+    with pytest.raises(ValueError, match="not a onpar receipt or eval set"):
+        mcp.read_resource("onpar:///notes.json")
 
     names = [r["name"] for r in mcp.resources()]
     assert "notes.json" not in names and "notes.txt" not in names
@@ -113,7 +113,7 @@ def test_the_kind_is_read_from_the_artifact_not_from_the_filename(root):
     (root / "impostor.json").write_text('{"receipt": {"format": "something/else"}}')
     assert "impostor.json" not in [r["name"] for r in mcp.resources()]
     with pytest.raises(ValueError):
-        mcp.read_resource("clickllm:///impostor.json")
+        mcp.read_resource("onpar:///impostor.json")
 
 
 def test_one_boundary_not_two(root):
@@ -135,9 +135,9 @@ def test_a_listing_is_stable_across_calls(root):
 
 
 def test_a_receipt_reads_back_as_the_receipt_it_was(root):
-    from clickllm.prove.receipt import Receipt
+    from onpar.prove.receipt import Receipt
 
-    got = mcp.read_resource("clickllm:///receipt.json")
+    got = mcp.read_resource("onpar:///receipt.json")
     assert got["mimeType"] == "application/json"
     Receipt.from_json(got["text"])  # raises if it does not verify
 
@@ -224,7 +224,7 @@ def test_a_refused_read_is_an_error_the_agent_can_act_on(root):
             "jsonrpc": "2.0",
             "id": 3,
             "method": "resources/read",
-            "params": {"uri": "clickllm:///../outside.txt"},
+            "params": {"uri": "onpar:///../outside.txt"},
         }
     )
     assert reply["error"]["code"] == -32602
@@ -237,7 +237,7 @@ def test_reading_a_resource_over_the_protocol_returns_its_contents(root):
             "jsonrpc": "2.0",
             "id": 4,
             "method": "resources/read",
-            "params": {"uri": "clickllm:///receipt.json"},
+            "params": {"uri": "onpar:///receipt.json"},
         }
     )
     contents = reply["result"]["contents"]
@@ -248,7 +248,7 @@ def test_the_tools_are_still_read_only():
     """The whole claim. Adding capabilities must not have added a verb.
 
     The count is a tripwire, not a target: it exists so that adding a tool is a
-    decision someone made rather than one that happened. `clickllm_distill`
+    decision someone made rather than one that happened. `onpar_distill`
     took it from 9 to 10, and the question it forced was the right one — the
     first draft wrote the eval set to disk, which would have made this the only
     tool here that mutates anything. `_prove` documents the rule ("read-only by
@@ -269,7 +269,7 @@ def _serve(payload: bytes) -> bytes:
     """Run the real stdio server over a byte stream, as a client would."""
     import io
 
-    from clickllm.mcp import serve
+    from onpar.mcp import serve
 
     out = io.BytesIO()
     serve(stdin=io.BytesIO(payload), stdout=out)

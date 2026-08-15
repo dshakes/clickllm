@@ -11,10 +11,10 @@ import json
 
 import pytest
 
-from clickllm.prove.equivalence import CandidateReport, ClusterScore
-from clickllm.prove.graders import EvalItem
-from clickllm.prove.judge import Agreement
-from clickllm.prove.receipt import (
+from onpar.prove.equivalence import CandidateReport, ClusterScore
+from onpar.prove.graders import EvalItem
+from onpar.prove.judge import Agreement
+from onpar.prove.receipt import (
     FORMAT,
     SUPPORTED_FORMATS,
     Claim,
@@ -23,7 +23,7 @@ from clickllm.prove.receipt import (
     issue,
     verify,
 )
-from clickllm.prove.stats import wilson
+from onpar.prove.stats import wilson
 
 
 def cs(name: str, passed: int, total: int, share: float = 1.0) -> ClusterScore:
@@ -113,7 +113,7 @@ def test_a_receipt_cannot_disagree_with_its_own_digest():
 
 def test_an_unknown_format_is_refused_rather_than_guessed_at():
     blob = json.loads(receipt(cs("e", 10, 10)).to_json())
-    blob["receipt"]["format"] = "clickllm.receipt/v99"
+    blob["receipt"]["format"] = "onpar.receipt/v99"
     with pytest.raises(ValueError, match="unknown receipt format"):
         Receipt.from_json(json.dumps(blob))
 
@@ -290,9 +290,9 @@ def test_the_format_tag_is_present_and_versioned():
     import re
 
     assert receipt(cs("e", 10, 10)).format == FORMAT
-    assert re.fullmatch(r"clickllm\.receipt/v\d+", FORMAT), FORMAT
+    assert re.fullmatch(r"onpar\.receipt/v\d+", FORMAT), FORMAT
     assert FORMAT in SUPPORTED_FORMATS
-    assert "clickllm.receipt/v1" in SUPPORTED_FORMATS, (
+    assert "onpar.receipt/v1" in SUPPORTED_FORMATS, (
         "v1 receipts are on other people's disks; dropping them from the "
         "readable set makes every one of them read as forged"
     )
@@ -327,7 +327,7 @@ def test_a_receipt_without_a_digest_is_refused_not_trusted(sabotage):
     """
     import json
 
-    from clickllm.prove.receipt import Claim, Receipt
+    from onpar.prove.receipt import Claim, Receipt
 
     real = Receipt(
         incumbent="gpt-5",
@@ -381,7 +381,7 @@ def test_an_intact_receipt_still_round_trips():
     118/120 genuinely clears — Wilson [0.9413, 0.9954] — so the digest is still
     what this test is about.
     """
-    from clickllm.prove.receipt import Claim, Receipt
+    from onpar.prove.receipt import Claim, Receipt
 
     real = Receipt(
         incumbent="gpt-5",

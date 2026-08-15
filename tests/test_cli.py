@@ -1,5 +1,5 @@
 def test_run_tears_the_engine_down_on_sigterm_not_just_ctrl_c(monkeypatch):
-    """Measured against a real run of published 0.1.8: SIGTERM killed clickllm
+    """Measured against a real run of published 0.1.8: SIGTERM killed onpar
     and left `mlx_lm` serving on its port, holding the device.
 
     `Endpoint.wait()` catches KeyboardInterrupt, which SIGINT raises — but
@@ -9,11 +9,11 @@ def test_run_tears_the_engine_down_on_sigterm_not_just_ctrl_c(monkeypatch):
 
     Interactive Ctrl-C hid it: a tty signals the whole foreground process
     group, so the engine got its own SIGINT from the terminal rather than from
-    us. Every non-tty stop reaches clickllm alone.
+    us. Every non-tty stop reaches onpar alone.
     """
     import signal as _signal
 
-    from clickllm import cli
+    from onpar import cli
 
     stopped = []
 
@@ -62,11 +62,11 @@ def test_a_runtime_error_is_a_sentence_and_exit_one_not_a_traceback(monkeypatch,
     """`main()` caught KeyError/ValueError/OSError — not RuntimeError.
 
     `desktop.install()` documents and raises `RuntimeError` on any unsupported
-    platform, so `clickllm desktop` on Linux printed a traceback. The convention
+    platform, so `onpar desktop` on Linux printed a traceback. The convention
     is stated two lines below the handler it escaped: a bad path or a refusal is
     a nonzero exit with a sentence, never a traceback.
     """
-    from clickllm import cli, desktop
+    from onpar import cli, desktop
 
     def boom(**_):
         raise RuntimeError("this platform has no desktop entry point")
@@ -84,7 +84,7 @@ def test_explain_honours_json_instead_of_silently_ignoring_it(capsys):
     """
     import json as _json
 
-    from clickllm import cli
+    from onpar import cli
 
     assert cli.main(["fit", "--explain", "llama-3.1-8b", "--json"]) in (0, 1)
     payload = _json.loads(capsys.readouterr().out)

@@ -472,7 +472,7 @@ def kv_growth() -> None:
     x0, y0, pw, ph = 92, 92, 520, 220
     ctxs = [4096, 16384, 65536, 262144]
     # Per-token KV bytes: MHA stores every head; GQA shares K/V across groups;
-    # MLA stores a compressed latent. Mirrors clickllm's own sizing rules.
+    # MLA stores a compressed latent. Mirrors onpar's own sizing rules.
     schemes = [(0, "MHA", 640_000), (1, "GQA (8 groups)", 80_000), (2, "MLA (latent)", 13_000)]
 
     # Floor well below the smallest series so MLA does not sit on the axis.
@@ -690,7 +690,7 @@ def spec_decode() -> None:
         H - 44,
         "Illustrative shape, not measured numbers — the crossover moves with the "
         "model, the drafter and the hardware. The lesson is that the quantity has a "
-        "sign, which is why clickllm derives it from your concurrency instead of "
+        "sign, which is why onpar derives it from your concurrency instead of "
         "offering it as a checkbox.",
     )
     save("edu-spec-decode.svg", p)
@@ -738,7 +738,7 @@ def quantization() -> None:
         p,
         28,
         H - 46,
-        "clickllm caps its own recommendation at 8-bit: below that the quality "
+        "onpar caps its own recommendation at 8-bit: below that the quality "
         "question stops being free, and it is a decision to make deliberately "
         "rather than a default to inherit.",
     )
@@ -757,7 +757,7 @@ def in_a_box() -> None:
     on arrival* — which is exactly what makes it worth drawing, because the
     interesting content is the three outcomes, not the packaging.
 
-    Mirrors `clickllm_core::pack::Arrival` so the picture cannot drift from the
+    Mirrors `onpar_core::pack::Arrival` so the picture cannot drift from the
     code: AsPacked / Resolved / Unsupported, with the re-solve reporting what it
     gave up.
     """
@@ -1105,7 +1105,7 @@ def kernels() -> None:
     )
     for i, ln in enumerate(
         [
-            "clickllm generates the config behind boxes 2–3. Box 4 is",
+            "onpar generates the config behind boxes 2–3. Box 4 is",
             "vLLM's, and forking it is a permanent tax. Box 5 is the only",
             "sanctioned seam — and register() runs once per worker, so it",
             "must be idempotent or tensor parallelism breaks it on rank 1.",
@@ -1227,7 +1227,7 @@ def silicon() -> None:
         3. And the KV cache is where the lever stops. 18 fits with 1.51 GiB
            spare; a 19th needs 2.00 and there is nowhere to put it.
 
-    Every figure is a real `clickllm fit` solve — Qwen3-32B at q8, 8k context,
+    Every figure is a real `onpar fit` solve — Qwen3-32B at q8, 8k context,
     one H100 80 GB SXM — and `tests/test_docs_lab.py` re-runs the solver
     against the constants below so the picture cannot drift from the tool.
     """
@@ -1242,7 +1242,7 @@ def silicon() -> None:
     # decimal by every vendor, and mixing the two is how a 7% error walks in.
     READ_GB, FLOP_G = 32.8, 65.6
     AI_ONE, AI_BATCH, RIDGE = 2.00, 36.0, 295
-    GAP_ONE = 147  # 295 / 2.00, as `clickllm fit` reports it
+    GAP_ONE = 147  # 295 / 2.00, as `onpar fit` reports it
     TPS, BW_TBS, PEAK_TF, ACHIEVABLE = 73.5, 3.35, 989.4, 0.72
 
     p = head(
@@ -1591,7 +1591,7 @@ def silicon() -> None:
         f"stops at {GOOD_BATCH} because KV cache ran out, not compute. Shrinking "
         f"that cache (lighter quantisation, shorter context, an MLA model) buys "
         f"batch, and batch is the only thing that buys intensity. "
-        f"Figures are a real `clickllm fit` solve; {TPS} tokens/s is a bandwidth "
+        f"Figures are a real `onpar fit` solve; {TPS} tokens/s is a bandwidth "
         f"estimate, not a measurement.",
         per_line=140,
     )
@@ -1698,7 +1698,7 @@ def weights_flow() -> None:
         28,
         H - 34,
         "Then it happens again, from the start, for the next word. That loop is the "
-        "product: the bus is the ceiling, and everything clickllm tunes — batching, "
+        "product: the bus is the ceiling, and everything onpar tunes — batching, "
         "quantisation, KV layout — is a way of getting more words out of one trip across it.",
     )
     save("hero-weights.svg", p)
@@ -1773,7 +1773,7 @@ def brief_anatomy() -> None:
         W,
         H,
         "What a stakeholder receives",
-        "`clickllm brief` renders the receipt as one self-contained page: no network, "
+        "`onpar brief` renders the receipt as one self-contained page: no network, "
         "no script, opens offline in six months. The order is the argument.",
     )
     blocks = [
@@ -1835,10 +1835,10 @@ def agent_surface() -> None:
         (
             "resources",
             [
-                "clickllm:///receipt.json",
-                "clickllm:///evalset.json",
+                "onpar:///receipt.json",
+                "onpar:///evalset.json",
                 "",
-                "confined to CLICKLLM_EVAL_ROOT",
+                "confined to ONPAR_EVAL_ROOT",
             ],
         ),
         ("prompts", ["size-a-model", "prove-a-migration", "check-a-receipt-still-holds", ""]),
@@ -1867,7 +1867,7 @@ def agent_surface() -> None:
 
 
 def conversation() -> None:
-    """A bare `clickllm`, replayed — one question at a time.
+    """A bare `onpar`, replayed — one question at a time.
 
     Animated as a terminal replay rather than shipped as a GIF: an SVG stays
     crisp at any size, weighs a fraction as much, reads correctly in both light
@@ -1879,7 +1879,7 @@ def conversation() -> None:
         W,
         H,
         "It asks, one question at a time",
-        "`clickllm` with no arguments. Each question is asked only when the answer "
+        "`onpar` with no arguments. Each question is asked only when the answer "
         "would change the plan; the evidence and the assumptions are always shown.",
     )
     p.append(

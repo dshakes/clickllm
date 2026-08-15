@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import atomicio
-from clickllm.atomicio import atomic_write, atomic_write_json, update_json
+from onpar import atomicio
+from onpar.atomicio import atomic_write, atomic_write_json, update_json
 
 # --- durability: the promise is about a crash, so the test is about ordering ---
 

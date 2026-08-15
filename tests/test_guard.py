@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from clickllm.guard import (
+from onpar.guard import (
     MAX_RECEIPT_AGE_DAYS,
     TRAFFIC_DRIFT_LIMIT,
     UNCOVERED_SHARE_LIMIT,
@@ -20,9 +20,9 @@ from clickllm.guard import (
     check,
     traffic_distance,
 )
-from clickllm.prove.equivalence import CandidateReport, ClusterScore
-from clickllm.prove.receipt import Receipt, issue
-from clickllm.prove.stats import wilson
+from onpar.prove.equivalence import CandidateReport, ClusterScore
+from onpar.prove.receipt import Receipt, issue
+from onpar.prove.stats import wilson
 
 TODAY = date(2026, 7, 27)
 FRESH = "2026-07-01"
@@ -287,7 +287,7 @@ def _write(tmp_path, name, obj):
 
 
 def test_the_cli_exits_zero_while_the_receipt_holds(tmp_path, capsys):
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     fp = _write(tmp_path, "fp.json", PRINTS)
@@ -296,7 +296,7 @@ def test_the_cli_exits_zero_while_the_receipt_holds(tmp_path, capsys):
 
 
 def test_the_cli_exits_nonzero_when_the_receipt_is_void(tmp_path, capsys):
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     fp = _write(tmp_path, "fp.json", {"gpt-5": "9" * 64})
@@ -307,7 +307,7 @@ def test_the_cli_exits_nonzero_when_the_receipt_is_void(tmp_path, capsys):
 def test_a_new_release_alone_does_not_fail_the_cron_job(tmp_path):
     # Waking someone at 3am for a Hugging Face release is how a watchdog gets
     # muted, and a muted watchdog does not report the model swap either.
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     assert main(["guard", rp, "--available", "qwen-4", "--today", "2026-07-27"]) == 0
@@ -316,7 +316,7 @@ def test_a_new_release_alone_does_not_fail_the_cron_job(tmp_path):
 def test_fail_on_any_fails_a_release_gate_on_a_non_voiding_finding(tmp_path, capsys):
     # The whole point of `--fail-on any`: a receipt that still `valid`ates can
     # still fail a release gate that refuses to deploy on an unreviewed proof.
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     code = main(["guard", rp, "--available", "qwen-4", "--today", "2026-07-27", "--fail-on", "any"])
@@ -330,7 +330,7 @@ def test_fail_on_any_does_not_contradict_a_void_receipt(tmp_path, capsys):
     # A `model_changed` finding already prints RECEIPT VOID above this message —
     # claiming "none of which voids the receipt" underneath it was a lie the
     # exit code did not agree with.
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     fp = _write(tmp_path, "fp.json", {"gpt-5": "9" * 64})
@@ -352,7 +352,7 @@ def test_an_altered_receipt_is_a_sentence_not_a_traceback(tmp_path, capsys):
     """
     import json
 
-    from clickllm.cli import main
+    from onpar.cli import main
 
     blob = json.loads(receipt().to_json())
     blob["receipt"]["incumbent"] = "a model that was never measured"
@@ -370,7 +370,7 @@ def test_an_impossible_measurement_is_refused_before_the_digest_is_consulted(tmp
     """
     import json
 
-    from clickllm.cli import main
+    from onpar.cli import main
 
     blob = json.loads(receipt().to_json())
     blob["receipt"]["proven"][0]["passed"] = 999
@@ -380,23 +380,23 @@ def test_an_impossible_measurement_is_refused_before_the_digest_is_consulted(tmp
 
 
 def test_a_missing_file_is_a_sentence_not_a_traceback(tmp_path, capsys):
-    from clickllm.cli import main
+    from onpar.cli import main
 
     assert main(["guard", str(tmp_path / "nope.json")]) == 1
     assert "error:" in capsys.readouterr().err
 
 
 # --- what a real receipt has to survive ------------------------------------------
-# Everything above builds its receipt in-process. These two run `clickllm prove`
+# Everything above builds its receipt in-process. These two run `onpar prove`
 # for real and then guard the file it wrote, because the seam that breaks is the
 # JSON round trip: a field the guard needs is only carried if it is serialised.
 
 
 def _proved(tmp_path) -> Path:
-    """A receipt written by `clickllm prove`, over two clusters of real traffic."""
+    """A receipt written by `onpar prove`, over two clusters of real traffic."""
     import json
 
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rows = [
         {
@@ -476,7 +476,7 @@ def test_a_receipt_from_prove_carries_what_a_later_check_needs(tmp_path):
 
 
 def test_the_guard_can_void_a_receipt_prove_wrote(tmp_path):
-    from clickllm.prove.receipt import Receipt
+    from onpar.prove.receipt import Receipt
 
     r = Receipt.from_json(_proved(tmp_path).read_text())
 
@@ -501,7 +501,7 @@ def test_the_guard_can_void_a_receipt_prove_wrote(tmp_path):
 
 
 def test_verifying_a_receipt_against_itself_succeeds(tmp_path, capsys):
-    from clickllm.cli import main
+    from onpar.cli import main
 
     rp = _write(tmp_path, "r.json", receipt().to_json())
     assert main(["receipt", rp, "--against", rp]) == 0
@@ -509,7 +509,7 @@ def test_verifying_a_receipt_against_itself_succeeds(tmp_path, capsys):
 
 
 def test_verifying_against_a_different_run_explains_itself(tmp_path, capsys):
-    from clickllm.cli import main
+    from onpar.cli import main
 
     a = _write(tmp_path, "a.json", receipt().to_json())
     b = _write(tmp_path, "b.json", receipt(fingerprints={"gpt-5": "9" * 64}).to_json())

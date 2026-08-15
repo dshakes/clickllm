@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from clickllm import mcp
-from clickllm.advise import Impact, Observed, Suggestion, reconcile, suggest
-from clickllm.hardware import Hardware
-from clickllm.plan import Requirements, Workload, plan
+from onpar import mcp
+from onpar.advise import Impact, Observed, Suggestion, reconcile, suggest
+from onpar.hardware import Hardware
+from onpar.plan import Requirements, Workload, plan
 
 HW = Hardware(
     kind="apple",
@@ -175,12 +175,12 @@ def test_speculative_decoding_is_flagged_for_verification_at_real_batch():
 def test_the_agent_surface_is_read_only():
     """No MCP tool may be one that moves traffic.
 
-    This used to check the *string literal* `"clickllm_advise"` against the
+    This used to check the *string literal* `"onpar_advise"` against the
     forbidden list, which is true by inspection and can never fail — adding a
-    `clickllm_deploy` tool tomorrow would have left it green. The boundary is
+    `onpar_deploy` tool tomorrow would have left it green. The boundary is
     only real if the check reads the live registry, so it does.
 
-    `clickllm run` and `clickllm host` deliberately have no MCP tool. An agent
+    `onpar run` and `onpar host` deliberately have no MCP tool. An agent
     may size, explain, advise and prove; starting a server or spending money
     stays a thing a human types.
     """
@@ -188,7 +188,7 @@ def test_the_agent_surface_is_read_only():
     assert mcp.TOOLS, "no tools registered; the check would be vacuous"
     offenders = {name: word for name in mcp.TOOLS for word in forbidden if word in name.lower()}
     assert not offenders, f"MCP tools that imply moving traffic: {offenders}"
-    assert "clickllm_advise" in mcp.TOOLS
+    assert "onpar_advise" in mcp.TOOLS
 
 
 def test_the_agent_gets_the_evidence_not_just_the_action():

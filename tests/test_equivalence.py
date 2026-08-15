@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.prove.equivalence import (
+from onpar.prove.equivalence import (
     CandidateReport,
     ClusterScore,
     Matrix,
     score_cluster,
 )
-from clickllm.prove.graders import EvalItem, grade
-from clickllm.prove.stats import wilson
+from onpar.prove.graders import EvalItem, grade
+from onpar.prove.stats import wilson
 
 
 def results(cluster: str, n_pass: int, n_fail: int, n_ungraded: int = 0):
@@ -132,8 +132,8 @@ def test_the_product_entrypoint_refuses_an_impossible_share():
     # The finding was that `suite()` reached `best()` and issued a receipt
     # before any weighted function validated anything. This is the end-to-end
     # check that the guard is now on the path the product actually takes.
-    from clickllm.prove import suite
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import suite
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem(f"i{i}", "good", f"p{i}", '{"a": 1}', '{"a": 1}') for i in range(120)]
     with pytest.raises(ValueError, match="fraction of traffic"):
@@ -193,8 +193,8 @@ def test_an_overshoot_past_the_tolerance_is_still_refused():
 
 
 def test_the_product_entrypoint_refuses_over_allocated_shares():
-    from clickllm.prove import suite
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import suite
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem(f"a{i}", "a", f"p{i}", '{"x":1}', '{"x":1}') for i in range(120)]
     items += [EvalItem(f"b{i}", "b", f"q{i}", '{"x":1}', '{"x":1}') for i in range(120)]
@@ -209,8 +209,8 @@ def test_an_impossible_share_is_refused_even_when_its_cluster_has_no_items(bad):
     # a ClusterScore: `_uncovered` keeps only `share > 0`, and NaN and
     # negatives both fail that test, so the value was dropped rather than
     # refused. `run()` therefore checks the raw map before anything filters.
-    from clickllm.prove import suite
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import suite
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
     with pytest.raises(ValueError, match="traffic share"):
@@ -218,8 +218,8 @@ def test_an_impossible_share_is_refused_even_when_its_cluster_has_no_items(bad):
 
 
 def test_the_offending_cluster_is_named():
-    from clickllm.prove import run
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import run
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem("i0", "covered", "p", '{"a":1}', '{"a":1}')]
     with pytest.raises(ValueError, match="deprecated"):
@@ -229,8 +229,8 @@ def test_the_offending_cluster_is_named():
 def test_a_valid_share_map_with_an_uncovered_cluster_still_works():
     # The guard must not fire on the case the previous commit added support
     # for: a legitimate positive share the eval set never covered.
-    from clickllm.prove import run
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import run
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem(f"i{i}", "covered", f"p{i}", '{"a":1}', '{"a":1}') for i in range(45)]
     m = run(items, shares={"covered": 0.7, "gap": 0.3})
@@ -253,11 +253,11 @@ def _call_with(bar: float):
     arguments *before* the body runs, so every surface would look guarded. Each
     of these is a call that would otherwise succeed.
     """
-    from clickllm.prove import issue, run, suite
-    from clickllm.prove.equivalence import CandidateReport, ClusterScore
-    from clickllm.prove.gate import Reading, Stage, decide
-    from clickllm.prove.graders import EvalItem
-    from clickllm.prove.stats import wilson
+    from onpar.prove import issue, run, suite
+    from onpar.prove.equivalence import CandidateReport, ClusterScore
+    from onpar.prove.gate import Reading, Stage, decide
+    from onpar.prove.graders import EvalItem
+    from onpar.prove.stats import wilson
 
     # 41/80 — the candidate nobody should migrate to, at every surface.
     score = ClusterScore("x", "x", 1.0, wilson(41, 80), 0)
@@ -265,33 +265,33 @@ def _call_with(bar: float):
     items = [EvalItem(f"i{i}", "x", f"p{i}", '{"a":1}', '{"a":2}') for i in range(80)]
 
     return {
-        "clickllm.prove.gate.decide": lambda: decide(
+        "onpar.prove.gate.decide": lambda: decide(
             [Reading(score=score, judge_only=False)], Stage("shadow", 0), bar=bar
         ),
-        "clickllm.prove.receipt.issue": lambda: issue(
+        "onpar.prove.receipt.issue": lambda: issue(
             report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=bar
         ),
-        "clickllm.prove.run": lambda: run(items, shares={"x": 1.0}, bar=bar),
-        "clickllm.prove.suite": lambda: suite(
+        "onpar.prove.run": lambda: run(items, shares={"x": 1.0}, bar=bar),
+        "onpar.prove.suite": lambda: suite(
             items, shares={"x": 1.0}, issued="2026-08-07", bar=bar
         ),
     }
 
 
 def _bar_taking_functions() -> set[str]:
-    """Every public function in `clickllm.prove` that takes a `bar`."""
+    """Every public function in `onpar.prove` that takes a `bar`."""
     import importlib
     import inspect
     import pkgutil
 
-    import clickllm.prove as P
+    import onpar.prove as P
 
     out = set()
     # The package itself, not just its submodules: `run` and `suite` are defined
     # in `prove/__init__.py`, and `walk_packages` alone would walk straight past
     # the two widest entry points in the module.
-    names = ["clickllm.prove"] + [
-        m.name for m in pkgutil.walk_packages(P.__path__, "clickllm.prove.")
+    names = ["onpar.prove"] + [
+        m.name for m in pkgutil.walk_packages(P.__path__, "onpar.prove.")
     ]
     for mod_name in names:
         mod = importlib.import_module(mod_name)
@@ -384,8 +384,8 @@ def test_the_guard_fires_before_the_eval_run_it_would_invalidate():
     reaches it at *any* bar and "the judge was not called" would prove nothing.
     The paired test below is the control that this fixture does reach it.
     """
-    from clickllm.prove import run, suite
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import run, suite
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem(f"i{i}", "x", f"p{i}", "the capital is Paris", "Paris") for i in range(80)]
     calls: list[int] = []
@@ -416,7 +416,7 @@ def test_a_bar_that_is_not_a_number_is_a_sentence_not_a_traceback(value):
     file. `True` is in here because it is an `int`: a bar of `True` is a bar of
     1.0 nobody typed.
     """
-    from clickllm.prove.equivalence import check_bar
+    from onpar.prove.equivalence import check_bar
 
     with pytest.raises(ValueError, match="must be a number"):
         check_bar(value)
@@ -427,14 +427,14 @@ def test_a_share_that_is_not_a_number_is_refused_the_same_way(value):
     """The sibling. `check_share` called `math.isfinite` first, which raises
     `TypeError` on a string exactly as the comparison does — the same defect,
     in the function next to it, and not in the finding that prompted this."""
-    from clickllm.prove.equivalence import check_share
+    from onpar.prove.equivalence import check_share
 
     with pytest.raises(ValueError, match="must be a number"):
         check_share(value)
 
 
 def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
-    """The route that matters: `from_json` is what `clickllm receipt`, `guard`
+    """The route that matters: `from_json` is what `onpar receipt`, `guard`
     and the box read from disk, and `main()`'s handler lists `ValueError`.
 
     The message moved once the receipt gained a whole-dataclass type sweep,
@@ -446,7 +446,7 @@ def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
     """
     import json as _json
 
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
     good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -460,7 +460,7 @@ def test_a_receipt_file_with_a_string_bar_reaches_the_cli_as_a_value_error():
 
 def test_the_numbers_that_are_numbers_still_pass():
     """The negative control for the four tests above."""
-    from clickllm.prove.equivalence import check_bar, check_share
+    from onpar.prove.equivalence import check_bar, check_share
 
     for v in (0.9, 0.5, 1e-9):
         check_bar(v)
@@ -474,8 +474,8 @@ def test_a_real_bar_still_reaches_the_judge():
     judge because a graded failure cannot be rescued. `calls == []` held for a
     reason that had nothing to do with the guard, and this test is what caught
     it."""
-    from clickllm.prove import run
-    from clickllm.prove.graders import EvalItem
+    from onpar.prove import run
+    from onpar.prove.graders import EvalItem
 
     items = [EvalItem(f"i{i}", "x", f"p{i}", "the capital is Paris", "Paris") for i in range(4)]
     calls: list[int] = []
@@ -501,7 +501,7 @@ def test_a_weight_that_cannot_be_averaged_is_refused_before_the_arithmetic(weigh
     instead. Guarding the value is not enough if the guard's idea of valid is
     wider than the arithmetic's.
     """
-    from clickllm.prove.stats import weighted_point, weighted_posterior, wilson
+    from onpar.prove.stats import weighted_point, weighted_posterior, wilson
 
     for fn in (weighted_point, weighted_posterior):
         with pytest.raises(ValueError, match="traffic share"):
@@ -510,7 +510,7 @@ def test_a_weight_that_cannot_be_averaged_is_refused_before_the_arithmetic(weigh
 
 def test_weights_that_can_be_averaged_still_are():
     """The negative control for the sweep above."""
-    from clickllm.prove.stats import weighted_point, wilson
+    from onpar.prove.stats import weighted_point, wilson
 
     assert round(weighted_point([(wilson(41, 80), 1.0)]), 4) == 0.5125
     assert round(weighted_point([(wilson(40, 40), 1), (wilson(0, 40), 1)]), 4) == 0.5
@@ -620,7 +620,7 @@ def test_a_cluster_that_carries_traffic_is_still_named():
 
 
 def _receipt_with(fingerprints=None):
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(item_id=str(i), cluster="c", prompt="p", baseline="x", candidate="x")
@@ -639,7 +639,7 @@ def _receipt_with(fingerprints=None):
 def test_a_receipt_with_no_fingerprints_says_the_check_did_not_run():
     """The most important of guard's three checks was passing by doing nothing.
 
-    `guard.check` iterates `receipt.fingerprints`, and `clickllm prove` had no
+    `guard.check` iterates `receipt.fingerprints`, and `onpar prove` had no
     flag to populate it — so *every* receipt the CLI produced recorded none, the
     loop ran zero times, and a caller supplying correct current fingerprints was
     told the receipt still holds. A provider could swap the model underneath a
@@ -647,7 +647,7 @@ def test_a_receipt_with_no_fingerprints_says_the_check_did_not_run():
     """
     from datetime import date
 
-    from clickllm import guard
+    from onpar import guard
 
     p = guard.check(
         _receipt_with(None),
@@ -665,7 +665,7 @@ def test_not_being_able_to_check_is_not_evidence_that_it_changed():
     receipt issued before this existed read as broken."""
     from datetime import date
 
-    from clickllm import guard
+    from onpar import guard
 
     p = guard.check(
         _receipt_with(None),
@@ -680,7 +680,7 @@ def test_a_receipt_that_records_fingerprints_detects_a_swap():
     """The capability the flag restores, end to end."""
     from datetime import date
 
-    from clickllm import guard
+    from onpar import guard
 
     r = _receipt_with({"cand": "sha256:aaaa"})
     changed = guard.check(r, today=date(2026, 8, 12), fingerprints={"cand": "sha256:bbbb"})
@@ -694,10 +694,10 @@ def test_a_receipt_that_records_fingerprints_detects_a_swap():
 def test_no_finding_when_the_caller_supplied_nothing_to_compare():
     """The control that keeps the new finding from becoming noise: a caller who
     did not pass fingerprints is not asking the question, and answering it
-    anyway would fire on every plain `clickllm guard`."""
+    anyway would fire on every plain `onpar guard`."""
     from datetime import date
 
-    from clickllm import guard
+    from onpar import guard
 
     for r in (_receipt_with(None), _receipt_with({"cand": "sha256:aaaa"})):
         p = guard.check(r, today=date(2026, 8, 12))
@@ -742,7 +742,7 @@ def test_the_prove_command_actually_records_the_fingerprints_it_was_given(tmp_pa
         [
             sys.executable,
             "-m",
-            "clickllm.cli",
+            "onpar.cli",
             "prove",
             str(evalset),
             "--out",
@@ -788,7 +788,7 @@ def test_prove_without_the_flag_still_works_and_records_nothing(tmp_path):
     )
     out = tmp_path / "r.json"
     proc = subprocess.run(
-        [sys.executable, "-m", "clickllm.cli", "prove", str(evalset), "--out", str(out)],
+        [sys.executable, "-m", "onpar.cli", "prove", str(evalset), "--out", str(out)],
         capture_output=True,
         text=True,
         cwd=root,
@@ -810,7 +810,7 @@ def test_the_saving_does_not_claim_zero_quality_loss():
     What is true, and what it says now: the moved traffic met the bar the reader
     chose, and the bar is named so they can judge it.
     """
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(
@@ -847,7 +847,7 @@ def test_the_saving_does_not_claim_zero_quality_loss():
 
 def test_the_saving_line_names_whichever_bar_was_set():
     """The claim has to track the bar, or it is decoration."""
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(item_id=str(i), cluster="c", prompt=f"p{i}", baseline="a", candidate="a")
@@ -871,7 +871,7 @@ def test_the_saving_line_names_whichever_bar_was_set():
 def test_an_unknown_cost_is_still_refused_rather_than_guessed():
     """The control for both: the honest wording must not have made a saving
     appear where there is no rate to compute one from."""
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(item_id=str(i), cluster="c", prompt=f"p{i}", baseline="a", candidate="a")

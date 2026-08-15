@@ -5,9 +5,9 @@ import re
 
 import pytest
 
-from clickllm import catalog, cli, fit, hardware, sdk
-from clickllm.engines import adapter_for
-from clickllm.hardware import Hardware
+from onpar import catalog, cli, fit, hardware, sdk
+from onpar.engines import adapter_for
+from onpar.hardware import Hardware
 
 GB = 1024**3
 
@@ -88,8 +88,8 @@ def test_quant_preference_caps_at_8bit():
 def test_the_engine_fit_names_is_the_engine_run_starts():
     """These were two separate tables and they disagreed.
 
-    On Apple silicon at concurrency 8, `clickllm fit` printed
-    `runtime -> vllm-mlx` while `clickllm run` on the same box started `mlx` and
+    On Apple silicon at concurrency 8, `onpar fit` printed
+    `runtime -> vllm-mlx` while `onpar run` on the same box started `mlx` and
     explained that "the CUDA engines cannot run here at all" — the second command
     refuting the first in its own output. Three of four hardware/workload shapes
     disagreed.
@@ -100,7 +100,7 @@ def test_the_engine_fit_names_is_the_engine_run_starts():
     recommending software to install that cannot be installed, on the CLI, the
     MCP server and the SDK alike.
     """
-    from clickllm.plan import Requirements, Workload, _pick_engine
+    from onpar.plan import Requirements, Workload, _pick_engine
 
     shapes = [
         (_hw(96), 8192, 32),
@@ -115,7 +115,7 @@ def test_the_engine_fit_names_is_the_engine_run_starts():
         assert why, "a recommendation with no reason is not one"
 
         # 1. Never name something that cannot become a running server. This is
-        #    the whole point: `clickllm run` refuses an engine with no verified
+        #    the whole point: `onpar run` refuses an engine with no verified
         #    flag dialect, so naming one guarantees the next command fails.
         assert adapter_for(named) is not None, (
             f"recommended {named!r}, which has no adapter — `run` would refuse it"
@@ -135,7 +135,7 @@ def test_recommend_runtime_substitution_matches_the_real_launch_path():
     """The substitution branch, and the reason it is now nearly unreachable.
 
     Codex caught the original: comparing against `_pick_engine` plus
-    `adapter_for` is not the same as comparing against what `clickllm run` does,
+    `adapter_for` is not the same as comparing against what `onpar run` does,
     because the structural pick and the launchable substitute can need
     *different concurrencies*. On Apple at concurrency 1 the planner chose
     llama.cpp, which had no dialect, and the substitution returned `mlx` as
@@ -149,8 +149,8 @@ def test_recommend_runtime_substitution_matches_the_real_launch_path():
     pick could not be launched. Written against the engine list rather than one
     hardware shape, so it keeps covering the branch as dialects are added.
     """
-    from clickllm.engines import adapter_for
-    from clickllm.plan import Engine, Requirements, Workload, _pick_engine
+    from onpar.engines import adapter_for
+    from onpar.plan import Engine, Requirements, Workload, _pick_engine
 
     shapes = [
         (_hw(96, kind="apple", bw=546.0), 8192, 1),
@@ -249,7 +249,7 @@ def test_unverified_models_are_flagged():
 
 
 def test_sdk_and_mcp_self_checks():
-    from clickllm import advise, mcp, sdk, session, watch
+    from onpar import advise, mcp, sdk, session, watch
 
     sdk.demo()
     mcp.demo()
@@ -259,7 +259,7 @@ def test_sdk_and_mcp_self_checks():
 
 
 def test_sdk_labels_every_throughput_figure_as_an_estimate():
-    from clickllm import sdk
+    from onpar import sdk
 
     r = sdk.fit(context="8k", concurrency=2, hw=_hw(96))
     assert r.feasible, "96 GB should fit something"
@@ -269,7 +269,7 @@ def test_sdk_labels_every_throughput_figure_as_an_estimate():
 
 
 def test_sdk_rejects_nonsense_inputs_rather_than_guessing():
-    from clickllm import sdk
+    from onpar import sdk
 
     for kwargs in ({"concurrency": 0}, {"concurrency": -3}, {"context": "0"}):
         with pytest.raises(ValueError):
@@ -277,7 +277,7 @@ def test_sdk_rejects_nonsense_inputs_rather_than_guessing():
 
 
 def test_sdk_commercially_clean_requires_licence_and_verified_architecture():
-    from clickllm import sdk
+    from onpar import sdk
 
     r = sdk.fit(context="8k", hw=_hw(192))
     for c in r.commercially_clean():
@@ -287,7 +287,7 @@ def test_sdk_commercially_clean_requires_licence_and_verified_architecture():
 
 
 def test_sdk_best_prefers_a_fast_candidate_but_still_answers_when_all_are_slow():
-    from clickllm import sdk
+    from onpar import sdk
 
     r = sdk.fit(context="8k", hw=_hw(96))
     b = r.best()
@@ -299,7 +299,7 @@ def test_sdk_best_prefers_a_fast_candidate_but_still_answers_when_all_are_slow()
 def test_sdk_report_serialises():
     import json
 
-    from clickllm import sdk
+    from onpar import sdk
 
     d = sdk.fit(context="8k", hw=_hw(96)).to_dict()
     json.dumps(d)  # must not raise
@@ -308,7 +308,7 @@ def test_sdk_report_serialises():
 
 def test_mcp_exposes_no_write_tools():
     """An agent may analyse and recommend; a human moves production traffic."""
-    from clickllm import mcp
+    from onpar import mcp
 
     listed = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     names = [t["name"] for t in listed["result"]["tools"]]
@@ -318,7 +318,7 @@ def test_mcp_exposes_no_write_tools():
 
 
 def test_mcp_unknown_tool_and_unknown_model_are_handled_distinctly():
-    from clickllm import mcp
+    from onpar import mcp
 
     # An unknown *tool* is a protocol error.
     bad_tool = mcp.handle(
@@ -337,7 +337,7 @@ def test_mcp_unknown_tool_and_unknown_model_are_handled_distinctly():
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
-            "params": {"name": "clickllm_explain", "arguments": {"model_id": "no-such"}},
+            "params": {"name": "onpar_explain", "arguments": {"model_id": "no-such"}},
         }
     )
     assert bad_model["result"]["isError"] is True
@@ -345,7 +345,7 @@ def test_mcp_unknown_tool_and_unknown_model_are_handled_distinctly():
 
 
 def test_mcp_tool_schemas_are_well_formed():
-    from clickllm import mcp
+    from onpar import mcp
 
     for name, (_, schema) in mcp.TOOLS.items():
         assert schema["description"].strip(), f"{name} needs a description"
@@ -358,10 +358,10 @@ def test_mcp_tool_schemas_are_well_formed():
 
 
 def test_distill_and_prove_self_checks():
-    import clickllm.prove as suite
-    from clickllm.distill import cluster as dcluster
-    from clickllm.distill import shape as dshape
-    from clickllm.prove import equivalence, graders, judge, stats
+    import onpar.prove as suite
+    from onpar.distill import cluster as dcluster
+    from onpar.distill import shape as dshape
+    from onpar.prove import equivalence, graders, judge, stats
 
     dshape.demo()
     dcluster.demo()
@@ -373,7 +373,7 @@ def test_distill_and_prove_self_checks():
 
 
 def test_a_perfect_score_on_few_samples_is_not_certainty():
-    from clickllm.prove.stats import wilson
+    from onpar.prove.stats import wilson
 
     i = wilson(8, 8)
     assert i.point == 1.0
@@ -383,7 +383,7 @@ def test_a_perfect_score_on_few_samples_is_not_certainty():
 
 def test_ungraded_items_never_count_as_passes():
     """The single most dangerous failure mode in the grader stack."""
-    from clickllm.prove.graders import EvalItem, grade
+    from onpar.prove.graders import EvalItem, grade
 
     r = grade(EvalItem("i", "c", "prompt", baseline="", candidate=""))
     assert not r.graded
@@ -391,8 +391,8 @@ def test_ungraded_items_never_count_as_passes():
 
 
 def test_position_bias_is_flagged_not_averaged():
-    from clickllm.prove.graders import EvalItem
-    from clickllm.prove.judge import Reply, Verdict, judge_item
+    from onpar.prove.graders import EvalItem
+    from onpar.prove.judge import Reply, Verdict, judge_item
 
     item = EvalItem("i", "c", "p", baseline="A", candidate="B")
     biased = judge_item(item, lambda c: Reply("a"), model="m")
@@ -403,15 +403,15 @@ def test_position_bias_is_flagged_not_averaged():
 
 
 def test_judge_requires_disclosure():
-    from clickllm.prove.graders import EvalItem
-    from clickllm.prove.judge import Reply, judge_item
+    from onpar.prove.graders import EvalItem
+    from onpar.prove.judge import Reply, judge_item
 
     with pytest.raises(ValueError):
         judge_item(EvalItem("i", "c", "p", "a", "b"), lambda c: Reply("tie"), model="")
 
 
 def test_unmeasured_judge_agreement_is_not_assumed_perfect():
-    from clickllm.prove.judge import Agreement
+    from onpar.prove.judge import Agreement
 
     a = Agreement(0, 0, "m")
     assert a.rate is None and not a.trustworthy
@@ -420,8 +420,8 @@ def test_unmeasured_judge_agreement_is_not_assumed_perfect():
 
 def test_regret_excludes_merely_unproven_clusters():
     """Thin evidence means gather more, not give up — otherwise traffic never moves."""
-    from clickllm.prove.equivalence import CandidateReport, ClusterScore
-    from clickllm.prove.stats import wilson
+    from onpar.prove.equivalence import CandidateReport, ClusterScore
+    from onpar.prove.stats import wilson
 
     regressed = ClusterScore("a", "bad", 0.3, wilson(20, 100), 0)
     thin = ClusterScore("b", "thin", 0.3, wilson(3, 4), 0)
@@ -434,8 +434,8 @@ def test_regret_excludes_merely_unproven_clusters():
 
 
 def test_no_cost_rate_means_no_fabricated_saving():
-    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
-    from clickllm.prove.stats import wilson
+    from onpar.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from onpar.prove.stats import wilson
 
     c = ClusterScore("a", "x", 1.0, wilson(99, 100), 0)
     cand = CandidateReport("m", (c,))  # no monthly_cost
@@ -444,8 +444,8 @@ def test_no_cost_rate_means_no_fabricated_saving():
 
 
 def test_matrix_puts_regret_before_the_table():
-    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
-    from clickllm.prove.stats import wilson
+    from onpar.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from onpar.prove.stats import wilson
 
     bad = ClusterScore("a", "long-ctx", 0.2, wilson(10, 100), 0)
     ok = ClusterScore("b", "codegen", 0.8, wilson(98, 100), 0)
@@ -454,8 +454,8 @@ def test_matrix_puts_regret_before_the_table():
 
 
 def test_clustering_is_deterministic_regardless_of_arrival_order():
-    from clickllm.distill.cluster import cluster
-    from clickllm.distill.shape import Capture
+    from onpar.distill.cluster import cluster
+    from onpar.distill.shape import Capture
 
     caps = [
         Capture(
@@ -480,14 +480,14 @@ def test_clustering_is_deterministic_regardless_of_arrival_order():
 
 
 def test_hardware_catalog_self_check():
-    from clickllm import hardware_catalog
+    from onpar import hardware_catalog
 
     hardware_catalog.demo()
 
 
 def test_tensor_parallel_aggregates_bandwidth():
     """Treating a 4-GPU node as one device understates decode ~3.5x."""
-    from clickllm.hardware_catalog import get
+    from onpar.hardware_catalog import get
 
     one, four = get("h100"), get("h100-x4")
     assert four.effective_bandwidth_gbps > one.bandwidth_gbps * 3
@@ -556,14 +556,14 @@ def test_where_cli(capsys):
 
 
 def test_catalog_update_self_check():
-    from clickllm import catalog_update
+    from onpar import catalog_update
 
     catalog_update.demo()
 
 
 def test_config_parsing_never_guesses_a_missing_field():
     """A guessed geometry produces a confident, wrong memory figure."""
-    from clickllm.catalog_update import ConfigError, parse_config
+    from onpar.catalog_update import ConfigError, parse_config
 
     for broken in (
         {},
@@ -575,7 +575,7 @@ def test_config_parsing_never_guesses_a_missing_field():
 
 
 def test_mla_is_detected_from_its_rank_not_inferred():
-    from clickllm.catalog_update import parse_config
+    from onpar.catalog_update import parse_config
 
     base = {
         "num_hidden_layers": 61,
@@ -602,7 +602,7 @@ def test_significant_changes_are_the_ones_the_solver_computes_with():
     So the set is "what the solver computes with", not "what appears in the
     memory formula", and this test moved with it.
     """
-    from clickllm.catalog_update import FieldChange
+    from onpar.catalog_update import FieldChange
 
     assert FieldChange("kv_heads", 8, 4).significant
     assert FieldChange("kv_scheme", "gqa", "mla").significant
@@ -614,7 +614,7 @@ def test_module_import_opens_no_socket():
     """Air-gapped installs must be able to import this without reaching out."""
     import json
 
-    from clickllm import catalog_update as cu
+    from onpar import catalog_update as cu
 
     called = []
 
@@ -636,7 +636,7 @@ def test_module_import_opens_no_socket():
 
 
 def test_a_fetch_failure_is_data_not_an_exception():
-    from clickllm.catalog_update import propose
+    from onpar.catalog_update import propose
 
     def dead(_):
         raise OSError("offline")
@@ -648,7 +648,7 @@ def test_a_fetch_failure_is_data_not_an_exception():
 def test_discovery_excludes_known_repos_and_is_deterministic():
     import json
 
-    from clickllm.catalog_update import discover
+    from onpar.catalog_update import discover
 
     index = json.dumps(
         [
@@ -685,7 +685,7 @@ def test_catalog_cli_requires_explicit_network_optin(capsys):
 
 
 def test_workbench_self_check():
-    from clickllm import ui
+    from onpar import ui
 
     ui.demo()
 
@@ -693,7 +693,7 @@ def test_workbench_self_check():
 def test_workbench_is_read_only():
     """It shows and explains. Downloading, deploying and moving traffic stay in
     the CLI, where a human runs them deliberately."""
-    from clickllm import ui
+    from onpar import ui
 
     for verb in ("deploy", "apply", "promote", "cutover", "rollback", "pull", "delete"):
         assert not any(verb in route for route in ui.ROUTES)
@@ -704,7 +704,7 @@ def test_workbench_html_only_reads_fields_the_sdk_exposes():
     every model, because the HTML read field names the SDK does not have."""
     import re
 
-    from clickllm import sdk, ui
+    from onpar import sdk, ui
 
     html = ui.ASSET.read_text()
     known = set(sdk.Candidate.__slots__) | {
@@ -759,7 +759,7 @@ def test_workbench_html_only_reads_fields_the_sdk_exposes():
 def test_workbench_routes_all_serialise():
     import json
 
-    from clickllm import ui
+    from onpar import ui
 
     for path, fn in ui.ROUTES.items():
         q = {"model": ["qwen3-32b"]} if path.endswith(("where", "explain")) else {}
@@ -767,7 +767,7 @@ def test_workbench_routes_all_serialise():
 
 
 def test_workbench_reports_unknown_models_as_data_not_a_crash():
-    from clickllm import ui
+    from onpar import ui
 
     with pytest.raises(KeyError):
         ui.ROUTES["/api/where"]({"model": ["no-such-model"]})
@@ -810,7 +810,7 @@ def test_a_precision_label_is_never_emitted_as_a_quantisation_method():
     `unknown_flags` cannot catch this — `--quantization` is a real flag and only
     its value is wrong — which is exactly why it needs a test of its own.
     """
-    from clickllm.engines import Setting, SglangAdapter, Unsupported, VllmAdapter
+    from onpar.engines import Setting, SglangAdapter, Unsupported, VllmAdapter
 
     for adapter in (VllmAdapter(), SglangAdapter()):
         for label in ("q3", "q4", "q5", "q6", "q8", "fp16", "bf16"):
@@ -826,15 +826,15 @@ def test_a_precision_label_is_never_emitted_as_a_quantisation_method():
 
 def test_the_cli_can_say_what_version_it_is():
     """A published CLI with no `--version` is not shippable — it is the first
-    thing anyone runs after installing, and `clickllm version` answered with an
+    thing anyone runs after installing, and `onpar version` answered with an
     argparse error over a list of twenty subcommands.
 
     Three spellings because people reach for all three, and the cost of guessing
     wrong is a bad first minute.
     """
-    import clickllm
+    import onpar
 
-    assert clickllm.__version__ and clickllm.__version__ != "unknown"
+    assert onpar.__version__ and onpar.__version__ != "unknown"
 
     for argv in (["--version"], ["-V"]):
         with pytest.raises(SystemExit) as e:
@@ -850,15 +850,15 @@ def test_the_reported_version_is_the_packaged_one():
     import re
     from pathlib import Path
 
-    import clickllm
+    import onpar
 
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.M)
-    assert m and clickllm.__version__ == m.group(1)
+    assert m and onpar.__version__ == m.group(1)
 
 
 def test_upgrade_tells_you_how_rather_than_guessing():
-    """clickllm may be installed by uv, pipx or pip, into a tool environment this
+    """onpar may be installed by uv, pipx or pip, into a tool environment this
     process cannot see. A self-upgrade that guesses either fails confusingly or
     upgrades a different copy than the one running. Naming the commands is the
     honest answer and cannot corrupt anything."""
@@ -867,7 +867,7 @@ def test_upgrade_tells_you_how_rather_than_guessing():
 
 def test_cost_per_token_falls_as_concurrency_rises():
     """Audit finding. `$/Mtok` divided an hourly rate by SINGLE-STREAM output, so
-    it read identically at concurrency 1 and 8 — and `clickllm host` printed it
+    it read identically at concurrency 1 and 8 — and `onpar host` printed it
     beside hosted providers' prices, which are batched. The number the whole
     product turns on was biased against self-hosting by roughly the batch factor.
     """
@@ -939,9 +939,9 @@ def test_throughput_falls_as_context_grows_because_decode_reads_the_kv_cache():
     magnitude varied with machine load (see #80) but the direction never did.
     This asserts the direction, which is the part that is certain.
     """
-    from clickllm import catalog
-    from clickllm.fit import solve
-    from clickllm.hardware import Hardware
+    from onpar import catalog
+    from onpar.fit import solve
+    from onpar.hardware import Hardware
 
     hw = Hardware(
         kind="apple",
@@ -1008,9 +1008,9 @@ def test_the_solver_refuses_inputs_that_would_flatter_the_verdict(context, concu
     Enforced in `solve()` now, so a fourth entry point inherits it by
     construction rather than by review. See ADR-0011.
     """
-    from clickllm import catalog
-    from clickllm.fit import solve
-    from clickllm.hardware import Hardware
+    from onpar import catalog
+    from onpar.fit import solve
+    from onpar.hardware import Hardware
 
     hw = Hardware(
         kind="apple",
@@ -1030,7 +1030,7 @@ def test_every_sdk_door_inherits_the_solver_guard():
     Both now inherit it from `solve()`, which is the point — the surfaces stopped
     being load-bearing.
     """
-    from clickllm import sdk
+    from onpar import sdk
 
     for call in (
         lambda: sdk.fit(concurrency=0),
@@ -1050,7 +1050,7 @@ def _nvidia_smi(lines):
     import subprocess
     from unittest import mock
 
-    from clickllm import hardware as H
+    from onpar import hardware as H
 
     cp = subprocess.CompletedProcess([], 0, stdout="\n".join(lines), stderr="")
     with (
@@ -1199,7 +1199,7 @@ def test_the_host_summary_table_carries_the_moe_caveat():
     # The table RANKS providers by $/Mtok, so the caveat belongs beside the
     # ranking and not only in the detail row printed after it — that is what
     # someone reads when comparing self-hosting against hosted prices.
-    from clickllm import host
+    from onpar import host
 
     text = host.survey(catalog.get("qwen3-30b-a3b"), context=8192, concurrency=8).render()
     assert "MoE: the weight read is held at the active-parameter count" in text
@@ -1214,7 +1214,7 @@ def test_no_rendered_surface_still_claims_the_cost_model_is_single_stream():
     # Asserted against what is printed, not against the source: "single-stream"
     # appears legitimately all over this codebase labelling the single-stream
     # throughput figure, which is correct. Only the $/Mtok claim was wrong.
-    from clickllm import host
+    from onpar import host
 
     text = host.survey(catalog.get("qwen3-30b-a3b"), context=8192, concurrency=8).render()
     assert "saturated single-stream" not in text
@@ -1227,10 +1227,10 @@ def test_the_workbench_renders_the_field_its_api_emits():
     # HTML because that is the only place this particular gap can live.
     import pathlib
 
-    from clickllm import ui
+    from onpar import ui
 
     page = (
-        pathlib.Path(__file__).resolve().parents[1] / "src" / "clickllm" / "workbench.html"
+        pathlib.Path(__file__).resolve().parents[1] / "src" / "onpar" / "workbench.html"
     ).read_text()
     # Read off a *placement*, not merely named. The first version of this test
     # grepped for the bare field name and passed against a page that mentioned

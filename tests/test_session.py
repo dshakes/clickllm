@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import mcp
-from clickllm.hardware import Hardware
-from clickllm.session import Session, Stage
+from onpar import mcp
+from onpar.hardware import Hardware
+from onpar.session import Session, Stage
 
 M4 = Hardware(
     kind="apple",
@@ -110,7 +110,7 @@ def test_answering_everything_that_matters_ends_the_questions():
     the command and to how you would prove it, and the thing that must stop is
     the *asking*.
     """
-    from clickllm.session import Stage
+    from onpar.session import Stage
 
     s = started()
     # `set()` ends in its own `step()`, so the conversation has already moved on
@@ -250,7 +250,7 @@ def test_the_session_hands_over_a_command_and_never_claims_to_have_run_one():
 def test_it_always_points_at_the_proof_step():
     """A deployment without a way to check it is the thing this product exists
     to stop."""
-    assert "clickllm prove" in started(hw=H100).answer()
+    assert "onpar prove" in started(hw=H100).answer()
 
 
 def test_no_agent_facing_tool_can_move_traffic():
@@ -276,7 +276,7 @@ def test_a_bare_resume_does_not_re_detect_hardware_over_a_saved_profile(tmp_path
         [
             sys.executable,
             "-m",
-            "clickllm.cli",
+            "onpar.cli",
             "build",
             "batch scoring overnight",
             "--on",
@@ -296,7 +296,7 @@ def test_a_bare_resume_does_not_re_detect_hardware_over_a_saved_profile(tmp_path
         [
             sys.executable,
             "-m",
-            "clickllm.cli",
+            "onpar.cli",
             "build",
             "--resume",
             str(saved),
@@ -391,7 +391,7 @@ def test_cmd_build_asks_the_same_question_the_session_would():
         [
             sys.executable,
             "-m",
-            "clickllm.cli",
+            "onpar.cli",
             "build",
             "coding assistant for about 20 engineers, needs to feel snappy",
             "--on",
@@ -426,9 +426,9 @@ def test_a_configured_lora_fleet_survives_a_resume():
     the cheapest personalisation there is, so the config most worth keeping is
     the one that was dropped.
     """
-    from clickllm.engines import LoraFleet
-    from clickllm.plan import Requirements, Workload
-    from clickllm.session import Session
+    from onpar.engines import LoraFleet
+    from onpar.plan import Requirements, Workload
+    from onpar.session import Session
 
     fleet = LoraFleet((("support", "org/support"), ("sql", "org/sql")), 48, 2)
     resumed = Session.from_json(
@@ -454,8 +454,8 @@ def test_turn_does_not_spend_questions_on_intermediate_states():
     That is the quiet failure — the answer stays correct, and a question the
     user should have been asked has been thrown away.
     """
-    from clickllm.hardware import Hardware
-    from clickllm.session import Session
+    from onpar.hardware import Hardware
+    from onpar.session import Session
 
     # A pinned machine, not the host. `detect_hardware=True` read whatever CI
     # was running on, and on a runner where nothing in the catalogue fits,
@@ -491,8 +491,8 @@ def test_turn_does_not_spend_questions_on_intermediate_states():
 def test_turn_matches_the_chain_its_callers_hand_write():
     """`cmd_build` and `mcp._build` both do the private chain. `turn()` must be
     the same thing, or it is a third behaviour rather than a shared one."""
-    from clickllm.hardware import Hardware
-    from clickllm.session import Session
+    from onpar.hardware import Hardware
+    from onpar.session import Session
 
     machine = Hardware(
         kind="apple",
@@ -522,7 +522,7 @@ def test_turn_does_not_touch_hardware_it_was_not_given():
     silently detect hardware, which is a filesystem and subprocess touch a
     caller did not ask for.
     """
-    from clickllm.session import Session
+    from onpar.session import Session
 
     s = Session()
     s.turn("a support chatbot")
@@ -549,7 +549,7 @@ def _walk_to(session, turn, target, limit: int = 10):
 
 
 def _machine():
-    from clickllm.hardware import Hardware
+    from onpar.hardware import Hardware
 
     gb = 1024**3
     return Hardware(
@@ -567,7 +567,7 @@ def test_one_session_carries_you_from_a_description_to_how_you_would_prove_it():
     and nothing ever assigned them, so every conversation stopped at a
     deployment plan — including the browser one, which is the surface where
     stopping there is least defensible."""
-    from clickllm.session import Session, Stage
+    from onpar.session import Session, Stage
 
     s = Session()
     turn = s.turn("a support chatbot for 20 agents", machine=_machine())
@@ -589,7 +589,7 @@ def test_the_deploy_stage_hands_over_a_command_and_says_it_will_not_run_it():
     """A session that deployed would be a session that can be talked into
     deploying, and the thing steering it may be an agent reading a customer's
     request log (invariant 7)."""
-    from clickllm.session import Session, Stage
+    from onpar.session import Session, Stage
 
     s = Session()
     turn = s.turn("a chatbot for 20 agents", machine=_machine())
@@ -603,13 +603,13 @@ def test_the_deploy_stage_hands_over_a_command_and_says_it_will_not_run_it():
 
 def test_the_prove_stage_names_the_path_and_refuses_to_authorise_a_cutover():
     """Invariant 8, at the moment a user is most likely to think they are done."""
-    from clickllm.session import Session, Stage
+    from onpar.session import Session, Stage
 
     s = Session()
     turn = s.turn("a chatbot for 20 agents", machine=_machine())
     turn = _walk_to(s, turn, Stage.PROVE)
     assert turn.stage == Stage.PROVE and turn.done
-    for command in ("clickllm observe", "clickllm distill", "clickllm prove", "clickllm brief"):
+    for command in ("onpar observe", "onpar distill", "onpar prove", "onpar brief"):
         assert command in turn.said, f"{command} is missing from the path"
     assert "shadow mode" in turn.said.lower()
     assert "authorises a cutover" in turn.said
@@ -618,7 +618,7 @@ def test_the_prove_stage_names_the_path_and_refuses_to_authorise_a_cutover():
 def test_no_stage_after_configure_asks_a_question():
     """One question at a time is the rule, and "no more questions" has to mean
     it — a stage that starts asking again after the plan is a form in disguise."""
-    from clickllm.session import Session, Stage
+    from onpar.session import Session, Stage
 
     s = Session()
     turn = s.turn("a chatbot for 20 agents", machine=_machine())
@@ -635,7 +635,7 @@ def test_no_stage_after_configure_asks_a_question():
 
 def test_a_finished_session_stays_finished():
     """Stepping past the end must not wrap around to the beginning."""
-    from clickllm.session import Session, Stage
+    from onpar.session import Session, Stage
 
     s = Session()
     turn = s.turn("a chatbot for 20 agents", machine=_machine())
@@ -649,7 +649,7 @@ def test_a_finished_session_stays_finished():
 
 
 def _small(usable_gb: int):
-    from clickllm.hardware import Hardware
+    from onpar.hardware import Hardware
 
     gb = 1024**3
     return Hardware(
@@ -665,7 +665,7 @@ def _small(usable_gb: int):
 def test_it_says_which_setting_to_change_and_what_that_buys():
     """ "Reduce one of them" was true and useless: it is the moment a user is
     most stuck, and the message named neither the knob nor the amount."""
-    from clickllm.session import Session
+    from onpar.session import Session
 
     s = Session()
     s.tell("a chatbot")
@@ -680,7 +680,7 @@ def test_it_says_which_setting_to_change_and_what_that_buys():
 def test_a_suggestion_is_raised_only_when_the_outcome_actually_differs():
     """Computed, not curated — the same rule `_worth_asking` follows. A tip that
     does not change what you would deploy is noise dressed as advice."""
-    from clickllm.session import Session
+    from onpar.session import Session
 
     s = Session()
     s.tell("a chatbot")
@@ -691,7 +691,7 @@ def test_a_suggestion_is_raised_only_when_the_outcome_actually_differs():
 
 
 def test_the_nothing_fits_turn_names_the_change_rather_than_gesturing_at_it():
-    from clickllm.session import Session, Stage
+    from onpar.session import Session, Stage
 
     s = Session()
     s.tell("a chatbot")

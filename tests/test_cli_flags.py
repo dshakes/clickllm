@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from clickllm.cli import main
+from onpar.cli import main
 
 
 def test_explain_with_quiet_still_explains(capsys):
@@ -102,7 +102,7 @@ def test_the_json_flag_does_not_change_what_is_true(capsys):
     site's throughput figures, the teaching table). An agent reading `--json`
     and a human reading the table must not be told different versions.
     """
-    from clickllm import __version__
+    from onpar import __version__
 
     assert main(["version", "--json"]) == 0
     machine = json.loads(capsys.readouterr().out)
@@ -183,11 +183,11 @@ def test_every_surface_that_prints_throughput_says_it_is_an_estimate(monkeypatch
     """
     # A synthetic machine, because `fit` reads the host. Without this the
     # assertion below failed on macos-latest with "no feasible rows" — a fact
-    # about the runner, not about clickllm. `test_cli_golden.py` pins a machine
+    # about the runner, not about onpar. `test_cli_golden.py` pins a machine
     # for exactly this reason and this test should have from the start; a test
     # that skips on CI is a test that does not run where it matters.
-    from clickllm import hardware
-    from clickllm.hardware import Hardware
+    from onpar import hardware
+    from onpar.hardware import Hardware
 
     monkeypatch.setattr(
         hardware,
@@ -229,8 +229,8 @@ def test_measure_does_not_compare_a_measurement_to_a_different_model():
     the point of this test is that the guess and the declaration disagree — so a
     caller who knows the quant has a reason to pass it.
     """
-    from clickllm import catalog, fit
-    from clickllm.hardware import Hardware
+    from onpar import catalog, fit
+    from onpar.hardware import Hardware
 
     gb = 1024**3
     machine = Hardware(
@@ -268,8 +268,8 @@ def test_measure_cli_still_prints_the_measurement_alongside_the_roofline_basis(c
     `if args.model:` block that defined it, so a bare `measure --endpoint ...`
     with no `--model` raised `UnboundLocalError` instead of returning 1.
     """
-    from clickllm import measure as M
-    from clickllm.hardware import Hardware
+    from onpar import measure as M
+    from onpar.hardware import Hardware
 
     def fake_decode_once(endpoint, model, prompt, *, max_tokens, timeout, api_key=""):
         return M.Sample(tokens=20, decode_seconds=1.0, ttft_seconds=0.05)
@@ -285,7 +285,7 @@ def test_measure_cli_still_prints_the_measurement_alongside_the_roofline_basis(c
         bandwidth_gbps=546.0,
         cores=16,
     )
-    monkeypatch.setattr("clickllm.cli.hardware.detect", lambda: machine)
+    monkeypatch.setattr("onpar.cli.hardware.detect", lambda: machine)
 
     rc = main(
         [
@@ -322,10 +322,10 @@ def test_measure_rejects_a_quant_the_model_does_not_publish(capsys, monkeypatch)
     must reject the same way, naming the offending value and what qwen3-32b
     actually publishes.
     """
-    from clickllm.hardware import Hardware
+    from onpar.hardware import Hardware
 
     monkeypatch.setattr(
-        "clickllm.cli.hardware.detect",
+        "onpar.cli.hardware.detect",
         lambda: Hardware(
             kind="apple",
             name="M4 Max",
@@ -363,15 +363,15 @@ def test_measure_json_carries_the_roofline_basis(monkeypatch, capsys):
     script reading the JSON still had the exact mismatch this feature exists
     to prevent.
     """
-    from clickllm import measure as M
-    from clickllm.hardware import Hardware
+    from onpar import measure as M
+    from onpar.hardware import Hardware
 
     def fake_decode_once(endpoint, model, prompt, *, max_tokens, timeout, api_key=""):
         return M.Sample(tokens=20, decode_seconds=1.0, ttft_seconds=0.05)
 
     monkeypatch.setattr(M, "_decode_once", fake_decode_once)
     monkeypatch.setattr(
-        "clickllm.cli.hardware.detect",
+        "onpar.cli.hardware.detect",
         lambda: Hardware(
             kind="apple",
             name="M4 Max",
@@ -416,8 +416,8 @@ def test_measure_discloses_a_declared_quant_that_does_not_fit_this_machine(monke
     the bandwidth arithmetic is still correct, so the number stays, but the
     basis line must say the config does not fit.
     """
-    from clickllm import measure as M
-    from clickllm.hardware import Hardware
+    from onpar import measure as M
+    from onpar.hardware import Hardware
 
     def fake_decode_once(endpoint, model, prompt, *, max_tokens, timeout, api_key=""):
         return M.Sample(tokens=20, decode_seconds=1.0, ttft_seconds=0.05)
@@ -426,7 +426,7 @@ def test_measure_discloses_a_declared_quant_that_does_not_fit_this_machine(monke
     # A machine too small to hold qwen3-32b at fp16, so the declared quant
     # below is a published one that nonetheless does not fit here.
     monkeypatch.setattr(
-        "clickllm.cli.hardware.detect",
+        "onpar.cli.hardware.detect",
         lambda: Hardware(
             kind="apple",
             name="M1",

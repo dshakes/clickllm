@@ -13,7 +13,7 @@ import ast
 
 import pytest
 
-from clickllm.kernels import ENTRY_POINT_GROUPS, Plugin, PluginKind, scaffold
+from onpar.kernels import ENTRY_POINT_GROUPS, Plugin, PluginKind, scaffold
 
 
 def _init_for(kind: PluginKind, target: str) -> str:
@@ -162,7 +162,7 @@ def test_the_entry_point_names_something_the_module_defines(kind):
     builds, and vLLM finds nothing — the exact failure this module exists to
     prevent, reintroduced by the fix for it.
     """
-    from clickllm.kernels import entry_point_target
+    from onpar.kernels import entry_point_target
 
     target = entry_point_target("demo", kind)
     module, _, attr = target.partition(":")
@@ -176,8 +176,8 @@ def test_the_cli_and_the_scaffold_read_the_same_table():
     encoding one fact and they disagreed."""
     import inspect
 
-    from clickllm import cli
-    from clickllm.kernels import ENTRY_POINT_ATTR
+    from onpar import cli
+    from onpar.kernels import ENTRY_POINT_ATTR
 
     tree = ast.parse(inspect.getsource(cli.cmd_kernel).lstrip())
     calls = {

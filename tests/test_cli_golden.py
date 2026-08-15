@@ -5,7 +5,7 @@ These are approval tests, and their whole value is that they were recorded
 surfaces agree with each other; it cannot prove they still agree with what
 users saw last week. Only a golden recorded beforehand does that.
 
-The machine is synthetic on purpose. `clickllm fit` reads the host, so a golden
+The machine is synthetic on purpose. `onpar fit` reads the host, so a golden
 captured on a laptop would encode that laptop and fail on every CI runner —
 which would be a test of the runner, the mistake this repo has now made twice
 (a latency assertion about the fixture's speed, a refusal test about the
@@ -13,7 +13,7 @@ runner's load).
 
 To re-record after an intentional change:
 
-    CLICKLLM_REGENERATE_GOLDEN=1 \
+    ONPAR_REGENERATE_GOLDEN=1 \
         uv run --with pytest --with pyyaml pytest -q tests/test_cli_golden.py
 
 Read the diff before committing it. A golden updated without being read is a
@@ -29,8 +29,8 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import catalog, cli, hardware
-from clickllm.hardware import Hardware
+from onpar import catalog, cli, hardware
+from onpar.hardware import Hardware
 
 GOLDEN = Path(__file__).parent / "golden"
 GB = 1024**3
@@ -71,10 +71,10 @@ CASES: tuple[tuple[str, list[str]], ...] = (
 #: surface had nothing, and the conformance test compared field presence rather
 #: than values. This is the missing half.
 MCP_CASES: tuple[tuple[str, str, dict], ...] = (
-    ("mcp_fit", "clickllm_fit", {"context": "32k", "concurrency": 8}),
-    ("mcp_where", "clickllm_where", {"model": "llama-3.1-8b", "context": "32k"}),
-    ("mcp_explain", "clickllm_explain", {"model_id": "llama-3.1-8b"}),
-    ("mcp_catalog", "clickllm_catalog", {}),
+    ("mcp_fit", "onpar_fit", {"context": "32k", "concurrency": 8}),
+    ("mcp_where", "onpar_where", {"model": "llama-3.1-8b", "context": "32k"}),
+    ("mcp_explain", "onpar_explain", {"model_id": "llama-3.1-8b"}),
+    ("mcp_catalog", "onpar_catalog", {}),
 )
 
 
@@ -85,13 +85,13 @@ def _run(argv: list[str], monkeypatch: pytest.MonkeyPatch, config_home: Path) ->
     # patching the module attribute reaches every caller. Patching
     # `cli.hardware.detect` would be the same object; this is the clearer spelling.
     #
-    # catalog.load() also reads $XDG_CONFIG_HOME/clickllm/models.d — pointed at
+    # catalog.load() also reads $XDG_CONFIG_HOME/onpar/models.d — pointed at
     # a fresh empty tmp_path so a developer's real drop-in catalogue (or lack
     # of one) can't change what a golden records. Without this, `catalog
     # sources` and every command that loads the catalogue would encode
     # whatever happens to be in ~/.config on the machine that ran the test.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    monkeypatch.delenv("CLICKLLM_CATALOG", raising=False)
+    monkeypatch.delenv("ONPAR_CATALOG", raising=False)
     buf = io.StringIO()
     with redirect_stdout(buf):
         try:
@@ -105,12 +105,12 @@ def _normalize_host_paths(text: str, config_home: Path) -> str:
     """Replace the absolute paths `catalog-sources` prints with fixed tokens.
 
     The built-in catalogue path is wherever this checkout lives
-    (`.../src/clickllm/models.json`) and the drop-in dir is under
+    (`.../src/onpar/models.json`) and the drop-in dir is under
     `$XDG_CONFIG_HOME`, which here is a per-test tmp_path. Both are real,
     correct, host-specific paths — exactly what makes them unfit for a golden
     that must match on every machine.
     """
-    text = text.replace(str(catalog.CATALOG_PATH), "<repo>/src/clickllm/models.json")
+    text = text.replace(str(catalog.CATALOG_PATH), "<repo>/src/onpar/models.json")
     text = text.replace(str(config_home), "<config-home>")
     return text
 
@@ -123,20 +123,20 @@ def test_cli_output_is_unchanged(name: str, argv: list[str], monkeypatch, tmp_pa
         got = _normalize_host_paths(got, tmp_path)
     path = GOLDEN / f"{name}.txt"
 
-    if os.environ.get("CLICKLLM_REGENERATE_GOLDEN"):
+    if os.environ.get("ONPAR_REGENERATE_GOLDEN"):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(got)
         pytest.skip(f"regenerated {path.name}")
 
     assert path.exists(), (
-        f"no golden for {name}. Record it with CLICKLLM_REGENERATE_GOLDEN=1, "
+        f"no golden for {name}. Record it with ONPAR_REGENERATE_GOLDEN=1, "
         "and read the diff before committing."
     )
     want = path.read_text()
     assert got == want, (
-        f"`clickllm {' '.join(argv)}` no longer prints what it printed before "
+        f"`onpar {' '.join(argv)}` no longer prints what it printed before "
         "the engine refactor. If the change is intended, re-record with "
-        "CLICKLLM_REGENERATE_GOLDEN=1 — after reading the diff."
+        "ONPAR_REGENERATE_GOLDEN=1 — after reading the diff."
     )
 
 
@@ -146,7 +146,7 @@ def test_the_goldens_are_not_empty():
     This is the control for the harness itself: an empty or missing golden is
     the failure mode that looks exactly like success.
     """
-    if os.environ.get("CLICKLLM_REGENERATE_GOLDEN"):
+    if os.environ.get("ONPAR_REGENERATE_GOLDEN"):
         pytest.skip("regenerating")
     for name, _ in CASES:
         path = GOLDEN / f"{name}.txt"
@@ -176,11 +176,11 @@ def test_mcp_tool_output_is_unchanged(name, tool, args, monkeypatch, tmp_path):
     """
     import json
 
-    from clickllm import mcp
+    from onpar import mcp
 
     monkeypatch.setattr(hardware, "detect", lambda: MACHINE)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("CLICKLLM_CATALOG", raising=False)
+    monkeypatch.delenv("ONPAR_CATALOG", raising=False)
 
     reply = mcp.handle(
         {
@@ -193,12 +193,12 @@ def test_mcp_tool_output_is_unchanged(name, tool, args, monkeypatch, tmp_path):
     got = reply["result"]["content"][0]["text"] + "\n"
     path = GOLDEN / f"{name}.txt"
 
-    if os.environ.get("CLICKLLM_REGENERATE_GOLDEN"):
+    if os.environ.get("ONPAR_REGENERATE_GOLDEN"):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(got)
         pytest.skip(f"regenerated {path.name}")
 
-    assert path.exists(), f"no golden for {name}; record with CLICKLLM_REGENERATE_GOLDEN=1"
+    assert path.exists(), f"no golden for {name}; record with ONPAR_REGENERATE_GOLDEN=1"
     assert got == path.read_text(), (
         f"the {tool} tool no longer returns what it returned before. If intended, "
         "re-record — after reading the diff, because an agent will not."

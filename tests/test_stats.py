@@ -21,7 +21,7 @@ import math
 
 import pytest
 
-from clickllm.prove.stats import (
+from onpar.prove.stats import (
     Z_95,
     difference,
     family_wise_z,

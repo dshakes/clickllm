@@ -20,7 +20,7 @@ platform plugin, so the same binary in `vllm/vllm-tpu:latest` answers fine.
 `installed_flags` returns `None` for "could not ask", which is deliberately not
 the same as "accepts nothing". Locally that is a skip. In CI a skip would be a
 green tick over an unasked question — the exact defect this repo removed from
-its own CI once already — so `CLICKLLM_REQUIRE_ENGINES=1` turns "could not ask"
+its own CI once already — so `ONPAR_REQUIRE_ENGINES=1` turns "could not ask"
 into a failure. That variable is what makes the check able to fail, and a check
 that cannot fail is worse than none.
 """
@@ -32,8 +32,8 @@ from dataclasses import replace
 
 import pytest
 
-from clickllm import catalog
-from clickllm.engines import (
+from onpar import catalog
+from onpar.engines import (
     SGLANG_KV_DTYPE,
     LoraFleet,
     SglangAdapter,
@@ -41,8 +41,8 @@ from clickllm.engines import (
     Unsupported,
     adapter_for,
 )
-from clickllm.hardware import Hardware
-from clickllm.plan import Requirements, Setting, Workload, plan
+from onpar.hardware import Hardware
+from onpar.plan import Requirements, Setting, Workload, plan
 
 #: Synthetic accelerators. The CI runner has no GPU and never will — this check
 #: is about what the engine's argument parser accepts, not about running a model.
@@ -58,7 +58,7 @@ QUAD = replace(H100, devices=4)
 
 #: Set in CI. Makes "the engine could not be interrogated" a failure rather than
 #: a skip, so an install that silently broke cannot read as a pass.
-REQUIRE = "CLICKLLM_REQUIRE_ENGINES"
+REQUIRE = "ONPAR_REQUIRE_ENGINES"
 
 #: (label, model id, quantisation, hardware, requirements). Chosen to cover every
 #: flag the planner can emit, not to be representative of demand: tensor
@@ -151,7 +151,7 @@ def test_every_generated_flag_is_one_the_installed_engine_accepts(engine: str):
     day an engine renames a flag underneath us — which is how the last two got
     found, months after they shipped.
     """
-    from clickllm.engines import _installed_flags_detail, unknown_flags
+    from onpar.engines import _installed_flags_detail, unknown_flags
 
     adapter = adapter_for(engine)
     assert adapter is not None, engine
@@ -228,7 +228,7 @@ def test_llamacpp_divides_context_among_slots_so_we_multiply_it():
     model would serve, answer, and truncate long prompts — the quiet kind of
     wrong, since nothing errors.
     """
-    from clickllm.engines import Setting, adapter_for
+    from onpar.engines import Setting, adapter_for
 
     a = adapter_for("llama.cpp")
     assert a is not None
@@ -248,7 +248,7 @@ def test_ollama_is_configured_by_environment_and_says_so():
     call every setting unsupported, which would be false: Ollama honours
     concurrency and context as well as any engine here.
     """
-    from clickllm.engines import Setting, adapter_for
+    from onpar.engines import Setting, adapter_for
 
     a = adapter_for("ollama")
     assert a is not None
@@ -273,8 +273,8 @@ def test_ollama_is_configured_by_environment_and_says_so():
 def test_the_new_adapters_emit_only_flags_their_real_binary_accepts(engine):
     """The discipline that caught `--speculative-config eagle3`: ask the binary,
     do not trust a table in this file. Skipped where the engine is absent unless
-    CLICKLLM_REQUIRE_ENGINES makes that a failure."""
-    from clickllm.engines import Setting, adapter_for, unknown_flags
+    ONPAR_REQUIRE_ENGINES makes that a failure."""
+    from onpar.engines import Setting, adapter_for, unknown_flags
 
     a = adapter_for(engine)
     assert a is not None
@@ -288,7 +288,7 @@ def test_the_new_adapters_emit_only_flags_their_real_binary_accepts(engine):
     )
     bad = unknown_flags(a, argv)
     if bad is None:
-        if os.environ.get("CLICKLLM_REQUIRE_ENGINES"):
+        if os.environ.get("ONPAR_REQUIRE_ENGINES"):
             pytest.fail(f"{engine} could not be interrogated and that was required")
         pytest.skip(f"{engine} is not installed here")
     assert bad == [], f"{engine} rejects: {bad}"
@@ -298,7 +298,7 @@ def test_quantisation_is_refused_by_both_because_it_is_baked_into_the_file():
     """GGUF is already Q4_K_M on disk and an Ollama tag already names its
     precision. A serve-time `--quantization` flag would be invented, which is
     the failure this adapter layer exists to prevent."""
-    from clickllm.engines import Setting, Unsupported, adapter_for
+    from onpar.engines import Setting, Unsupported, adapter_for
 
     for engine, word in (("llama.cpp", "gguf"), ("ollama", "tag")):
         a = adapter_for(engine)
@@ -317,7 +317,7 @@ def test_ollama_env_is_never_argv_because_argv_gets_executed():
     so a paste into bash gives `command not found`. Right-looking, runnable
     neither way.
     """
-    from clickllm.engines import Setting, adapter_for
+    from onpar.engines import Setting, adapter_for
 
     a = adapter_for("ollama")
     st = {Setting.CONTEXT_LENGTH: 8192, Setting.MAX_CONCURRENT: 4}
@@ -341,7 +341,7 @@ def test_llamacpp_never_emits_another_engines_kv_cache_spelling():
     cross-dialect leak this whole layer exists to prevent, committed inside the
     layer itself.
     """
-    from clickllm.engines import LLAMACPP_KV_DTYPE, Setting, Translated, Unsupported, adapter_for
+    from onpar.engines import LLAMACPP_KV_DTYPE, Setting, Translated, Unsupported, adapter_for
 
     a = adapter_for("llama.cpp")
     allowed = {"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
@@ -376,7 +376,7 @@ def test_speculative_off_is_honoured_not_reported_as_a_gap(engine):
     missed it because the tests that drive the real `plan()` path assert they
     only ever produce vllm/sglang plans — so this branch was never reached.
     """
-    from clickllm.engines import Setting, Translated, adapter_for
+    from onpar.engines import Setting, Translated, adapter_for
 
     got = adapter_for(engine).translate(Setting.SPECULATIVE, "off")
     assert isinstance(got, Translated), f"{engine} reports a gap for an unrequested setting"
@@ -389,7 +389,7 @@ def test_a_real_draft_request_is_still_answered_on_its_merits():
     Ollama exposes no speculative setting at all, so a real draft model is still
     an honest `Unsupported` — that gap is information, not noise.
     """
-    from clickllm.engines import Setting, Unsupported, adapter_for
+    from onpar.engines import Setting, Unsupported, adapter_for
 
     assert isinstance(
         adapter_for("ollama").translate(Setting.SPECULATIVE, "org/draft-model"), Unsupported

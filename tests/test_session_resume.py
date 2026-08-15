@@ -8,8 +8,8 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
-from clickllm.plan import LoraFleet
-from clickllm.session import Session
+from onpar.plan import LoraFleet
+from onpar.session import Session
 
 _PROSE = "serve 8 concurrent users at 32k context for a nightly batch job"
 

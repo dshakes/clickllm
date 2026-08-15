@@ -9,7 +9,7 @@ answer trustworthy rather than merely present:
    last rather than sorting as zero.
 3. **A free tier that cannot fit is excluded with the reason**, not silently
    dropped. "96 GB, and you need 412" is the answer people came for.
-4. **Nothing generated depends on clickllm, and nothing here touches a
+4. **Nothing generated depends on onpar, and nothing here touches a
    credential.** The artifact deploys with this tool uninstalled (NFR-4), and
    no code path reads a token from anywhere.
 
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import catalog, host
+from onpar import catalog, host
 
 GB = 1024**3
 
@@ -158,8 +158,8 @@ def test_cost_per_mtok_rewards_bandwidth_not_just_capacity():
 
 def test_sizing_agrees_with_the_fit_solver():
     """No second implementation. An option's memory answer must be the one
-    `clickllm fit` would give for the same hardware."""
-    from clickllm import fit
+    `onpar fit` would give for the same hardware."""
+    from onpar import fit
 
     o = survey(QWEN, context=8192, concurrency=1).options[0]
     hw = host._profile(o.offer.profile_id).to_hardware()
@@ -258,7 +258,7 @@ def test_artifact_carries_a_provenance_header(picked, provider_id):
     art = host.artifact(option, today="2026-07-28")
     assert art.files and art.how
     for name, content in art.files:
-        assert "clickllm host — generated 2026-07-28" in content, name
+        assert "onpar host — generated 2026-07-28" in content, name
         assert option.provider.name in content, name
         # What was chosen, why, and where the price came from.
         assert "OPTION" in content and "WHY" in content, name
@@ -266,13 +266,13 @@ def test_artifact_carries_a_provenance_header(picked, provider_id):
 
 
 @pytest.mark.parametrize("provider_id", ARTIFACT_PROVIDERS)
-def test_artifact_never_imports_clickllm(picked, provider_id):
+def test_artifact_never_imports_onpar(picked, provider_id):
     """NFR-4: generated config is native and standalone. Delete this tool and
     the files still deploy."""
     art = host.artifact(host.find(picked, provider_id), today="2026-07-28")
     for name, content in art.files:
-        assert not re.search(r"\b(import|install)\s+clickllm\b", content), name
-        assert "from clickllm import" not in content, name
+        assert not re.search(r"\b(import|install)\s+onpar\b", content), name
+        assert "from onpar import" not in content, name
         if name.endswith(".py"):
             tree = ast.parse(content)
             imported = {
@@ -285,7 +285,7 @@ def test_artifact_never_imports_clickllm(picked, provider_id):
                 for node in ast.walk(tree)
                 if isinstance(node, ast.ImportFrom)
             }
-            assert "clickllm" not in imported, (name, imported)
+            assert "onpar" not in imported, (name, imported)
 
 
 @pytest.mark.parametrize("provider_id", ARTIFACT_PROVIDERS)
@@ -301,7 +301,7 @@ def test_docker_artifact_is_a_real_engine_invocation(picked):
     assert set(files) == {"docker-compose.yml", "run.sh"}
     compose = files["docker-compose.yml"]
 
-    # The engine's own image and the model repo, not a clickllm wrapper.
+    # The engine's own image and the model repo, not a onpar wrapper.
     assert "vllm/vllm-openai" in compose or "sglang" in compose
     assert catalog.get(QWEN).repo in compose
     # Shared memory: the default 64 MB fails as a cryptic hang, not an error.
@@ -405,7 +405,7 @@ SOURCE = Path(host.__file__).read_text()
 
 
 def test_no_code_path_reads_anything_that_looks_like_a_credential():
-    """clickllm handles no credentials: never prompted for, never read, never
+    """onpar handles no credentials: never prompted for, never read, never
     stored, never transmitted. Enforced against the source, not by convention."""
     tree = ast.parse(SOURCE)
     reads = []
@@ -485,8 +485,8 @@ def test_multi_device_shapes_are_costed_at_the_parallelism_the_plan_uses():
     the emitted command runs on one card at 3,350 — 3.5x, on the one number
     somebody budgets against.
     """
-    from clickllm import fit as fitmod
-    from clickllm.hardware_catalog import get as profile_by_id
+    from onpar import fit as fitmod
+    from onpar.hardware_catalog import get as profile_by_id
 
     m = catalog.get("qwen3-32b")
     offer = host.Offer("h100-x4", "4x H100 80 GB", 11.60)
@@ -506,8 +506,8 @@ def test_multi_device_shapes_are_costed_at_the_parallelism_the_plan_uses():
 def test_a_shape_that_genuinely_needs_every_device_is_not_re_costed():
     """The negative control. Without it the check above passes by always
     down-rating, which would understate throughput instead of overstating it."""
-    from clickllm import fit as fitmod
-    from clickllm.hardware_catalog import get as profile_by_id
+    from onpar import fit as fitmod
+    from onpar.hardware_catalog import get as profile_by_id
 
     big = catalog.get("qwen3-235b-a22b")
     offer = host.Offer("h100-x4", "4x H100 80 GB", 11.60)
@@ -557,11 +557,11 @@ def test_a_shape_that_does_not_fit_its_own_parallelism_is_dropped_not_quoted():
     Real case, not contrived: Llama 3.1 8B on 4x H100 at 32k context, 64
     concurrent — 266 GB of 288 GB aggregate, quoted at 1,066 tok/s.
     """
-    from clickllm import fit as fitmod
-    from clickllm.engines import Setting
-    from clickllm.hardware_catalog import get as profile_by_id
-    from clickllm.plan import Requirements, Workload
-    from clickllm.plan import plan as configure
+    from onpar import fit as fitmod
+    from onpar.engines import Setting
+    from onpar.hardware_catalog import get as profile_by_id
+    from onpar.plan import Requirements, Workload
+    from onpar.plan import plan as configure
 
     m = catalog.get("llama-3.1-8b")
     hw = profile_by_id("h100-x4").to_hardware()
@@ -647,7 +647,7 @@ def test_a_multi_device_profile_prices_the_whole_host_not_one_device():
     Asserted as a ratio rather than pinned prices: list rates change, the
     convention must not.
     """
-    from clickllm.hardware_catalog import PROFILES
+    from onpar.hardware_catalog import PROFILES
 
     by_id = {p.id: p for p in PROFILES}
     for single, multi in (("h100", "h100-x2"), ("h100", "h100-x4"), ("h200", "h200-x8")):

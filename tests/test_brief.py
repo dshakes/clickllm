@@ -18,9 +18,9 @@ import re
 
 import pytest
 
-from clickllm.brief import FORMAT, render
-from clickllm.prove import EvalItem, suite
-from clickllm.prove.receipt import Receipt
+from onpar.brief import FORMAT, render
+from onpar.prove import EvalItem, suite
+from onpar.prove.receipt import Receipt
 
 HOSTILE = "<script>alert(1)</script>"
 
@@ -300,7 +300,7 @@ def test_an_unmeasured_judge_survives_the_disk_ingest_path_too():
     Fixing where the reviewer pointed rather than where the rule lives is how
     the same defect ships twice.
     """
-    from clickllm.prove.receipt import Receipt
+    from onpar.prove.receipt import Receipt
 
     r = Receipt(
         incumbent="a",
