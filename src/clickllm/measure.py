@@ -45,6 +45,40 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+
+def _decline(rates: list[float], *, floor: float = -0.7) -> tuple[float, float, float] | None:
+    """A run that fell steadily, as (first-third median, last-third median, drop).
+
+    Distinguishes a slowing machine from a noisy one. Pearson correlation
+    against sample order: near -1 is a monotonic decline, near 0 is scatter. The
+    floor is deliberately loose — this only ever adds a sentence to a refusal
+    that has already been decided, so a false positive costs a misleading line
+    and a false negative costs the reader the diagnosis.
+
+    Returns None when there is too little to judge, which is why the caller must
+    treat it as an optional extra rather than the reason for refusing.
+    """
+    n = len(rates)
+    if n < 6:
+        return None
+    xs = list(range(n))
+    mx = sum(xs) / n
+    my = sum(rates) / n
+    sxx = sum((x - mx) ** 2 for x in xs) ** 0.5
+    syy = sum((y - my) ** 2 for y in rates) ** 0.5
+    if sxx == 0 or syy == 0:
+        return None
+    r = sum((x - mx) * (y - my) for x, y in zip(xs, rates, strict=True)) / (sxx * syy)
+    if r > floor:
+        return None
+    third = max(2, n // 3)
+    first = sorted(rates[:third])[third // 2]
+    last = sorted(rates[-third:])[third // 2]
+    if first <= 0 or last >= first:
+        return None
+    return first, last, (first - last) / first
+
+
 __all__ = [
     "LOAD_PER_CORE_LIMIT",
     "Load",
@@ -467,6 +501,26 @@ def measure(
 
     spread = m.spread
     if spread is not None and spread > SPREAD_LIMIT:
+        # A run whose samples fall steadily is not a noisy run. On an M4 Max
+        # decoding a 32B model with the machine genuinely idle — load flat at
+        # 0.39/core throughout — throughput fell from 22.1 to 16.2 tok/s across
+        # fifteen samples, a correlation of -0.90 against sample order. That is
+        # the silicon clocking down under sustained load, and calling it "the
+        # samples disagree" points the reader at contention they will not find.
+        #
+        # Both still refuse. The difference is what the reader does next: quit
+        # something, or accept that this hardware does not hold its burst rate
+        # and measure what it sustains.
+        trend = _decline(m.rates)
+        if trend is not None:
+            first, last, drop = trend
+            refused.append(
+                f"throughput fell steadily through the run, {first:.1f} to {last:.1f} tok/s "
+                f"({drop * 100:.0f}% down, not scattered) — that is the machine slowing under "
+                f"sustained load rather than competing with something else. Nothing here will "
+                f"average out; measure what it sustains, or measure on hardware that holds "
+                f"its rate"
+            )
         refused.append(
             f"the samples disagree by {spread * 100:.0f}% "
             f"({min(m.rates):.1f}–{max(m.rates):.1f} tok/s), over the {SPREAD_LIMIT * 100:.0f}% "
