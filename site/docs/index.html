@@ -339,8 +339,8 @@ eval result moves production traffic without a human.</pre>
 <span class="u">$ pipx install clickllm-cli</span>
 <span class="u">$ pip install clickllm-cli</span>
 
-<span class="u">$ uvx --from clickllm-cli==1.2.0 clickllm fit</span>                     <span class="c"># pin a build that stays put</span>
-<span class="u">$ npx clickllm@1.2.0 fit</span>                                         <span class="c"># the same build, via npm</span>
+<span class="u">$ uvx --from clickllm-cli==1.2.1 clickllm fit</span>                     <span class="c"># pin a build that stays put</span>
+<span class="u">$ npx clickllm@1.2.1 fit</span>                                         <span class="c"># the same build, via npm</span>
 <span class="u">$ clickllm version</span>                                                <span class="c"># what you have, and where it came from</span>
 <span class="u">$ clickllm upgrade</span>                                                <span class="c"># how to move, for the way you installed it</span>
 
@@ -360,8 +360,8 @@ eval result moves production traffic without a human.</pre>
   implementation — it execs <code>uvx --from clickllm-cli==&lt;version&gt; clickllm</code> and falls
   back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python 3.11+ are
   still required underneath. <code>npx</code> saves you naming the distribution, not installing
-  Python. The <code>==</code> is exact by design: <code>npx clickllm@1.2.0</code> runs
-  <code>clickllm-cli</code> 1.2.0 and nothing else, so the two registries cannot drift apart
+  Python. The <code>==</code> is exact by design: <code>npx clickllm@1.2.1</code> runs
+  <code>clickllm-cli</code> 1.2.1 and nothing else, so the two registries cannot drift apart
   under you.</p>
 </div>
 
