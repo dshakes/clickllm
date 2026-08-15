@@ -153,9 +153,7 @@ def saving(
         if not math.isfinite(v) or v < 0:
             raise ValueError(f"{name} cost must be a non-negative number of dollars, got {v!r}")
     if captures <= 0:
-        return Saving(
-            refusal="no captured traffic to extrapolate from; run `onpar observe` first"
-        )
+        return Saving(refusal="no captured traffic to extrapolate from; run `onpar observe` first")
 
     days = parse_window(window)
     if days is None:

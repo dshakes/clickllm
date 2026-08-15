@@ -287,9 +287,7 @@ def demo() -> None:
     # argv looked entirely reasonable and the process refused to start. Reading
     # the binary's own usage text is what closes that, and it works without a
     # built binary because the text is in the source.
-    usage = (
-        Path(__file__).resolve().parents[2] / "onpar-gateway" / "src" / "main.rs"
-    ).read_text()
+    usage = (Path(__file__).resolve().parents[2] / "onpar-gateway" / "src" / "main.rs").read_text()
     for flag in {a for a in argv if a.startswith("--")} | {"--key", "--no-capture", "--candidate"}:
         assert f'"{flag}"' in usage, f"{flag} is not a flag the gateway accepts"
 

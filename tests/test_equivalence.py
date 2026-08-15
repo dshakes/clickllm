@@ -272,9 +272,7 @@ def _call_with(bar: float):
             report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=bar
         ),
         "onpar.prove.run": lambda: run(items, shares={"x": 1.0}, bar=bar),
-        "onpar.prove.suite": lambda: suite(
-            items, shares={"x": 1.0}, issued="2026-08-07", bar=bar
-        ),
+        "onpar.prove.suite": lambda: suite(items, shares={"x": 1.0}, issued="2026-08-07", bar=bar),
     }
 
 
@@ -290,9 +288,7 @@ def _bar_taking_functions() -> set[str]:
     # The package itself, not just its submodules: `run` and `suite` are defined
     # in `prove/__init__.py`, and `walk_packages` alone would walk straight past
     # the two widest entry points in the module.
-    names = ["onpar.prove"] + [
-        m.name for m in pkgutil.walk_packages(P.__path__, "onpar.prove.")
-    ]
+    names = ["onpar.prove"] + [m.name for m in pkgutil.walk_packages(P.__path__, "onpar.prove.")]
     for mod_name in names:
         mod = importlib.import_module(mod_name)
         for name, fn in vars(mod).items():
