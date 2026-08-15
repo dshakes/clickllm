@@ -984,6 +984,7 @@ def cmd_measure(args: argparse.Namespace) -> int:
 
     hw = hardware.detect()
     roofline = None
+    quant_basis = ""
     if args.model:
         try:
             spec = catalog.get(args.model)
@@ -1000,7 +1001,6 @@ def cmd_measure(args: argparse.Namespace) -> int:
             # roofline by 1.79x — impossible, since nothing decodes faster than
             # its memory bandwidth, and the impossibility was the only clue that
             # the two numbers described different models.
-            quant_basis = ""
             ctx = _parse_size(args.context)
             if getattr(args, "quant", None):
                 fit_result = fit.solve(spec, args.quant, hw, ctx, args.concurrency)
@@ -1031,14 +1031,14 @@ def cmd_measure(args: argparse.Namespace) -> int:
 
     if args.json:
         print(result.to_json())
-    elif quant_basis and result.roofline_tokens_per_sec is not None:
-        # Say which model the roofline describes. Without this the ratio looks
-        # like a fact about the endpoint when it is partly a fact about a
-        # quantisation nobody confirmed.
-        print(f"\n  roofline basis: {quant_basis}")
     else:
         print(result.render())
-        if roofline is None and args.model:
+        if quant_basis and result.roofline_tokens_per_sec is not None:
+            # Say which model the roofline describes. Without this the ratio
+            # looks like a fact about the endpoint when it is partly a fact
+            # about a quantisation nobody confirmed.
+            print(f"\n  roofline basis: {quant_basis}")
+        elif roofline is None and args.model:
             print(
                 f"  No roofline to compare against: {args.model!r} is not in the\n"
                 "  catalogue, or nothing fits on this machine at that context.\n"

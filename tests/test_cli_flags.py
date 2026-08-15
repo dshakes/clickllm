@@ -235,3 +235,60 @@ def test_measure_does_not_compare_a_measurement_to_a_different_model():
         "a smaller quantisation must predict a higher roofline; if not, the "
         "comparison below proves nothing"
     )
+
+
+def test_measure_cli_still_prints_the_measurement_alongside_the_roofline_basis(
+    capsys, monkeypatch
+):
+    """`cmd_measure` must render the actual measurement — samples, median,
+    spread, usable/not-usable — on every path, `--quant` included.
+
+    A prior version printed only the "roofline basis" line whenever a roofline
+    was available, via an `elif` that made the basis line and the measurement
+    report mutually exclusive. It also referenced `quant_basis` outside the
+    `if args.model:` block that defined it, so a bare `measure --endpoint ...`
+    with no `--model` raised `UnboundLocalError` instead of returning 1.
+    """
+    from clickllm import measure as M
+    from clickllm.hardware import Hardware
+
+    def fake_decode_once(endpoint, model, prompt, *, max_tokens, timeout, api_key=""):
+        return M.Sample(tokens=20, decode_seconds=1.0, ttft_seconds=0.05)
+
+    monkeypatch.setattr(M, "_decode_once", fake_decode_once)
+
+    gb = 1024**3
+    machine = Hardware(
+        kind="apple",
+        name="M4 Max",
+        total_bytes=128 * gb,
+        usable_bytes=96 * gb,
+        bandwidth_gbps=546.0,
+        cores=16,
+    )
+    monkeypatch.setattr("clickllm.cli.hardware.detect", lambda: machine)
+
+    rc = main(
+        [
+            "measure",
+            "--endpoint",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "qwen3-32b",
+            "--quant",
+            "q4",
+            "--samples",
+            "2",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc in (0, 1), "well-formed and measured, not a usage error"
+    assert "median" in out, "the measurement report itself must still print"
+    assert "roofline basis: --quant q4" in out, "the basis line must still say which model"
+
+    # The bare invocation with no --model must not crash on an undefined
+    # `quant_basis`, and must still render the measurement.
+    rc = main(["measure", "--endpoint", "http://127.0.0.1:9/v1", "--samples", "2"])
+    out = capsys.readouterr().out
+    assert rc in (0, 1)
+    assert "median" in out
