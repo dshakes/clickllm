@@ -339,8 +339,8 @@ eval result moves production traffic without a human.</pre>
 <span class="u">$ pipx install onpar</span>
 <span class="u">$ pip install onpar</span>
 
-<span class="u">$ uvx --from onpar==1.3.1 onpar fit</span>                     <span class="c"># pin a build that stays put</span>
-<span class="u">$ npx onpar-cli@1.3.1 fit</span>                                         <span class="c"># the same build, via npm</span>
+<span class="u">$ uvx --from onpar==1.3.2 onpar fit</span>                     <span class="c"># pin a build that stays put</span>
+<span class="u">$ npx onpar-cli@1.3.2 fit</span>                                         <span class="c"># the same build, via npm</span>
 <span class="u">$ onpar version</span>                                                <span class="c"># what you have, and where it came from</span>
 <span class="u">$ onpar upgrade</span>                                                <span class="c"># how to move, for the way you installed it</span>
 
@@ -360,8 +360,8 @@ eval result moves production traffic without a human.</pre>
   implementation — it execs <code>uvx --from onpar==&lt;version&gt; onpar</code> and falls
   back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python 3.11+ are
   still required underneath. <code>npx</code> saves you naming the distribution, not installing
-  Python. The <code>==</code> is exact by design: <code>npx onpar-cli@1.3.1</code> runs
-  <code>onpar</code> 1.3.1 and nothing else, so the two registries cannot drift apart
+  Python. The <code>==</code> is exact by design: <code>npx onpar-cli@1.3.2</code> runs
+  <code>onpar</code> 1.3.2 and nothing else, so the two registries cannot drift apart
   under you.</p>
 </div>
 
