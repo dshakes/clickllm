@@ -8,9 +8,7 @@
 #
 # Every channel installs the distribution `onpar`, which provides the
 # `onpar` command. The two names differ because PyPI refused `onpar` as too
-# similar to the existing `click-llm` — so `pip install onpar` will never work,
-# and the `-cli` suffix below is load-bearing rather than a typo. There is still no
-# Homebrew formula, so there is no brew branch.
+# The distribution, the command and the import are all `onpar`.
 #
 # No npm branch either, and that is a decision rather than an omission. `npx
 # onpar` is a shim that execs uvx, then `uv tool run`, then `pipx run` — every

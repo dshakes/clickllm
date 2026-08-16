@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // A shim, not a port. `onpar` is a Python distribution — `onpar` on
-// PyPI, because PyPI refused the bare name as too close to `click-llm`. This
-// exists so `npx onpar` reaches it without a second implementation to keep
+// PyPI. npm refused the bare name `onpar` as too close to an existing package,
+// so this package is `onpar-cli`; the command it installs is `onpar`. This
+// exists so `npx onpar-cli` reaches it without a second implementation to keep
 // in step.
 //
 // The version below is pinned to this package's own version, so `npx

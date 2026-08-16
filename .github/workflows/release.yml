@@ -426,7 +426,7 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      # npm is a SHIM over the PyPI distribution — `npx onpar` execs
+      # npm is a SHIM over the PyPI distribution — `npx onpar-cli` execs
       # `uvx --from onpar==<version> onpar`. It publishes after PyPI on
       # purpose: the npm package names an exact PyPI version, so publishing it
       # first would ship a package pointing at something that does not exist yet.
@@ -462,7 +462,7 @@ jobs:
             # Single quotes and no backticks: inside double quotes those were
             # command substitution, so the failure path tried to RUN npx while
             # reporting that it should not be run.
-            printf '::error::npm package is %s but the tag is %s. npx onpar@%s would run the wrong Python.\n' \
+            printf '::error::npm package is %s but the tag is %s. npx onpar-cli@%s would run the wrong Python.\n' \
               "$pkg" "${VERSION#v}" "${VERSION#v}"
             exit 1
           fi
@@ -482,8 +482,8 @@ jobs:
           # nothing left to do. A documented property that nothing enforces is
           # the defect this repo keeps finding; here the document was the
           # workflow's own header.
-          if npm view "onpar@${VERSION#v}" version >/dev/null 2>&1; then
-            printf '::notice::npm already has onpar@%s — nothing to publish\n' "${VERSION#v}"
+          if npm view "onpar-cli@${VERSION#v}" version >/dev/null 2>&1; then
+            printf '::notice::npm already has onpar-cli@%s — nothing to publish\n' "${VERSION#v}"
           else
             # --provenance ties the tarball to this workflow run, the same
             # property PEP 740 attestations give the wheel.
@@ -507,11 +507,11 @@ jobs:
           # far longer than propagation takes and still bounded.
           served=""
           for attempt in 1 2 3 4 5 6; do
-            if npm view "onpar@${VERSION#v}" version >/dev/null 2>&1; then
+            if npm view "onpar-cli@${VERSION#v}" version >/dev/null 2>&1; then
               served="yes"
               break
             fi
-            printf 'npm has not served onpar@%s yet (attempt %s) — waiting\n' "${VERSION#v}" "$attempt"
+            printf 'npm has not served onpar-cli@%s yet (attempt %s) — waiting\n' "${VERSION#v}" "$attempt"
             sleep 10
           done
           if [ -z "$served" ]; then
@@ -524,7 +524,7 @@ jobs:
         run: |
           {
             printf '## npm shim NOT published\n\n'
-            printf '`NPM_TOKEN` is not set, so `npx onpar` still resolves nothing.\n'
+            printf '`NPM_TOKEN` is not set, so `npx onpar-cli` still resolves nothing.\n'
             printf 'PyPI is unaffected: `pip install onpar` works.\n'
           } >>"$GITHUB_STEP_SUMMARY"
 
