@@ -515,7 +515,7 @@ jobs:
             sleep 10
           done
           if [ -z "$served" ]; then
-            printf '::error::npm does not serve onpar@%s 60s after publishing\n' "${VERSION#v}"
+            printf '::error::npm does not serve onpar-cli@%s 60s after publishing\n' "${VERSION#v}"
             exit 1
           fi
 

@@ -1855,15 +1855,15 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     print()
     print("  Running it once, without installing:")
     print("    uvx --from onpar onpar fit")
-    print("    npx onpar fit                        # if node is what you have")
+    print("    npx onpar-cli fit                    # if node is what you have")
     print()
     # npx has no upgrade step — the shim resolves a version per invocation, so
-    # `npx onpar@latest` IS the upgrade. Saying so matters because this text
+    # `npx onpar-cli@latest` IS the upgrade. Saying so matters because this text
     # listed three Python installers and no npm one for four releases after the
     # npm package went live, which reads as "npx is not supported".
     print("  Installed via npx? There is nothing to upgrade — the shim resolves")
-    print("  per run, so `npx onpar@latest fit` is already the newest, and")
-    print(f"  `npx onpar@{__version__} fit` pins one build.")
+    print("  per run, so `npx onpar-cli@latest fit` is already the newest, and")
+    print(f"  `npx onpar-cli@{__version__} fit` pins one build.")
     print()
     print("  This prints the commands rather than running one: onpar cannot")
     print("  see which tool owns its environment, and upgrading the wrong copy")

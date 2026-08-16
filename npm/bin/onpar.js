@@ -6,8 +6,9 @@
 // in step.
 //
 // The version below is pinned to this package's own version, so `npx
-// onpar@0.1.1` runs exactly onpar 0.1.1. A floating pin would let an
-// npm install silently change which Python is executed, and `npm/version.test`
+// onpar-cli@0.1.1` runs exactly onpar 0.1.1. A floating pin would let an
+// npm install silently change which Python is executed, and
+// test_the_npm_wrapper_pins_the_python_version_it_runs (tests/test_docs_lab.py)
 // fails the build if the two ever disagree.
 "use strict";
 

@@ -971,7 +971,7 @@ def test_version_pins_in_the_docs_match_the_version_we_ship():
     wrong = []
     for page in INSTALL_SURFACES:
         text = (root / page).read_text()
-        for pat in (r"onpar==(\d+\.\d+\.\d+)", r"onpar@(\d+\.\d+\.\d+)"):
+        for pat in (r"onpar==(\d+\.\d+\.\d+)", r"onpar(?:-cli)?@(\d+\.\d+\.\d+)"):
             for found in set(re.findall(pat, text)):
                 if found != ours:
                     wrong.append(f"{page}: pins {found}, we ship {ours}")
