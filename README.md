@@ -295,17 +295,17 @@ then moves you across with a rollback button.
 ```bash
 uvx --from onpar onpar fit           # no install, no deps
 pip install onpar                       # or install it
-npx onpar@1.2.2 fit                        # same build, via npm
+npx onpar@1.3.0 fit                        # same build, via npm
 onpar version                              # what you have, and where it came from
 ```
 
-The commands above are unpinned and fetch the newest release — currently **1.2.2**.
+The commands above are unpinned and fetch the newest release — currently **1.3.0**.
 
-The `==` is exact on purpose: `npx onpar@1.2.2` runs `onpar` 1.2.2 and nothing else.
+The `==` is exact on purpose: `npx onpar@1.3.0` runs `onpar` 1.3.0 and nothing else.
 Pin it when you need a build to stay put:
 
 ```bash
-uvx --from onpar==1.2.2 onpar fit   # exactly this build
+uvx --from onpar==1.3.0 onpar fit   # exactly this build
 ```
 
 `onpar version` reads the installed metadata rather than a string someone typed —
