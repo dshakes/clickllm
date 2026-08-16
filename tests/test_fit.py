@@ -857,12 +857,18 @@ def test_the_reported_version_is_the_packaged_one():
     assert m and onpar.__version__ == m.group(1)
 
 
-def test_upgrade_tells_you_how_rather_than_guessing():
+def test_upgrade_tells_you_how_rather_than_guessing(capsys):
     """onpar may be installed by uv, pipx or pip, into a tool environment this
     process cannot see. A self-upgrade that guesses either fails confusingly or
     upgrades a different copy than the one running. Naming the commands is the
     honest answer and cannot corrupt anything."""
     assert cli.main(["upgrade"]) == 0
+    out = capsys.readouterr().out
+    assert "npx onpar-cli" in out, "the npm package is onpar-cli, not onpar"
+    assert "npx onpar " not in out and "npx onpar@" not in out, (
+        "npm refused the bare `onpar` name; telling a reader to `npx onpar` "
+        "points at a package that does not exist"
+    )
 
 
 def test_cost_per_token_falls_as_concurrency_rises():

@@ -334,13 +334,13 @@ eval result moves production traffic without a human.</pre>
   run it without installing anything at all. Python 3.11 or newer.</p>
 
 <pre><span class="u">$ uvx --from onpar onpar fit --context 32k --concurrency 8</span>   <span class="c"># run it, install nothing</span>
-<span class="u">$ npx onpar fit --context 32k --concurrency 8</span>                  <span class="c"># same, if node is what you have</span>
+<span class="u">$ npx onpar-cli fit --context 32k --concurrency 8</span>                  <span class="c"># same, if node is what you have</span>
 <span class="u">$ uv tool install onpar</span>                                    <span class="c"># or put onpar on your PATH</span>
 <span class="u">$ pipx install onpar</span>
 <span class="u">$ pip install onpar</span>
 
 <span class="u">$ uvx --from onpar==1.3.0 onpar fit</span>                     <span class="c"># pin a build that stays put</span>
-<span class="u">$ npx onpar@1.3.0 fit</span>                                         <span class="c"># the same build, via npm</span>
+<span class="u">$ npx onpar-cli@1.3.0 fit</span>                                         <span class="c"># the same build, via npm</span>
 <span class="u">$ onpar version</span>                                                <span class="c"># what you have, and where it came from</span>
 <span class="u">$ onpar upgrade</span>                                                <span class="c"># how to move, for the way you installed it</span>
 
@@ -348,19 +348,19 @@ eval result moves production traffic without a human.</pre>
 
 <div class="note">
   <p><b>The distribution is <code>onpar</code>; the command is <code>onpar</code>.</b>
-  PyPI refused the bare name as too similar to the existing <code>click-llm</code> package, so
-  <code>pip install onpar</code> and <code>uvx onpar</code> both fail and always will. The
+  PyPI accepted the bare name, so <code>pip install onpar</code> and <code>uvx onpar</code> both work. The
   <code>--from</code> is what bridges the two names — it is not optional, and every <code>uvx</code>
   line in these docs carries one. There is no Homebrew formula.</p>
 </div>
 
 <div class="note">
-  <p><b><code>npx onpar</code> works.</b> npm allowed the bare name PyPI refused, so the npm
-  package and the command are both <code>onpar</code>. It is a shim, not a second
+  <p><b><code>npx onpar-cli</code> works.</b> npm refused the bare name as too close to an
+  existing package, so the npm distribution is <code>onpar-cli</code> while the command
+  it installs is <code>onpar</code>. It is a shim, not a second
   implementation — it execs <code>uvx --from onpar==&lt;version&gt; onpar</code> and falls
   back to <code>uv tool run</code> then <code>pipx run</code>, so one of those and Python 3.11+ are
   still required underneath. <code>npx</code> saves you naming the distribution, not installing
-  Python. The <code>==</code> is exact by design: <code>npx onpar@1.3.0</code> runs
+  Python. The <code>==</code> is exact by design: <code>npx onpar-cli@1.3.0</code> runs
   <code>onpar</code> 1.3.0 and nothing else, so the two registries cannot drift apart
   under you.</p>
 </div>

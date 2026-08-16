@@ -617,17 +617,21 @@ PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"onpar"})
 #: A flat set of names cannot express what is actually true, because the answer
 #: depends on the registry: `onpar` is live on npm and a 404 on PyPI, so the
 #: same token is correct after `npx` and wrong after `uvx`. Keyed by the verb's
-#: registry instead — otherwise adding `npx onpar` to the docs would have had
+#: registry instead — otherwise adding `npx onpar-cli` to the docs would have had
 #: to whitelist the bare name everywhere, re-permitting the `uvx onpar` line
 #: this whole check exists to forbid.
 PUBLISHED_BY_REGISTRY: dict[str, frozenset[str]] = {
     "pypi": frozenset({"onpar"}),
-    # Published 2026-07-30, verified by running `npx onpar@0.1.5 version`.
-    "npm": frozenset({"onpar"}),
+    # Published 2026-08-16, verified by running `npx onpar-cli@1.3.0 version`,
+    # which printed `onpar 1.3.0` / `distribution onpar`. The npm name carries
+    # the `-cli` suffix and PyPI does not: npm refused the bare `onpar` as too
+    # similar to the existing `unhar`, which is the constraint PyPI used to
+    # apply and no longer does. Bare `onpar` is NOT in here and cannot be.
+    "npm": frozenset({"onpar-cli"}),
 }
-#: Published 2026-07-30 and verified by installing it: `uvx --from onpar
-#: onpar fit` ran. `onpar` itself is NOT in here and cannot be — PyPI
-#: refused it as too similar to the existing `click-llm`. The distribution is
+#: Published 2026-08-16 and verified by installing it: `uvx onpar fit` ran.
+#: PyPI accepted the bare name, so the distribution, the console script and
+#: the import are all `onpar`.
 #: `onpar`; the console script is `onpar`.
 
 #: Surfaces that tell a reader how to install. install.sh is included because it
@@ -649,7 +653,7 @@ INSTALL_SURFACES = (
 _INSTALL_VERB = re.compile(
     r"\b(?:pip3?\s+install|python3?\s+-m\s+pip\s+install|pipx\s+install"
     r"|uv\s+tool\s+install|uvx|brew\s+install|docker\s+run"
-    # npx was absent, so every `npx onpar` line in the docs went unchecked —
+    # npx was absent, so every `npx onpar-cli` line in the docs went unchecked —
     # including the four releases' worth that said it 404s when it did not.
     r"|npx|npm\s+(?:install|i)\s+-g)\b"
 )
@@ -698,7 +702,7 @@ def _install_targets(line: str) -> set[str]:
         return {n for t in tokens for n in _OUR_NAME.findall(t)}
     if not tokens:
         return set()
-    # `npx onpar@0.1.5` names the package `onpar`; the pin is not part of it.
+    # `npx onpar-cli@0.1.5` names the package `onpar`; the pin is not part of it.
     return set(_OUR_NAME.findall(tokens[0].split("@")[0]))
 
 
@@ -757,7 +761,7 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
         if not ours or "git+" in line:
             continue
         # Per registry, not per name: `onpar` is live on npm and a 404 on
-        # PyPI, so `npx onpar` is correct and `uvx onpar` never will be.
+        # PyPI, so `npx onpar-cli` is correct and `uvx onpar` never will be.
         reg = _install_registry(line)
         live = PUBLISHED_BY_REGISTRY[reg]
         unpublished = sorted(n for n in ours if n not in live)
@@ -790,12 +794,12 @@ def test_the_served_installer_is_the_repo_installer():
 
 
 def test_the_npm_wrapper_pins_the_python_version_it_runs():
-    """`npx onpar@X` must run exactly onpar X.
+    """`npx onpar-cli@X` must run exactly onpar X.
 
     The npm package is a shim over the PyPI distribution. Two published surfaces
     that can drift is the defect that already produced `install.sh` vs
     `site/install.sh`, where the served installer kept broken commands after the
-    reviewed one was fixed. Here the cost would be worse: `npx onpar@0.1.1`
+    reviewed one was fixed. Here the cost would be worse: `npx onpar-cli@0.1.1`
     silently executing a different version of the tool.
 
     So the npm version tracks pyproject, and the shim pins `==` rather than a
@@ -807,7 +811,7 @@ def test_the_npm_wrapper_pins_the_python_version_it_runs():
     assert m, "no version in pyproject.toml"
     assert pkg["version"] == m.group(1), (
         f"npm says {pkg['version']}, pyproject says {m.group(1)} — "
-        "`npx onpar@X` would not run onpar X"
+        "`npx onpar-cli@X` would not run onpar X"
     )
 
     shim = (root / "npm" / "bin" / "onpar.js").read_text()
@@ -916,7 +920,7 @@ def _reader_visible(path: Path) -> str:
 def test_no_page_claims_a_published_package_is_unpublished(page):
     """The mirror of the check above, and the direction nothing covered.
 
-    `npx onpar` shipped in 0.1.2. Four releases later the README, the landing
+    `npx onpar-cli` shipped in 0.1.2. Four releases later the README, the landing
     page's npx tab and the docs site all still said "arrives with the next
     release", "not on npm yet", "a 404 today". The sibling test polices claiming
     MORE than we have published; claiming LESS produced no failure anywhere,
@@ -938,8 +942,8 @@ def test_no_page_claims_a_published_package_is_unpublished(page):
             r"arrives with the next release",
             r"lands with the next release",
             r"not on npm yet",
-            r"npx onpar</code>? is a 404",
-            r"npx onpar.{0,20}404",
+            r"npx onpar-cli</code>? is a 404",
+            r"npx onpar-cli.{0,20}404",
         )
         if re.search(pat, text, re.I)
     ]
@@ -953,7 +957,7 @@ def test_no_page_claims_a_published_package_is_unpublished(page):
 def test_version_pins_in_the_docs_match_the_version_we_ship():
     """A pinned example is a published number, and published numbers drift here.
 
-    `uvx --from onpar==0.1.5` and `npx onpar@0.1.5` are worth showing —
+    `uvx --from onpar==0.1.5` and `npx onpar-cli@0.1.5` are worth showing —
     they are how a reader freezes a build — but they are also four more copies of
     a fact that lives in pyproject.toml. Every other copy of a number in this repo
     drifted before something checked it, including the one in CLAUDE.md that read
@@ -967,7 +971,7 @@ def test_version_pins_in_the_docs_match_the_version_we_ship():
     wrong = []
     for page in INSTALL_SURFACES:
         text = (root / page).read_text()
-        for pat in (r"onpar==(\d+\.\d+\.\d+)", r"onpar@(\d+\.\d+\.\d+)"):
+        for pat in (r"onpar==(\d+\.\d+\.\d+)", r"onpar(?:-cli)?@(\d+\.\d+\.\d+)"):
             for found in set(re.findall(pat, text)):
                 if found != ours:
                     wrong.append(f"{page}: pins {found}, we ship {ours}")
