@@ -129,7 +129,18 @@ def test_a_queued_build_compiled_leg_cannot_block_later_releases():
         "shortage on one matrix leg blocks every other release"
     )
 
-    locked_jobs = ["build", "publish-pypi", "publish-compiled", "publish-npm", "homebrew"]
+    # publish-core and publish-gateway were one `publish-compiled` job until the
+    # three PyPI projects were given separate trusted-publisher environments. Both
+    # halves still need the release lock: the split was about credential scope, and
+    # it would be an easy way to lose concurrency protection without noticing.
+    locked_jobs = [
+        "build",
+        "publish-pypi",
+        "publish-core",
+        "publish-gateway",
+        "publish-npm",
+        "homebrew",
+    ]
     for name in locked_jobs:
         c = jobs[name].get("concurrency")
         assert c, f"{name} must serialize against other release runs via job-level concurrency"

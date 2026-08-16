@@ -469,4 +469,19 @@ def test_the_release_publishes_every_distribution_the_code_tells_users_to_instal
         ("onpar-gateway", "onpar-gateway/Cargo.toml"),
     ):
         assert where in wf, f"the release never builds {dist} (expected -m {where})"
-    assert "publish-compiled" in wf, "nothing publishes the compiled distributions"
+    # Assert the PROPERTY, not a job name. This read `"publish-compiled" in wf`
+    # and broke the moment that job was split into publish-core and
+    # publish-gateway — which is the good outcome, but it would have been just as
+    # happy with a job named publish-compiled that published nothing. Each
+    # distribution now has to have a step that actually selects its own wheels.
+    yaml = pytest.importorskip("yaml")
+    jobs = yaml.safe_load(wf)["jobs"]
+    for dist in ("onpar-core", "onpar-gateway"):
+        underscored = dist.replace("-", "_")
+        publishers = [
+            name
+            for name, job in jobs.items()
+            if any(underscored in str(step.get("run", "")) for step in job.get("steps", []))
+            and any("pypi-publish" in str(step.get("uses", "")) for step in job.get("steps", []))
+        ]
+        assert publishers, f"no job selects {underscored}-*.whl and uploads it to PyPI"
