@@ -309,7 +309,21 @@ jobs:
         include:
           - { os: ubuntu-latest, target: x86_64,  tag: manylinux }
           - { os: macos-latest,  target: aarch64, tag: macos-arm64 }
-          - { os: macos-13,      target: x86_64,  tag: macos-x86_64 }
+          # Intel macOS is CROSS-COMPILED on the Apple-silicon runner, not built
+          # on `macos-13`. That leg was never assigned a runner in v1.2.1, v1.2.2
+          # or v1.3.0 — `runner=NEVER ASSIGNED` all three times, while its two
+          # siblings got one and passed. `timeout-minutes` cannot save it, for the
+          # reason recorded above: the clock starts at assignment, so a job waiting
+          # on capacity waits forever. And because `publish-compiled` needs the
+          # whole matrix, one permanently-queued leg published ZERO compiled wheels
+          # for ANY platform — 1.3.0 shipped a pure-Python wheel only, which is the
+          # exact "install a Rust toolchain" gap this job exists to close.
+          #
+          # The tradeoff being accepted: this wheel is built for Intel but never
+          # run on Intel, because no runner here is x86_64. `--target` cross-compiles
+          # cleanly for a PyO3 cdylib, but the smoke test below can only exercise the
+          # native arch, so an Intel-only regression would ship undetected.
+          - { os: macos-latest,  target: x86_64,  tag: macos-x86_64 }
     runs-on: ${{ matrix.os }}
     # Deliberately outside the `release` concurrency group (see `build` above).
     # `timeout-minutes` only bounds a job once a runner has started it — it does
@@ -348,7 +362,11 @@ jobs:
       # wheel: it fails at the moment someone puts it in their request path.
       # Skipped when cross-built, where the artifact cannot run on this host.
       - name: The gateway wheel must produce a runnable binary
-        if: matrix.os != 'macos-13'
+        # Keyed on the TARGET, not the OS: the Intel-macOS wheel is now cross-built
+        # on the arm64 runner, so `macos-latest` is no longer a safe proxy for
+        # "native". Running an x86_64 binary here would fail on architecture, not
+        # on the defect this step looks for.
+        if: ${{ !(runner.os == 'macOS' && matrix.target == 'x86_64') }}
         shell: bash
         run: |
           set -euo pipefail
