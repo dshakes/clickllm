@@ -474,14 +474,24 @@ def test_the_release_publishes_every_distribution_the_code_tells_users_to_instal
     # publish-gateway — which is the good outcome, but it would have been just as
     # happy with a job named publish-compiled that published nothing. Each
     # distribution now has to have a step that actually selects its own wheels.
-    yaml = pytest.importorskip("yaml")
-    jobs = yaml.safe_load(wf)["jobs"]
+    # Deliberately plain-text, with no yaml import. The first version of this used
+    # `pytest.importorskip("yaml")`, which made the check SKIP on the seam job —
+    # where pyyaml is absent — so the assertion silently stopped running in the one
+    # environment that gates the release. That is the same defect this test exists
+    # to catch, reintroduced by the fix for it. `tests/test_workflows.py` raises
+    # rather than skips for exactly this reason; here it is cheaper not to need the
+    # dependency at all.
     for dist in ("onpar-core", "onpar-gateway"):
         underscored = dist.replace("-", "_")
-        publishers = [
-            name
-            for name, job in jobs.items()
-            if any(underscored in str(step.get("run", "")) for step in job.get("steps", []))
-            and any("pypi-publish" in str(step.get("uses", "")) for step in job.get("steps", []))
-        ]
-        assert publishers, f"no job selects {underscored}-*.whl and uploads it to PyPI"
+        # Must be the step that STAGES the wheels for upload, not any mention of the
+        # filename. `onpar_gateway-*.whl` also appears in build-compiled's smoke
+        # test, which installs the wheel locally and publishes nothing — a looser
+        # substring check passes on that alone and proves nothing.
+        assert re.search(rf"cp\s+staged/{underscored}-\*\.whl\s+dist/", wf), (
+            f"no release step stages {underscored}-*.whl for upload, so nothing publishes {dist}"
+        )
+    # ...and the selections must be uploaded, not just staged.
+    assert wf.count("gh-action-pypi-publish") >= 3, (
+        "each PyPI project (onpar, onpar-core, onpar-gateway) needs its own upload "
+        "step: they are separate projects with separately scoped trusted publishers"
+    )
