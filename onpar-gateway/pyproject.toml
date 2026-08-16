@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+# The capture gateway, shipped as a wheel whose payload is the Rust binary.
+#
+# `onpar observe` needs this binary, and until it was published the only way
+# to get it was `cargo build --release -p onpar-gateway` — so the entire
+# observe → distill → prove chain, which the README leads with, was unreachable
+# for anyone who installed onpar from PyPI. A product where half the headline
+# requires a Rust toolchain is not shipped, it is available to people who
+# already have the repo.
+#
+# `bindings = "bin"` is maturin's mode for exactly this: no Python module, no
+# extension, just the compiled binary installed into the environment's scripts
+# directory. `onpar.observe.find_gateway` looks there first, beside the
+# running interpreter, because a venv's `bin/` is only on PATH once activated.
+[project]
+name = "onpar-gateway"
+description = "The onpar capture gateway — a recording proxy for `onpar observe`."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+classifiers = [
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Testing",
+]
+# From Cargo.toml, which `tools/bump.py` keeps in step with the workspace.
+# Declaring it here as well would be a second place to forget.
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/dshakes/onpar"
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "Cargo.toml"

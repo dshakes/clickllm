@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm import catalog_update as cu
-from clickllm.catalog import load
+from onpar import catalog_update as cu
+from onpar.catalog import load
 
 _BASE = {
     "num_hidden_layers": 32,
@@ -71,7 +71,7 @@ def test_nothing_both_sides_declare_is_left_out_of_the_comparison():
     """
     from dataclasses import fields
 
-    from clickllm.catalog import ModelSpec
+    from onpar.catalog import ModelSpec
 
     shared = {f.name for f in fields(cu.Architecture)} & {f.name for f in fields(ModelSpec)}
     assert shared - set(cu.SOLVER_FIELDS) == set(), (

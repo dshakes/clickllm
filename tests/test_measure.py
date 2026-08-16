@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import measure as M
+from onpar import measure as M
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -568,7 +568,7 @@ def test_the_cli_defaults_match_the_modules():
     """`cli.py` mirrors these so building the parser does not import `measure`.
     A mirror that drifts hands a user a different default from `--help` than the
     module applies, which is the quietest kind of wrong."""
-    src = (ROOT / "src" / "clickllm" / "cli.py").read_text()
+    src = (ROOT / "src" / "onpar" / "cli.py").read_text()
     for name, value in (
         ("M_DEFAULT_SAMPLES", M.DEFAULT_SAMPLES),
         ("M_DEFAULT_MAX_TOKENS", M.DEFAULT_MAX_TOKENS),
@@ -588,7 +588,7 @@ def test_measure_exits_nonzero_when_it_refuses(tmp_path):
             [
                 sys.executable,
                 "-m",
-                "clickllm.cli",
+                "onpar.cli",
                 "measure",
                 "--endpoint",
                 f"http://127.0.0.1:{port}/v1",
@@ -622,7 +622,7 @@ def test_json_out_stdout_stays_parseable(tmp_path):
             [
                 sys.executable,
                 "-m",
-                "clickllm.cli",
+                "onpar.cli",
                 "measure",
                 "--endpoint",
                 f"http://127.0.0.1:{port}/v1",
@@ -744,7 +744,7 @@ def test_every_hardware_detector_reports_host_cpu_cores():
     to a reader, it is a number, and it disabled the gate on every such box
     while looking like a populated field.
     """
-    src = (ROOT / "src" / "clickllm" / "hardware.py").read_text()
+    src = (ROOT / "src" / "onpar" / "hardware.py").read_text()
     assert "cores=0," not in src, (
         "a detector reports zero cores; use os.cpu_count() so load-per-core has a real denominator"
     )
@@ -796,7 +796,7 @@ def test_a_run_that_slows_is_not_a_run_that_disagrees():
     Both still refuse — the distinction is what the reader does next: quit
     something, or accept that this hardware does not hold its burst rate.
     """
-    from clickllm.measure import _decline
+    from onpar.measure import _decline
 
     slowing = [
         22.12,
@@ -853,7 +853,7 @@ def test_warmup_decodes_are_discarded_not_counted():
     result. Counting them would put the burst rate back into the median, which
     is the thing #241 exists to remove.
     """
-    from clickllm.measure import Load, Sample, measure
+    from onpar.measure import Load, Sample, measure
 
     rates = iter([50.0, 40.0, 30.0, 10.0, 10.0, 10.0])  # 3 hot warmups, 3 steady
     quiet = Load(one_minute=0.5, cores=16, top=())

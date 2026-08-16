@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.prove.equivalence import DEFAULT_EQUIVALENCE_BAR, ClusterScore
-from clickllm.prove.gate import (
+from onpar.prove.equivalence import DEFAULT_EQUIVALENCE_BAR, ClusterScore
+from onpar.prove.gate import (
     LADDER,
     PRECAUTION_MARGIN,
     PRECAUTION_MIN_SAMPLES,
@@ -21,9 +21,9 @@ from clickllm.prove.gate import (
     decide,
     read_cluster,
 )
-from clickllm.prove.graders import EvalItem, ItemResult, Outcome, Score, Tier, grade
-from clickllm.prove.judge import Agreement, Calibration
-from clickllm.prove.stats import wilson
+from onpar.prove.graders import EvalItem, ItemResult, Outcome, Score, Tier, grade
+from onpar.prove.judge import Agreement, Calibration
+from onpar.prove.stats import wilson
 
 BAR = DEFAULT_EQUIVALENCE_BAR
 
@@ -302,7 +302,7 @@ def test_read_cluster_detects_judge_only_evidence_from_real_scores():
 
 
 def test_read_cluster_reuses_the_equivalence_interval():
-    from clickllm.prove.equivalence import score_cluster
+    from onpar.prove.equivalence import score_cluster
 
     results = [grade(_item(item_id=f"i{i}")) for i in range(10)]
     assert (

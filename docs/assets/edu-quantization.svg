@@ -25,6 +25,6 @@
 <rect x="196.0" y="230.0" width="89.0" height="26.0" rx="4" fill="var(--s0)"/>
 <text x="297" y="249" class="m">16 GiB</text>
 <text x="636" y="249" class="ax">hurts hard reasoning; fine to extract</text>
-<text x="28" y="346" class="note">clickllm caps its own recommendation at 8-bit: below that the quality question stops being free, and it is a</text>
-<text x="28" y="362" class="note">decision to make deliberately rather than a default to inherit.</text>
+<text x="28" y="346" class="note">onpar caps its own recommendation at 8-bit: below that the quality question stops being free, and it is a decision</text>
+<text x="28" y="362" class="note">to make deliberately rather than a default to inherit.</text>
 </svg>

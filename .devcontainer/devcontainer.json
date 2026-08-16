@@ -1,8 +1,8 @@
 {
-  "name": "clickllm — kernel development",
+  "name": "onpar — kernel development",
   "//": [
     "A CUDA toolchain plus the tools that tell you whether a kernel helped.",
-    "clickllm does not ship kernels (CLAUDE.md invariant 1); it ships the seam",
+    "onpar does not ship kernels (CLAUDE.md invariant 1); it ships the seam",
     "and the proof loop. This container is for the seam's users."
   ],
   "image": "nvcr.io/nvidia/pytorch:25.06-py3",
@@ -41,6 +41,6 @@
     "//TORCH_CUDA_ARCH_LIST": "Ampere through Hopper. Building for every arch triples compile time; building for none makes the op silently fall back to eager.",
     "CUDA_LAUNCH_BLOCKING": "0",
     "//CUDA_LAUNCH_BLOCKING": "Set to 1 while debugging — async launches report errors at the *next* sync, so the stack trace points at innocent code.",
-    "PYTHONPATH": "/workspaces/clickllm/src"
+    "PYTHONPATH": "/workspaces/onpar/src"
   }
 }

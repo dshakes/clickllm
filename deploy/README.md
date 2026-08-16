@@ -1,17 +1,17 @@
-# Deploying clickllm on Kubernetes
+# Deploying onpar on Kubernetes
 
 Two pieces, useful independently.
 
-## `kubectl clickllm` — the plugin
+## `kubectl onpar` — the plugin
 
-Put `kubectl-clickllm` on your `PATH`. kubectl discovers any executable named
+Put `kubectl-onpar` on your `PATH`. kubectl discovers any executable named
 `kubectl-*` and exposes it as a subcommand; there is no manifest to register and
 nothing to compile.
 
 ```bash
-kubectl clickllm nodes                    # what this cluster can actually run
-kubectl clickllm fit --context 32k        # which models fit the best node
-kubectl clickllm plan -f workload.yaml    # the Deployment an InferenceWorkload produces
+kubectl onpar nodes                    # what this cluster can actually run
+kubectl onpar fit --context 32k        # which models fit the best node
+kubectl onpar plan -f workload.yaml    # the Deployment an InferenceWorkload produces
 ```
 
 `plan` runs **the same reconcile the controller runs**, so what it prints is what
@@ -27,7 +27,7 @@ kubectl apply -f deploy/crd.yaml
 Declare what the workload *is*, not how to run it:
 
 ```yaml
-apiVersion: clickllm.dev/v1alpha1
+apiVersion: onpar.dev/v1alpha1
 kind: InferenceWorkload
 metadata: {name: triage, namespace: ml}
 spec:
@@ -70,7 +70,7 @@ The controller learns about a regression from an annotation the quality gate
 writes onto the resource:
 
 ```bash
-kubectl annotate iw triage clickllm.dev/regressed=true   clickllm.dev/regression-reason="extract fell to 61% [54-68]"
+kubectl annotate iw triage onpar.dev/regressed=true   onpar.dev/regression-reason="extract fell to 61% [54-68]"
 ```
 
 Two processes rather than one, deliberately: the gate needs the eval corpus and
@@ -80,7 +80,7 @@ rollback — a typo or an `unknown` is treated as *not regressed*, because rolli
 back on a value nobody understood would make a stray annotation an incident.
 
 **It polls, it does not watch.** The controller shells out to `kubectl` rather
-than embedding a Kubernetes client, which keeps `clickllm fit` dependency-free
+than embedding a Kubernetes client, which keeps `onpar fit` dependency-free
 and inherits your kubeconfig, contexts and cloud exec plugins for free. The cost
 is that it reacts within an interval instead of milliseconds. For an input that
 changes when someone edits YAML or a node joins, that is the right trade — and if
@@ -89,11 +89,11 @@ it stops being one, only `controller.py` changes.
 ## Running the controller
 
 ```bash
-python -m clickllm.k8s.controller                    # loop, all namespaces
-python -m clickllm.k8s.controller -n ml --interval 15
-python -m clickllm.k8s.controller --once             # one pass — for a CronJob
-python -m clickllm.k8s.controller --dry-run          # applies nothing
-python -m clickllm.k8s.controller --self-check       # built-in self-check
+python -m onpar.k8s.controller                    # loop, all namespaces
+python -m onpar.k8s.controller -n ml --interval 15
+python -m onpar.k8s.controller --once             # one pass — for a CronJob
+python -m onpar.k8s.controller --dry-run          # applies nothing
+python -m onpar.k8s.controller --self-check       # built-in self-check
 ```
 
 ## A node it cannot size
@@ -105,5 +105,5 @@ NVIDIA's GPU Feature Discovery publishes, so a cluster without it produces:
 mystery-gpu   nvidia   4   —   the cluster does not publish nvidia.com/gpu.memory
 ```
 
-That node is skipped and the reason is on the resource. clickllm will not invent
+That node is skipped and the reason is on the resource. onpar will not invent
 80 GB because the product string says H100.

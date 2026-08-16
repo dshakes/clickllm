@@ -1,5 +1,5 @@
 [project]
-name = "clickllm-cli"
+name = "onpar"
 version = "1.2.2"
 description = "Prove which open model can replace your closed one — on your traffic, your hardware, your budget."
 # The PyPI page was empty: no `readme` field meant a one-line summary and
@@ -9,11 +9,11 @@ description = "Prove which open model can replace your closed one — on your tr
 # document rather than a shopfront.
 readme = "PYPI.md"
 requires-python = ">=3.11"
-dependencies = []  # Phase 0 is stdlib-only on purpose: `uvx clickllm fit` must just work.
+dependencies = []  # Phase 0 is stdlib-only on purpose: `uvx onpar fit` must just work.
 
 [project.scripts]
-clickllm = "clickllm.cli:main"
-clickllm-mcp = "clickllm.mcp:serve"
+onpar = "onpar.cli:main"
+onpar-mcp = "onpar.mcp:serve"
 
 [project.optional-dependencies]
 # No `full` extra yet, deliberately, and the ordering matters: uv solves every
@@ -22,18 +22,18 @@ clickllm-mcp = "clickllm.mcp:serve"
 # forward reference here breaks `uv run` for everyone.
 #
 # `release.yml` now builds and publishes both compiled distributions
-# (`clickllm-core` from clickllm-py/, `clickllm-gateway` from
-# clickllm-gateway/). Once a release has actually put them on PyPI — check,
+# (`onpar-core` from onpar-py/, `onpar-gateway` from
+# onpar-gateway/). Once a release has actually put them on PyPI — check,
 # do not assume — add:
 #
-#     full = ["clickllm-core==<version>", "clickllm-gateway==<version>"]
+#     full = ["onpar-core==<version>", "onpar-gateway==<version>"]
 #
 # pinned exactly, because all three ship from one tag and `core.COMPATIBLE`
 # refuses an extension whose version is not the package's own; a range would
 # resolve to a combination the code rejects at import.
 #
-# Until then, build from the checkout: `maturin develop` in clickllm-py/, and
-# `cargo build --release -p clickllm-gateway`.
+# Until then, build from the checkout: `maturin develop` in onpar-py/, and
+# `cargo build --release -p onpar-gateway`.
 # The extra goes back the day the wheel is published. See ADR-0009.
 dev = ["pytest>=8", "ruff>=0.6", "pyyaml>=6"]  # pyyaml: tests/test_workflows.py
 
@@ -42,8 +42,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/clickllm"]
-artifacts = ["src/clickllm/*.html", "src/clickllm/*.json"]
+packages = ["src/onpar"]
+artifacts = ["src/onpar/*.html", "src/onpar/*.json"]
 
 [tool.ruff]
 line-length = 100

@@ -31,12 +31,12 @@ import warnings
 
 import pytest
 
-import clickllm
+import onpar
 
 
 def _modules_with_demos() -> list[str]:
     out = []
-    for m in pkgutil.walk_packages(clickllm.__path__, "clickllm."):
+    for m in pkgutil.walk_packages(onpar.__path__, "onpar."):
         try:
             mod = importlib.import_module(m.name)
         except Exception:  # noqa: BLE001 — an unimportable module is another test's problem
@@ -70,27 +70,27 @@ def _constants(mod) -> list[str]:
 #: checked, which is the state that let six tautological self-checks ship.
 INSENSITIVE = frozenset(
     {
-        "clickllm.box",
+        "onpar.box",
         # Platform-dependent: on macOS its demo exercises the Apple detection
         # path and IS sensitive; on a Linux runner that path never executes.
         # CI found this, not the author's laptop.
-        "clickllm.hardware",
-        "clickllm.desktop",
-        "clickllm.distill.cluster",
-        "clickllm.host",
-        "clickllm.k8s.controller",
-        "clickllm.k8s.nodes",
-        "clickllm.launch",
-        "clickllm.mcp",
-        "clickllm.prove",
-        "clickllm.prove.collect",
-        "clickllm.prove.equivalence",
-        "clickllm.prove.graders",
-        "clickllm.prove.receipt",
-        "clickllm.prove.stats",
-        "clickllm.sdk",
-        "clickllm.ui",
-        "clickllm.watch",
+        "onpar.hardware",
+        "onpar.desktop",
+        "onpar.distill.cluster",
+        "onpar.host",
+        "onpar.k8s.controller",
+        "onpar.k8s.nodes",
+        "onpar.launch",
+        "onpar.mcp",
+        "onpar.prove",
+        "onpar.prove.collect",
+        "onpar.prove.equivalence",
+        "onpar.prove.graders",
+        "onpar.prove.receipt",
+        "onpar.prove.stats",
+        "onpar.sdk",
+        "onpar.ui",
+        "onpar.watch",
     }
 )
 
@@ -129,7 +129,7 @@ def test_the_module_self_check_is_sensitive_to_something(name: str):
         if noticed:
             # A WARNING, not a failure. The first version failed here, to stop a
             # stale exemption hiding a later regression — and CI immediately
-            # showed why it cannot: `clickllm.hardware` is sensitive on macOS
+            # showed why it cannot: `onpar.hardware` is sensitive on macOS
             # (its demo runs the Apple path) and insensitive on Linux (it does
             # not). Membership is therefore platform-dependent, and a strict
             # reverse check makes such a module unpinnable on both at once.
@@ -160,12 +160,12 @@ def test_the_module_self_check_actually_passes(name: str):
     The mutation test above *skips* when the baseline fails — correctly, because
     a mutant surviving proves nothing when the unmutated demo already fails. But
     nothing else ran these, so a broken `demo()` produced a green suite. That is
-    how `clickllm.prove.receipt.demo()` sat broken for a full CI cycle: it
+    how `onpar.prove.receipt.demo()` sat broken for a full CI cycle: it
     asserted "altered" against a receipt now refused earlier and more
     specifically, and the harness turned the failure into a skip.
 
     CLAUDE.md says every module carries an assert-based `demo()` runnable via
-    `python -m clickllm.<mod>`. This is the test that says so.
+    `python -m onpar.<mod>`. This is the test that says so.
     """
     mod = importlib.import_module(name)
     mod.demo()

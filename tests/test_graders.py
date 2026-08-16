@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.prove.graders import _NOT_JSON, EvalItem, Outcome, _parse_json, grade
+from onpar.prove.graders import _NOT_JSON, EvalItem, Outcome, _parse_json, grade
 
 
 def score(baseline: str, candidate: str, grader: str) -> tuple[Outcome, str]:

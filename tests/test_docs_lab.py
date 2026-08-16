@@ -6,7 +6,7 @@ teaching tool that contradicts the tool teaches the wrong lesson twice, and it
 would drift silently because nothing else reads the page.
 
 So this parses the model specs and the arithmetic out of the page and checks
-both against `clickllm.catalog` and `clickllm.fit`.
+both against `onpar.catalog` and `onpar.fit`.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import catalog
+from onpar import catalog
 
 PAGE = Path(__file__).resolve().parents[1] / "site" / "docs" / "index.html"
 GB = 1024**3
@@ -100,8 +100,8 @@ def test_the_lab_quant_bits_match_the_catalogue(quant, bits):
 
 def test_the_lab_totals_match_a_real_solve():
     """End to end, against the actual solver rather than a re-derivation."""
-    from clickllm.fit import solve
-    from clickllm.hardware import Hardware
+    from onpar.fit import solve
+    from onpar.hardware import Hardware
 
     hw_row = next(h for h in lab_hardware() if "M4 Max" in h["name"])
     hw = Hardware(
@@ -176,8 +176,8 @@ def test_the_silicon_diagram_matches_a_real_solve():
     fact. Both came from `fit.solve`, and nothing else reads a picture — so
     without this they go stale the first time the catalogue moves, and the
     teaching artefact quietly starts contradicting the tool it teaches."""
-    from clickllm.fit import solve
-    from clickllm.hardware_catalog import get
+    from onpar.fit import solve
+    from onpar.hardware_catalog import get
 
     c = silicon_consts()
     hw = get("h100").to_hardware()
@@ -196,8 +196,8 @@ def test_the_silicon_diagram_matches_a_real_solve():
 def test_the_batch_ceiling_is_where_the_solver_says_it_is():
     """18 is not a round number someone liked — it is max_concurrency, and the
     19 beside it is the first batch that genuinely does not fit."""
-    from clickllm.fit import max_concurrency
-    from clickllm.hardware_catalog import get
+    from onpar.fit import max_concurrency
+    from onpar.hardware_catalog import get
 
     c = silicon_consts()
     ceiling = max_concurrency(catalog.get("qwen3-32b"), "q8", get("h100").to_hardware(), 8192)
@@ -554,12 +554,12 @@ def _rust_test_count(root: Path, cargo: str) -> int | None:
 
 def _cli_commands() -> set[str]:
     """Every subcommand the CLI actually registers."""
-    from clickllm import cli
+    from onpar import cli
 
     parser = cli.build_parser() if hasattr(cli, "build_parser") else None
     if parser is None:  # fall back to asking the CLI itself
         out = subprocess.run(
-            [sys.executable, "-m", "clickllm.cli", "--help"],
+            [sys.executable, "-m", "onpar.cli", "--help"],
             capture_output=True,
             text=True,
             cwd=Path(__file__).resolve().parents[1],
@@ -579,22 +579,22 @@ def _cli_commands() -> set[str]:
     "page", [Path("site/docs/index.html"), Path("site/index.html"), Path("README.md")]
 )
 def test_every_command_the_docs_tell_you_to_run_exists(page):
-    """A `$ clickllm X` in a code block is an instruction, not prose.
+    """A `$ onpar X` in a code block is an instruction, not prose.
 
     The docs shipped eight that were never implemented — `switch`, `cutover`,
     `deploy`, `tune`, `pack`, `pull`, `push`, and `explain` (which is a flag on
-    `fit`, not a subcommand). The kiosk walkthrough *opened* with `clickllm
+    `fit`, not a subcommand). The kiosk walkthrough *opened* with `onpar
     switch`, so the first thing a reader was told to type did not exist.
 
-    Only shell-prompt occurrences count. Prose like "clickllm picks the highest
+    Only shell-prompt occurrences count. Prose like "onpar picks the highest
     precision" is English, and matching it would make this unfixable noise.
     """
     root = Path(__file__).resolve().parents[1]
     text = (root / page).read_text()
     real = _cli_commands()
 
-    # `$ clickllm <cmd>` — the shell-prompt form, in HTML or fenced markdown.
-    told = {m.group(1) for m in re.finditer(r"\$\s*(?:uvx\s+)?clickllm\s+([a-z][a-z0-9-]*)", text)}
+    # `$ onpar <cmd>` — the shell-prompt form, in HTML or fenced markdown.
+    told = {m.group(1) for m in re.finditer(r"\$\s*(?:uvx\s+)?onpar\s+([a-z][a-z0-9-]*)", text)}
     unknown = sorted(told - real)
     assert not unknown, (
         f"{page} tells the reader to run commands that do not exist: {unknown}. "
@@ -607,28 +607,28 @@ def test_every_command_the_docs_tell_you_to_run_exists(page):
 #: Names of OUR OWN distributions that have actually been published, anywhere a
 #: reader could install them from — PyPI, a Homebrew tap, a registry.
 #:
-#: One entry, and it is the whole list. `clickllm-cli` is on PyPI;
-#: `https://pypi.org/pypi/clickllm/json` is still a **404** and so is
-#: `clickllm-core`, and `dshakes/homebrew-tap` still carries only `compass.rb`,
-#: `distil.rb` and `firstpass-proxy.rb` — no clickllm formula. Publishing
+#: One entry, and it is the whole list. Nothing is on PyPI yet:
+#: `https://pypi.org/pypi/onpar/json` is still a **404** and so is
+#: `onpar-core`, and `dshakes/homebrew-tap` still carries only `compass.rb`,
+#: `distil.rb` and `firstpass-proxy.rb` — no onpar formula. Publishing
 #: something means adding it here, which is the point: the constant is the claim,
 #: and the test is what makes stating it falsely cost something.
-PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"clickllm-cli", "clickllm"})
+PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"onpar"})
 #: A flat set of names cannot express what is actually true, because the answer
-#: depends on the registry: `clickllm` is live on npm and a 404 on PyPI, so the
+#: depends on the registry: `onpar` is live on npm and a 404 on PyPI, so the
 #: same token is correct after `npx` and wrong after `uvx`. Keyed by the verb's
-#: registry instead — otherwise adding `npx clickllm` to the docs would have had
-#: to whitelist the bare name everywhere, re-permitting the `uvx clickllm` line
+#: registry instead — otherwise adding `npx onpar` to the docs would have had
+#: to whitelist the bare name everywhere, re-permitting the `uvx onpar` line
 #: this whole check exists to forbid.
 PUBLISHED_BY_REGISTRY: dict[str, frozenset[str]] = {
-    "pypi": frozenset({"clickllm-cli"}),
-    # Published 2026-07-30, verified by running `npx clickllm@0.1.5 version`.
-    "npm": frozenset({"clickllm"}),
+    "pypi": frozenset({"onpar"}),
+    # Published 2026-07-30, verified by running `npx onpar@0.1.5 version`.
+    "npm": frozenset({"onpar"}),
 }
-#: Published 2026-07-30 and verified by installing it: `uvx --from clickllm-cli
-#: clickllm fit` ran. `clickllm` itself is NOT in here and cannot be — PyPI
+#: Published 2026-07-30 and verified by installing it: `uvx --from onpar
+#: onpar fit` ran. `onpar` itself is NOT in here and cannot be — PyPI
 #: refused it as too similar to the existing `click-llm`. The distribution is
-#: `clickllm-cli`; the console script is `clickllm`.
+#: `onpar`; the console script is `onpar`.
 
 #: Surfaces that tell a reader how to install. install.sh is included because it
 #: is served live from the docs site and is executed verbatim by a `curl | sh`.
@@ -649,7 +649,7 @@ INSTALL_SURFACES = (
 _INSTALL_VERB = re.compile(
     r"\b(?:pip3?\s+install|python3?\s+-m\s+pip\s+install|pipx\s+install"
     r"|uv\s+tool\s+install|uvx|brew\s+install|docker\s+run"
-    # npx was absent, so every `npx clickllm` line in the docs went unchecked —
+    # npx was absent, so every `npx onpar` line in the docs went unchecked —
     # including the four releases' worth that said it 404s when it did not.
     r"|npx|npm\s+(?:install|i)\s+-g)\b"
 )
@@ -661,9 +661,9 @@ def _registry_of(verb: str) -> str:
 
 
 #: Anything that looks like one of our distribution or image names, including the
-#: tap-qualified (`dshakes/tap/clickllm`) and registry-qualified
-#: (`ghcr.io/dshakes/clickllm:latest`) forms.
-_OUR_NAME = re.compile(r"[\w./-]*clickllm[\w.-]*")
+#: tap-qualified (`dshakes/tap/onpar`) and registry-qualified
+#: (`ghcr.io/dshakes/onpar:latest`) forms.
+_OUR_NAME = re.compile(r"[\w./-]*onpar[\w.-]*")
 
 
 def _install_registry(line: str) -> str:
@@ -677,9 +677,9 @@ def _install_targets(line: str) -> set[str]:
 
     Only the token in *package position* counts. Everything else on the line is
     annotation, and this distinction became load-bearing the moment the two names
-    diverged: the distribution is `clickllm-cli`, the command it installs is
-    `clickllm`, so `uvx --from clickllm-cli clickllm fit` and
-    `uv tool install clickllm-cli  # puts clickllm on your PATH` are both correct
+    diverged: the distribution is `onpar`, the command it installs is
+    `onpar`, so `uvx --from onpar onpar fit` and
+    `uv tool install onpar  # puts onpar on your PATH` are both correct
     while containing the bare name. Scanning the whole line called them broken and
     made the correct instruction unwritable.
 
@@ -698,7 +698,7 @@ def _install_targets(line: str) -> set[str]:
         return {n for t in tokens for n in _OUR_NAME.findall(t)}
     if not tokens:
         return set()
-    # `npx clickllm@0.1.5` names the package `clickllm`; the pin is not part of it.
+    # `npx onpar@0.1.5` names the package `onpar`; the pin is not part of it.
     return set(_OUR_NAME.findall(tokens[0].split("@")[0]))
 
 
@@ -707,11 +707,11 @@ def _instruction_text(path: Path) -> str:
 
     Markdown: fenced blocks only. HTML: everything except inline `<code>` spans.
     Shell: everything except `#` comments. All three follow the rule the sibling
-    test above settled on — "`pip install clickllm` fails" is a *sentence about* a
+    test above settled on — "`pip install onpar` fails" is a *sentence about* a
     broken command, and a check that cannot tell it from the command itself makes
     the failure unfixable, because the fix is to write the sentence. The shell
     carve-out is the one that was missing: install.sh's header comment explains
-    why the distribution is `clickllm-cli`, and that explanation has to name the
+    why the distribution is `onpar`, and that explanation has to name the
     bare form it is warning you off.
     """
     text = path.read_text()
@@ -728,16 +728,16 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
 
     The README, the landing page's install-method tabs (uvx / Homebrew / pip /
     git) and `install.sh` all told the reader to install a package name that has
-    never existed: `https://pypi.org/pypi/clickllm/json` returns **404**, and so
-    does `clickllm-core`. `brew install dshakes/tap/clickllm` resolves to no
-    formula. `ghcr.io/dshakes/clickllm` is not a published image. A reader's
+    never existed: `https://pypi.org/pypi/onpar/json` returns **404**, and so
+    does `onpar-core`. `brew install dshakes/tap/onpar` resolves to no
+    formula. `ghcr.io/dshakes/onpar` is not a published image. A reader's
     first contact with this project was a command that failed, and nothing in a
-    green suite objected — the sibling test above checks that `clickllm fit` is a
-    real *subcommand*, never that `clickllm` is a real *package*.
+    green suite objected — the sibling test above checks that `onpar fit` is a
+    real *subcommand*, never that `onpar` is a real *package*.
 
     A name is only allowed if we have actually published it
-    (`PUBLISHED_PACKAGE_NAMES` — `clickllm-cli`, and nothing else; the bare
-    `clickllm` is not on PyPI and cannot be, because PyPI refused it as too close
+    (`PUBLISHED_PACKAGE_NAMES` — `onpar`, and nothing else; the bare
+    `onpar` is not on PyPI and cannot be, because PyPI refused it as too close
     to `click-llm`). A `git+…` source is always allowed, because it resolves
     against this repository and cannot go stale while the repository exists.
 
@@ -756,8 +756,8 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
         ours = _install_targets(line)
         if not ours or "git+" in line:
             continue
-        # Per registry, not per name: `clickllm` is live on npm and a 404 on
-        # PyPI, so `npx clickllm` is correct and `uvx clickllm` never will be.
+        # Per registry, not per name: `onpar` is live on npm and a 404 on
+        # PyPI, so `npx onpar` is correct and `uvx onpar` never will be.
         reg = _install_registry(line)
         live = PUBLISHED_BY_REGISTRY[reg]
         unpublished = sorted(n for n in ours if n not in live)
@@ -766,15 +766,15 @@ def test_every_install_command_the_docs_publish_names_something_obtainable(page)
     assert not offenders, (
         f"{page} tells the reader to install something we have never published "
         f"on that registry. Use the git form "
-        f"(`--from git+https://github.com/dshakes/clickllm`), or add the name to "
+        f"(`--from git+https://github.com/dshakes/onpar`), or add the name to "
         f"PUBLISHED_BY_REGISTRY once it is genuinely there:\n  " + "\n  ".join(offenders)
     )
 
 
 def test_the_served_installer_is_the_repo_installer():
     """`site/install.sh` is what `curl … | sh` fetches; `install.sh` is what gets
-    edited. They drifted, and the served copy kept `pipx install clickllm`,
-    `brew install dshakes/tap/clickllm` and `pip install --user clickllm` after
+    edited. They drifted, and the served copy kept `pipx install onpar`,
+    `brew install dshakes/tap/onpar` and `pip install --user onpar` after
     the real one was fixed — so the installer people actually run stayed broken
     while the repo's looked correct.
 
@@ -790,12 +790,12 @@ def test_the_served_installer_is_the_repo_installer():
 
 
 def test_the_npm_wrapper_pins_the_python_version_it_runs():
-    """`npx clickllm@X` must run exactly clickllm-cli X.
+    """`npx onpar@X` must run exactly onpar X.
 
     The npm package is a shim over the PyPI distribution. Two published surfaces
     that can drift is the defect that already produced `install.sh` vs
     `site/install.sh`, where the served installer kept broken commands after the
-    reviewed one was fixed. Here the cost would be worse: `npx clickllm@0.1.1`
+    reviewed one was fixed. Here the cost would be worse: `npx onpar@0.1.1`
     silently executing a different version of the tool.
 
     So the npm version tracks pyproject, and the shim pins `==` rather than a
@@ -807,12 +807,12 @@ def test_the_npm_wrapper_pins_the_python_version_it_runs():
     assert m, "no version in pyproject.toml"
     assert pkg["version"] == m.group(1), (
         f"npm says {pkg['version']}, pyproject says {m.group(1)} — "
-        "`npx clickllm@X` would not run clickllm-cli X"
+        "`npx onpar@X` would not run onpar X"
     )
 
-    shim = (root / "npm" / "bin" / "clickllm.js").read_text()
-    assert "clickllm-cli==${version}" in shim, "the spec must be pinned with ==, not a range"
-    assert pkg["bin"] == {"clickllm": "bin/clickllm.js"}, "the command must stay `clickllm`"
+    shim = (root / "npm" / "bin" / "onpar.js").read_text()
+    assert "onpar==${version}" in shim, "the spec must be pinned with ==, not a range"
+    assert pkg["bin"] == {"onpar": "bin/onpar.js"}, "the command must stay `onpar`"
 
 
 def test_the_npm_shim_does_not_reimplement_the_tool():
@@ -822,7 +822,7 @@ def test_the_npm_shim_does_not_reimplement_the_tool():
     a context length is.
     """
     root = Path(__file__).resolve().parents[1]
-    shim = (root / "npm" / "bin" / "clickllm.js").read_text().lower()
+    shim = (root / "npm" / "bin" / "onpar.js").read_text().lower()
     for leaked in ("quant", "context", "concurrency", "gguf", "kv cache", "tokens_per_sec"):
         assert leaked not in shim, (
             f"the npm shim mentions {leaked!r} — it is starting to reimplement the CLI"
@@ -916,7 +916,7 @@ def _reader_visible(path: Path) -> str:
 def test_no_page_claims_a_published_package_is_unpublished(page):
     """The mirror of the check above, and the direction nothing covered.
 
-    `npx clickllm` shipped in 0.1.2. Four releases later the README, the landing
+    `npx onpar` shipped in 0.1.2. Four releases later the README, the landing
     page's npx tab and the docs site all still said "arrives with the next
     release", "not on npm yet", "a 404 today". The sibling test polices claiming
     MORE than we have published; claiming LESS produced no failure anywhere,
@@ -938,14 +938,14 @@ def test_no_page_claims_a_published_package_is_unpublished(page):
             r"arrives with the next release",
             r"lands with the next release",
             r"not on npm yet",
-            r"npx clickllm</code>? is a 404",
-            r"npx clickllm.{0,20}404",
+            r"npx onpar</code>? is a 404",
+            r"npx onpar.{0,20}404",
         )
         if re.search(pat, text, re.I)
     ]
     assert not stale, (
-        f"{page} still says clickllm is unpublished, but it is live on npm "
-        f"(and clickllm-cli on PyPI). Stale caution is not free — it sends "
+        f"{page} still says onpar is unpublished, but it is live on npm "
+        f"(and onpar on PyPI). Stale caution is not free — it sends "
         f"readers away from an install path that works: {stale}"
     )
 
@@ -953,7 +953,7 @@ def test_no_page_claims_a_published_package_is_unpublished(page):
 def test_version_pins_in_the_docs_match_the_version_we_ship():
     """A pinned example is a published number, and published numbers drift here.
 
-    `uvx --from clickllm-cli==0.1.5` and `npx clickllm@0.1.5` are worth showing —
+    `uvx --from onpar==0.1.5` and `npx onpar@0.1.5` are worth showing —
     they are how a reader freezes a build — but they are also four more copies of
     a fact that lives in pyproject.toml. Every other copy of a number in this repo
     drifted before something checked it, including the one in CLAUDE.md that read
@@ -967,7 +967,7 @@ def test_version_pins_in_the_docs_match_the_version_we_ship():
     wrong = []
     for page in INSTALL_SURFACES:
         text = (root / page).read_text()
-        for pat in (r"clickllm-cli==(\d+\.\d+\.\d+)", r"clickllm@(\d+\.\d+\.\d+)"):
+        for pat in (r"onpar==(\d+\.\d+\.\d+)", r"onpar@(\d+\.\d+\.\d+)"):
             for found in set(re.findall(pat, text)):
                 if found != ours:
                     wrong.append(f"{page}: pins {found}, we ship {ours}")
@@ -1088,10 +1088,10 @@ def _fictional_engine_offenders(root: Path, surfaces: list[Path]) -> list[str]:
     return offenders
 
 
-def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
+def test_no_published_surface_names_an_engine_onpar_cannot_launch():
     """The diagrams outlived the code by a release.
 
-    `clickllm fit` stopped recommending `vllm-mlx` and `mlc-llm` in #65, but
+    `onpar fit` stopped recommending `vllm-mlx` and `mlc-llm` in #65, but
     `architecture.svg`, `e2e.svg`, seven docs pages and both site copies kept
     naming them — so a reader saw them in the picture after they left the
     product.
@@ -1101,7 +1101,7 @@ def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
     plugin under the vllm-project org that runs vLLM on Apple silicon with MLX
     as the compute backend, and MLC-LLM is a real project. What was true is
     narrower — `vllm-mlx` is not the plugin's name, and neither has an adapter
-    here, so `clickllm run` could not start either one. Unlaunchable is not the
+    here, so `onpar run` could not start either one. Unlaunchable is not the
     same as fictional, and a diagram promising something the tool cannot do is
     wrong for that reason alone.
 
@@ -1112,8 +1112,8 @@ def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
     Docstrings that RECOUNT the history are exempt: `fit.recommend_runtime`
     explains what the command used to print, and that sentence has to name it.
     """
-    from clickllm.engines import adapter_for
-    from clickllm.plan import Engine
+    from onpar.engines import adapter_for
+    from onpar.plan import Engine
 
     root = Path(__file__).resolve().parents[1]
     launchable = {str(e).lower() for e in Engine if adapter_for(str(e)) is not None}
@@ -1131,11 +1131,11 @@ def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
         + list((root / "site").rglob("*.svg"))
         + [root / "site" / "index.html", root / "site" / "docs" / "index.html", root / "README.md"]
         # The skills too. The reviewer found `vllm-mlx` alive in
-        # `.claude/skills/clickllm/SKILL.md` after this PR had corrected the
+        # `.claude/skills/onpar/SKILL.md` after this PR had corrected the
         # diagrams, the docs and the site — the same defect surviving in the one
         # surface the check did not look at, which is how it got everywhere in
         # the first place. An agent reads this file to learn how to drive
-        # clickllm, so a wrong engine here is acted on rather than merely read.
+        # onpar, so a wrong engine here is acted on rather than merely read.
         + list((root / ".claude").rglob("*.md"))
     )
     offenders = [
@@ -1146,15 +1146,15 @@ def test_no_published_surface_names_an_engine_clickllm_cannot_launch():
         if name in p.read_text()
     ]
     assert not offenders, (
-        "published surfaces promise an engine clickllm has no adapter for, so "
-        "`clickllm run` would refuse it:\n  " + "\n  ".join(offenders)
+        "published surfaces promise an engine onpar has no adapter for, so "
+        "`onpar run` would refuse it:\n  " + "\n  ".join(offenders)
     )
 
 
 def test_every_published_engine_count_matches_the_adapters_that_exist():
     """ "Five engines" outlived shipping seven, in three places at once.
 
-    Sibling of `test_no_published_surface_names_an_engine_clickllm_cannot_launch`:
+    Sibling of `test_no_published_surface_names_an_engine_onpar_cannot_launch`:
     that one catches a surface naming an engine we cannot launch, and this one
     catches a surface *counting* them wrong. The count went stale on its own
     because nothing was watching it — llama.cpp, Ollama and llm-d landed and the
@@ -1162,8 +1162,8 @@ def test_every_published_engine_count_matches_the_adapters_that_exist():
 
     A number in prose rots more quietly than a name does: nobody greps for it.
     """
-    from clickllm.engines import adapter_for
-    from clickllm.plan import Engine
+    from onpar.engines import adapter_for
+    from onpar.plan import Engine
 
     launchable = {str(e).lower() for e in Engine if adapter_for(str(e)) is not None}
     expected = len(launchable)
@@ -1226,9 +1226,9 @@ def test_every_published_throughput_figure_matches_a_real_solve():
     invocation it shows. If a figure moves, either the docs change or this list
     does — but the two cannot drift apart in silence.
     """
-    from clickllm import catalog
-    from clickllm.fit import solve
-    from clickllm.hardware import Hardware
+    from onpar import catalog
+    from onpar.fit import solve
+    from onpar.hardware import Hardware
 
     m4 = Hardware(
         kind="apple",
@@ -1261,7 +1261,7 @@ def test_every_published_throughput_figure_matches_a_real_solve():
 def test_the_homebrew_formula_is_not_still_a_placeholder():
     """`brew install` had never worked, for ten releases, silently.
 
-    `Formula/clickllm.rb` shipped with `sha256 "000…0"` and a v0.1.0 URL while
+    `Formula/onpar.rb` shipped with `sha256 "000…0"` and a v0.1.0 URL while
     the repo released up to v0.1.9. An all-zero digest fails Homebrew's checksum
     verification on every install, so the formula was not merely stale — it had
     never once resolved.
@@ -1277,7 +1277,7 @@ def test_the_homebrew_formula_is_not_still_a_placeholder():
     that is still the placeholder means no release has ever populated it.
     """
     root = Path(__file__).resolve().parents[1]
-    formula = root / "Formula" / "clickllm.rb"
+    formula = root / "Formula" / "onpar.rb"
     if not formula.exists():
         pytest.skip("no Homebrew formula in this repo")
     text = formula.read_text()
@@ -1380,11 +1380,11 @@ def test_no_diagram_declares_a_css_length_without_a_unit():
 
 def test_the_readme_does_not_deny_a_datapath_the_workspace_ships():
     """ADR-0015. The README's *What it is not* table said "Nothing sits in your
-    request path" while `clickllm-gateway` — a proxy, a router, a token meter and
+    request path" while `onpar-gateway` — a proxy, a router, a token meter and
     an SSE inspector, 26 tests including real-TCP ones — sat in the workspace.
 
     It was survivable only because nothing ran the gateway: no `[[bin]]`, no CLI
-    command. The claim became false the moment `clickllm observe` shipped, and
+    command. The claim became false the moment `onpar observe` shipped, and
     the failure mode of a wrong row in that table is a reader putting this in
     front of production traffic on the strength of it.
 
@@ -1392,7 +1392,7 @@ def test_the_readme_does_not_deny_a_datapath_the_workspace_ships():
     migration is in flight, with leaving as the terminal state.
     """
     root = Path(__file__).resolve().parents[1]
-    gateway = root / "clickllm-gateway" / "src" / "proxy.rs"
+    gateway = root / "onpar-gateway" / "src" / "proxy.rs"
     if not gateway.exists():
         pytest.skip("no datapath crate in this workspace; the denial would be true")
 
@@ -1411,7 +1411,7 @@ def test_the_readme_does_not_deny_a_datapath_the_workspace_ships():
 def test_the_datapath_boundary_is_stated_where_a_reader_will_look():
     """The other half: removing the false claim is not the same as making the
     true one. A reader scanning *What it is not* has to come away knowing both
-    that clickllm enters the path and that it leaves."""
+    that onpar enters the path and that it leaves."""
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text()
     assert "Not a load balancer" in readme
@@ -1430,8 +1430,8 @@ def test_the_readme_quotes_output_the_code_actually_prints():
     """
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text()
-    cli = (root / "src" / "clickllm" / "cli.py").read_text()
-    main_rs = (root / "clickllm-gateway" / "src" / "main.rs").read_text()
+    cli = (root / "src" / "onpar" / "cli.py").read_text()
+    main_rs = (root / "onpar-gateway" / "src" / "main.rs").read_text()
 
     assert "In your request path from now until Ctrl-C" in readme
     assert "In your request path from now until Ctrl-C" in cli, (
@@ -1466,15 +1466,15 @@ def test_the_skill_covers_every_command_and_tool_it_claims_to():
     It described only `fit` for the whole of the prove/receipt/guard era.
     """
     root = Path(__file__).resolve().parents[1]
-    skill = (root / ".claude" / "skills" / "clickllm" / "SKILL.md").read_text()
+    skill = (root / ".claude" / "skills" / "onpar" / "SKILL.md").read_text()
 
-    from clickllm import mcp
+    from onpar import mcp
 
     missing = [name for name in mcp.TOOLS if name not in skill]
     assert not missing, f"the skill never mentions {missing}"
 
     for cmd in ("observe", "distill", "prove", "receipt", "guard", "where", "fit"):
-        assert f"clickllm {cmd}" in skill, f"the skill never shows `clickllm {cmd}`"
+        assert f"onpar {cmd}" in skill, f"the skill never shows `onpar {cmd}`"
 
 
 def test_the_skill_states_the_two_things_a_model_will_otherwise_get_wrong():
@@ -1485,7 +1485,7 @@ def test_the_skill_states_the_two_things_a_model_will_otherwise_get_wrong():
     malfunction rather than as the answer.
     """
     skill = (
-        Path(__file__).resolve().parents[1] / ".claude" / "skills" / "clickllm" / "SKILL.md"
+        Path(__file__).resolve().parents[1] / ".claude" / "skills" / "onpar" / "SKILL.md"
     ).read_text()
     assert "whole confidence interval" in skill
     assert "not a bug" in skill, "a model must be told that a refusal is an answer"
@@ -1501,7 +1501,7 @@ def test_the_readme_lists_every_mcp_tool_that_exists():
     read as complete. It was six tools for a while after there were nine — and
     the omission is invisible: nothing links the block to the registry.
     """
-    from clickllm import mcp
+    from onpar import mcp
 
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
     missing = [name for name in mcp.TOOLS if name not in readme]
@@ -1510,18 +1510,18 @@ def test_the_readme_lists_every_mcp_tool_that_exists():
 
 def test_no_document_names_an_mcp_tool_that_does_not_exist():
     """The README is not the only file with a tool list. `docs/40-ux.md` carried
-    four names that were never implemented — including a `clickllm_cutover_status`
+    four names that were never implemented — including a `onpar_cutover_status`
     that *cannot* exist, since the boundary test rejects the substring. A design
     doc describing a surface nobody built reads exactly like one describing the
     surface that shipped.
     """
-    from clickllm import mcp
+    from onpar import mcp
 
     root = Path(__file__).resolve().parents[1]
     forbidden = ("cutover", "apply", "promote", "advance", "rollout", "deploy", "serve", "route")
-    for rel in ("README.md", "docs/40-ux.md", ".claude/skills/clickllm/SKILL.md"):
+    for rel in ("README.md", "docs/40-ux.md", ".claude/skills/onpar/SKILL.md"):
         text = (root / rel).read_text()
-        named = set(re.findall(r"\bclickllm_[a-z_]+\b", text))
+        named = set(re.findall(r"\bonpar_[a-z_]+\b", text))
         # Names carrying a forbidden verb are being cited as things that must
         # not exist, not advertised. The registry containing one would fail the
         # read-only boundary test instead.
@@ -1533,14 +1533,14 @@ def test_no_document_names_an_mcp_tool_that_does_not_exist():
 def test_the_readme_does_not_advertise_a_tool_that_was_removed():
     """The other direction. A tool named in the README and absent from the
     registry is a promise the build no longer keeps."""
-    from clickllm import mcp
+    from onpar import mcp
 
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
-    advertised = set(re.findall(r"\bclickllm_[a-z_]+\b", readme))
+    advertised = set(re.findall(r"\bonpar_[a-z_]+\b", readme))
     assert advertised, "no tools named at all; the check would be vacuous"
 
-    # `clickllm_promote` is named on purpose, as the example of the tool that
-    # must never exist — "someone adding a helpful-looking clickllm_promote and
+    # `onpar_promote` is named on purpose, as the example of the tool that
+    # must never exist — "someone adding a helpful-looking onpar_promote and
     # nothing objecting". Any name carrying a forbidden verb is being cited,
     # not advertised, and a registry that actually contained one would fail the
     # read-only boundary test rather than this one.
@@ -1562,11 +1562,11 @@ def test_every_command_the_readme_names_is_a_command_that_exists():
 
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text()
-    named = set(re.findall(r"`clickllm ([a-z][a-z-]*)`", readme))
+    named = set(re.findall(r"`onpar ([a-z][a-z-]*)`", readme))
     assert named, "no commands named; the check would be vacuous"
 
     out = subprocess.run(
-        [sys.executable, "-m", "clickllm.cli", "--help"],
+        [sys.executable, "-m", "onpar.cli", "--help"],
         capture_output=True,
         text=True,
         cwd=root,
@@ -1609,7 +1609,7 @@ def test_the_published_latency_figure_matches_the_test_that_measures_it():
     budget rather than merely printing a number.
     """
     root = Path(__file__).resolve().parents[1]
-    src = (root / "clickllm-gateway" / "tests" / "latency.rs").read_text()
+    src = (root / "onpar-gateway" / "tests" / "latency.rs").read_text()
     assert "BUDGET_MS: f64 = 15.0" in src, "the budget the docs cite is not the one enforced"
     assert "added_recording < BUDGET_MS" in src, "the measurement no longer asserts the budget"
     # The control matters as much as the measurement: without it, a passing
@@ -1640,9 +1640,9 @@ def test_every_intra_workspace_dependency_pin_matches_the_workspace_version():
     want = workspace.group(1)
 
     wrong = []
-    for manifest in sorted(root.glob("clickllm-*/Cargo.toml")):
+    for manifest in sorted(root.glob("onpar-*/Cargo.toml")):
         for dep, pin in re.findall(
-            r'(clickllm-[a-z]+) = \{ path = "[^"]+", version = "([^"]+)"', manifest.read_text()
+            r'(onpar-[a-z]+) = \{ path = "[^"]+", version = "([^"]+)"', manifest.read_text()
         ):
             if pin != want:
                 wrong.append(f"{manifest.name}: {dep} pinned {pin}, workspace is {want}")
@@ -1686,7 +1686,7 @@ def test_the_readme_saving_example_is_reproducible():
     import pathlib
     import re
 
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     readme = (pathlib.Path(__file__).parent.parent / "README.md").read_text()
     shown = re.search(r"^\s*(Saving: \$[\d,]+–\$[\d,]+/mo .+)$", readme, re.M)
@@ -1738,8 +1738,8 @@ def test_the_readme_fit_table_is_what_the_solver_prints():
     import re
     from contextlib import redirect_stdout
 
-    from clickllm import cli, hardware
-    from clickllm.hardware import Hardware
+    from onpar import cli, hardware
+    from onpar.hardware import Hardware
 
     gb = 1024**3
     machine = Hardware(
@@ -1787,7 +1787,7 @@ def test_the_teaching_table_agrees_with_the_roofline_it_teaches():
     """The bandwidth table taught arithmetic the tool does not do.
 
     The paragraph under it says to divide bandwidth by model size, and calls
-    that division "what `clickllm fit` reports". Three rows shipped that
+    that division "what `onpar fit` reports". Three rows shipped that
     followed neither rule: 60 GB/s over a 30 GB model was published as ~2 tok/s
     (raw division), while 546 and 3,350 GB/s were published as ~15 and ~90,
     which is neither the raw ceiling (18.2, 111.7) nor the derated figure the
@@ -1799,7 +1799,7 @@ def test_the_teaching_table_agrees_with_the_roofline_it_teaches():
     here: the ceiling is division, the real figure carries
     BANDWIDTH_EFFICIENCY, and the page must state both.
     """
-    from clickllm.fit import BANDWIDTH_EFFICIENCY
+    from onpar.fit import BANDWIDTH_EFFICIENCY
 
     text = PAGE.read_text()
     model_gb = 30.0

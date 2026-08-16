@@ -55,7 +55,7 @@
 <text class="m" x="88" y="516" fill="#8b949e">Coverage: incomplete — 2 cluster(s) unresolved</text>
 <text class="m" x="88" y="536" fill="#8b949e">Judge: none used — every claim from deterministic graders</text>
 
-<text class="m" x="88" y="572" fill="#6e7681">$ clickllm receipt ./receipt.json   # anyone can re-verify</text>
+<text class="m" x="88" y="572" fill="#6e7681">$ onpar receipt ./receipt.json   # anyone can re-verify</text>
 
 <!-- ============ why it is defensible ============ -->
 <text class="t kick" x="772" y="170">WHY IT IS DEFENSIBLE</text>

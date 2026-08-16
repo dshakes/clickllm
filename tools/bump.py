@@ -50,33 +50,33 @@ SURFACES: tuple[tuple[str, str, str], ...] = (
     # all green — which is to say, this project could never have released a
     # 1.0.0 without discovering it the hard way.
     (
-        "clickllm-gateway/Cargo.toml",
+        "onpar-gateway/Cargo.toml",
         "core dep pin",
-        rf'(clickllm-core = \{{ path = "\.\./clickllm-core", version = ")({_V})(")',
+        rf'(onpar-core = \{{ path = "\.\./onpar-core", version = ")({_V})(")',
     ),
     (
-        "clickllm-py/Cargo.toml",
+        "onpar-py/Cargo.toml",
         "core dep pin",
-        rf'(clickllm-core = \{{ path = "\.\./clickllm-core", version = ")({_V})(")',
+        rf'(onpar-core = \{{ path = "\.\./onpar-core", version = ")({_V})(")',
     ),
     (
-        "clickllm-py/Cargo.toml",
+        "onpar-py/Cargo.toml",
         "gateway dep pin",
-        rf'(clickllm-gateway = \{{ path = "\.\./clickllm-gateway", version = ")({_V})(")',
+        rf'(onpar-gateway = \{{ path = "\.\./onpar-gateway", version = ")({_V})(")',
     ),
     # Install pins — examples a reader copies. These must name the new release.
-    ("README.md", "uvx pin", rf"(uvx --from clickllm-cli==)({_V})( clickllm fit)"),
-    ("README.md", "npx pin", rf"(npx clickllm@)({_V})( fit)"),
-    ("README.md", "npx prose pin", rf"(`npx clickllm@)({_V})(` runs)"),
-    ("README.md", "runs-exactly", rf"(runs `clickllm-cli` )({_V})( and nothing)"),
+    ("README.md", "uvx pin", rf"(uvx --from onpar==)({_V})( onpar fit)"),
+    ("README.md", "npx pin", rf"(npx onpar@)({_V})( fit)"),
+    ("README.md", "npx prose pin", rf"(`npx onpar@)({_V})(` runs)"),
+    ("README.md", "runs-exactly", rf"(runs `onpar` )({_V})( and nothing)"),
     ("README.md", "currently", rf"(fetch the newest release — currently \*\*)({_V})(\*\*)"),
-    ("site/index.html", "uvx pin", rf"(uvx --from clickllm-cli==)({_V})( clickllm fit)"),
-    ("site/index.html", "npx pin", rf"(npx clickllm@)({_V})( fit)"),
-    ("site/index.html", "npx note", rf"(runs clickllm-cli==)({_V})( exactly)"),
-    ("site/docs/index.html", "uvx pin", rf"(uvx --from clickllm-cli==)({_V})( clickllm fit)"),
-    ("site/docs/index.html", "npx pin", rf"(npx clickllm@)({_V})( fit)"),
-    ("site/docs/index.html", "npx note", rf"(<code>npx clickllm@)({_V})(</code> runs)"),
-    ("site/docs/index.html", "runs-exactly", rf"(<code>clickllm-cli</code> )({_V})( and nothing)"),
+    ("site/index.html", "uvx pin", rf"(uvx --from onpar==)({_V})( onpar fit)"),
+    ("site/index.html", "npx pin", rf"(npx onpar@)({_V})( fit)"),
+    ("site/index.html", "npx note", rf"(runs onpar==)({_V})( exactly)"),
+    ("site/docs/index.html", "uvx pin", rf"(uvx --from onpar==)({_V})( onpar fit)"),
+    ("site/docs/index.html", "npx pin", rf"(npx onpar@)({_V})( fit)"),
+    ("site/docs/index.html", "npx note", rf"(<code>npx onpar@)({_V})(</code> runs)"),
+    ("site/docs/index.html", "runs-exactly", rf"(<code>onpar</code> )({_V})( and nothing)"),
 )
 
 #: Occurrences that must NOT move, asserted so a future pattern cannot start

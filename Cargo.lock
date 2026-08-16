@@ -181,51 +181,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clickllm-core"
-version = "1.2.2"
-dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "clickllm-gateway"
-version = "1.2.2"
-dependencies = [
- "axum",
- "bytes",
- "chacha20poly1305",
- "clickllm-core",
- "futures-util",
- "http",
- "parking_lot",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "clickllm-py"
-version = "1.2.2"
-dependencies = [
- "clickllm-core",
- "clickllm-gateway",
- "pyo3",
- "serde_json",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -752,6 +707,51 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "onpar-core"
+version = "1.2.2"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "onpar-gateway"
+version = "1.2.2"
+dependencies = [
+ "axum",
+ "bytes",
+ "chacha20poly1305",
+ "futures-util",
+ "http",
+ "onpar-core",
+ "parking_lot",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "onpar-py"
+version = "1.2.2"
+dependencies = [
+ "onpar-core",
+ "onpar-gateway",
+ "pyo3",
+ "serde_json",
+]
 
 [[package]]
 name = "opaque-debug"

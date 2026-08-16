@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.distill.cluster import cluster as build_clusters
-from clickllm.distill.name import MAX_NAME, PROMPT, SAMPLE, acceptable, name_clusters
-from clickllm.distill.shape import Capture
+from onpar.distill.cluster import cluster as build_clusters
+from onpar.distill.name import MAX_NAME, PROMPT, SAMPLE, acceptable, name_clusters
+from onpar.distill.shape import Capture
 
 
 def _caps(*prompts: str, system: str = "you are helpful") -> list[Capture]:
@@ -130,7 +130,7 @@ def test_naming_is_off_unless_an_endpoint_is_given(monkeypatch):
     """It is the only step that sends captured prompts anywhere, so it is
     opt-in per run and never inferred from an endpoint configured for something
     else (NFR-2)."""
-    from clickllm import observe
+    from onpar import observe
 
     called: list[str] = []
     rows = [

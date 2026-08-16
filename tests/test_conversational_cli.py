@@ -1,11 +1,11 @@
-"""A bare `clickllm` opens a conversation — unless it would hang.
+"""A bare `onpar` opens a conversation — unless it would hang.
 
 `session.py` has been a complete multi-turn engine the whole time, and the
 browser has used it since the workbench conversation landed. The CLI, which is
 the surface most people meet first, answered a bare invocation with an argparse
 error listing twenty-six verbs.
 
-The load-bearing half of this is the refusal: a bare `clickllm` in a script, a
+The load-bearing half of this is the refusal: a bare `onpar` in a script, a
 Dockerfile or a CI step must keep failing exactly as it did rather than blocking
 forever on a read. A command that hangs in CI is a worse first minute than a
 usage error, and it is the kind of change discovered at 3am by someone who did
@@ -18,8 +18,8 @@ import builtins
 
 import pytest
 
-from clickllm import cli, hardware
-from clickllm.hardware import Hardware
+from onpar import cli, hardware
+from onpar.hardware import Hardware
 
 GB = 1024**3
 
@@ -60,7 +60,7 @@ def interactive(monkeypatch):
 
 def test_a_non_interactive_bare_invocation_still_fails_rather_than_hanging(monkeypatch, capsys):
     """This is the whole reason the TTY check exists. A script, a Dockerfile or
-    a CI step that runs `clickllm` with no arguments must keep exiting 2."""
+    a CI step that runs `onpar` with no arguments must keep exiting 2."""
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
 
     def explode(*_a, **_k):
@@ -73,7 +73,7 @@ def test_a_non_interactive_bare_invocation_still_fails_rather_than_hanging(monke
     # the one case that keeps 2 under the new split.
     assert cli.main([]) == 2
     err = capsys.readouterr().err
-    assert "usage: clickllm" in err
+    assert "usage: onpar" in err
     assert "the following arguments are required: cmd" in err
 
 
@@ -82,7 +82,7 @@ def test_the_non_interactive_message_is_the_one_it_always_printed(monkeypatch, c
     keeps working."""
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
     cli.main([])
-    assert "clickllm: error: the following arguments are required: cmd" in capsys.readouterr().err
+    assert "onpar: error: the following arguments are required: cmd" in capsys.readouterr().err
 
 
 def test_every_named_subcommand_still_works(monkeypatch, capsys):

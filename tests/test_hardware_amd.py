@@ -13,7 +13,7 @@ import stat
 
 import pytest
 
-from clickllm import hardware
+from onpar import hardware
 
 CARDS = {
     "card0": {"GPU ID": "0x74a1", "Card Series": "MI300X", "VRAM Total Memory (B)": "206158430208"},
@@ -182,10 +182,10 @@ def test_an_unbinned_chip_is_looked_up_plainly_with_no_caveat():
 
 def test_the_catalog_profile_agrees_with_what_detection_would_report():
     # The defect this pins: detection was lowered to the 410 GB/s bin for every
-    # M4 Max while the catalog kept `m4-max-128` at 546, so `clickllm build --on
+    # M4 Max while the catalog kept `m4-max-128` at 546, so `onpar build --on
     # m4-max-128` and a detected 128 GB M4 Max disagreed about the same machine.
     # One fact, two files — it has to be checked, not remembered.
-    from clickllm.hardware_catalog import get
+    from onpar.hardware_catalog import get
 
     for profile_id, chip in (("m4-max-128", "M4 Max"), ("m4-pro-48", "M4 Pro")):
         p = get(profile_id)

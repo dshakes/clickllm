@@ -7,7 +7,7 @@
 ### No config file. Ever. It reads your hardware, sizes the KV cache, picks the engine, sets the flags — and can show you the evidence that the model is good enough for *your* traffic.
 
 ```bash
-clickllm run qwen3-30b-a3b
+onpar run qwen3-30b-a3b
 ```
 
 **Behind that one line: the KV cache sized without getting MoE, GQA or MLA
@@ -21,9 +21,9 @@ answers per cluster with confidence intervals instead of a shrug.**
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
 [![tests](https://img.shields.io/badge/tests-2225-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
-[![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/clickllm/docs/)
+[![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/onpar/docs/)
 
-**[Site](https://dshakes.github.io/clickllm/) · [Docs](https://dshakes.github.io/clickllm/docs/) · [Agent-first](#agent-first-by-construction) · [Why](#why-this-exists) · [Quickstart](#try-it-in-ten-seconds) · [Roadmap](docs/50-roadmap.md)**
+**[Site](https://dshakes.github.io/onpar/) · [Docs](https://dshakes.github.io/onpar/docs/) · [Agent-first](#agent-first-by-construction) · [Why](#why-this-exists) · [Quickstart](#try-it-in-ten-seconds) · [Roadmap](docs/50-roadmap.md)**
 
 </div>
 
@@ -45,7 +45,7 @@ So why is anyone still paying? Two questions nobody can answer for you:
    exam. The model that tops MMLU may fail your extraction schema, and the
    one ranked fortieth may be perfect at your four tasks.
 
-clickllm answers both — on your hardware, on your traffic — and prints the
+onpar answers both — on your hardware, on your traffic — and prints the
 arithmetic so you can check it rather than trust it.
 
 <img src="docs/assets/gap-map.svg" alt="Bar chart: tools that solve each of six migration steps. Deployment has six; hardware fit has one; four steps have none." width="100%">
@@ -53,7 +53,7 @@ arithmetic so you can check it rather than trust it.
 ## Try it in ten seconds
 
 ```bash
-uvx --from clickllm-cli clickllm fit
+uvx --from onpar onpar fit
 ```
 
 No install, no config file, no account, no telemetry. It reads the machine
@@ -90,19 +90,19 @@ it is running on and tells you what fits:
              Apple silicon: the CUDA engines cannot run here at all. MLX has the better
              batching story of the two Metal options.
 
-  clickllm fit --explain <model-id>   # show the arithmetic
+  onpar fit --explain <model-id>   # show the arithmetic
 ```
 
-Every number carries its arithmetic. `clickllm fit --explain <model-id>`
+Every number carries its arithmetic. `onpar fit --explain <model-id>`
 shows the derivation for any row — weights, KV, overhead, headroom.
 
 ### Ask it in English instead
 
-Run `clickllm` bare and describe what you are building. It asks a question
+Run `onpar` bare and describe what you are building. It asks a question
 only when the answer would change the plan, and in a script or a CI step the
 same invocation stays a usage error rather than waiting on input:
 
-<img src="docs/assets/conversation.gif" alt="A real recording of a bare clickllm session: the user describes a support chatbot for 20 agents, the tool answers with model, quantisation and memory, shows which inference came from which words, states its assumptions, and asks one follow-up question. The user answers 32k token prompts and the context is understood with its provenance." width="100%">
+<img src="docs/assets/conversation.gif" alt="A real recording of a bare onpar session: the user describes a support chatbot for 20 agents, the tool answers with model, quantisation and memory, shows which inference came from which words, states its assumptions, and asks one follow-up question. The user answers 32k token prompts and the context is understood with its provenance." width="100%">
 
 ## The three ways sizing goes wrong
 
@@ -178,7 +178,7 @@ Give it what the incumbent costs and it prices the migration — with the
 saving stated as a range, because the evidence is a range:
 
 ```bash
-clickllm prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
+onpar prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
     --traffic-window '14 days'
 
   Saving: $2,506–$2,530/mo (~89%) on traffic proven at or above the 90% bar
@@ -195,10 +195,10 @@ Everything above is one chain, and it runs on a laptop. This is a real run:
 Capture starts with an explicit command, in your request path, until Ctrl-C:
 
 ```bash
-clickllm observe --upstream https://api.openai.com/v1
+onpar observe --upstream https://api.openai.com/v1
 
   In your request path from now until Ctrl-C, and not after (ADR-0015).
-  capture   ~/.clickllm/captures.log (key: ~/.clickllm/capture.key)
+  capture   ~/.onpar/captures.log (key: ~/.onpar/capture.key)
   upstream  https://api.openai.com/v1
   listening http://127.0.0.1:8787
   point your base_url at http://127.0.0.1:8787/v1 and nothing else changes.
@@ -221,7 +221,7 @@ invalidate it:
 
 <img src="docs/assets/receipt-anatomy.svg" alt="Anatomy of a migration receipt. A file, not a dashboard: it leads with what must stay on the incumbent model, then what is not proven either way, then what is proven above the bar, and ends with the movable share, the coverage gaps, and which judge was used. Four properties make it defensible: the bad news is printed first, every number carries a confidence interval, the eval set is identified by digest so the questions can be re-asked, and every field is derived from the counts so a forged copy contradicts itself." width="100%">
 
-A receipt goes stale on its own terms: `clickllm guard` voids it when the
+A receipt goes stale on its own terms: `onpar guard` voids it when the
 model fingerprint changes behind its name, or when traffic drifts into
 shapes that were never scored.
 
@@ -239,23 +239,23 @@ one core, four surfaces, no wrapper around a subprocess:
 <img src="docs/assets/agent-surface.svg" alt="What an agent can reach over MCP: ten read-only tools, receipts and eval sets as resources confined to one eval root, and three pre-built workflow prompts. Below them, a dashed red boundary containing the verbs that move production traffic — cutover, deploy, route, promote — marked absent by construction rather than by policy: there is no such tool to call." width="100%">
 
 ```jsonc
-// clickllm-mcp — JSON-RPC over stdio, zero dependencies
-clickllm_fit       // what runs on this machine, at this context and concurrency
-clickllm_explain   // the full arithmetic behind one verdict — weights, KV, headroom
-clickllm_where     // the inverse: which hardware would run this, and at what cost
-clickllm_catalog   // parameters, MoE split, context, licence
-clickllm_advise    // what to change unprompted, and where production diverged
-clickllm_build     // the whole flow, multi-turn: pass state back to continue
-clickllm_distill   // captured traffic -> an eval set, so there is something to prove against
-clickllm_prove     // run the eval suite: verdict, traffic split, and a receipt
-clickllm_receipt   // read a proof: what is proven, what must stay, what is unknown
-clickllm_guard     // does that proof still hold — and if not, which of three ways
+// onpar-mcp — JSON-RPC over stdio, zero dependencies
+onpar_fit       // what runs on this machine, at this context and concurrency
+onpar_explain   // the full arithmetic behind one verdict — weights, KV, headroom
+onpar_where     // the inverse: which hardware would run this, and at what cost
+onpar_catalog   // parameters, MoE split, context, licence
+onpar_advise    // what to change unprompted, and where production diverged
+onpar_build     // the whole flow, multi-turn: pass state back to continue
+onpar_distill   // captured traffic -> an eval set, so there is something to prove against
+onpar_prove     // run the eval suite: verdict, traffic split, and a receipt
+onpar_receipt   // read a proof: what is proven, what must stay, what is unknown
+onpar_guard     // does that proof still hold — and if not, which of three ways
 ```
 
 No tool in that registry can move production traffic, and adding one fails
 the build. The vocabulary is deliberately broad: the failure it guards
 against is an agent promoting a model because a helpful-looking
-`clickllm_promote` existed and nothing objected.
+`onpar_promote` existed and nothing objected.
 
 ## What runs today
 
@@ -276,7 +276,7 @@ after — reasoning in
 [ADR-0015](docs/adr/0015-in-the-path-only-while-migrating.md).
 
 Generated config is **native and standalone** — a real `vllm serve` or a
-real `InferencePool` that runs with clickllm uninstalled. Never a wrapper.
+real `InferencePool` that runs with onpar uninstalled. Never a wrapper.
 
 ## Why this exists
 
@@ -293,27 +293,27 @@ then moves you across with a rollback button.
 ## Install
 
 ```bash
-uvx --from clickllm-cli clickllm fit           # no install, no deps
-pip install clickllm-cli                       # or install it
-npx clickllm@1.2.2 fit                        # same build, via npm
-clickllm version                              # what you have, and where it came from
+uvx --from onpar onpar fit           # no install, no deps
+pip install onpar                       # or install it
+npx onpar@1.2.2 fit                        # same build, via npm
+onpar version                              # what you have, and where it came from
 ```
 
 The commands above are unpinned and fetch the newest release — currently **1.2.2**.
 
-The `==` is exact on purpose: `npx clickllm@1.2.2` runs `clickllm-cli` 1.2.2 and nothing else.
+The `==` is exact on purpose: `npx onpar@1.2.2` runs `onpar` 1.2.2 and nothing else.
 Pin it when you need a build to stay put:
 
 ```bash
-uvx --from clickllm-cli==1.2.2 clickllm fit   # exactly this build
+uvx --from onpar==1.2.2 onpar fit   # exactly this build
 ```
 
-`clickllm version` reads the installed metadata rather than a string someone typed —
+`onpar version` reads the installed metadata rather than a string someone typed —
 through 0.1.4 the receipts it writes were stamped `0.1.0`, because that literal had been
 hand-written once and never moved. Fixed in 0.1.5, so a receipt now names the build that
 produced it.
 
-`clickllm fit` has zero runtime dependencies and works under `uvx` with
+`onpar fit` has zero runtime dependencies and works under `uvx` with
 nothing installed; a test fails if anything networked is even imported.
 
 ## Verification
@@ -326,7 +326,7 @@ uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
 
 **2225 tests.** 1976 Python, 249 Rust. Eighteen of the Python tests skip on a
 bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
-develop` in `clickllm-py/` turns them on), and two ask vLLM and SGLang for their
+develop` in `onpar-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
 published images, so neither skip reaches a green tick unasked. The other eight
 are the mutation harness reporting honestly that it had nothing to do: those
@@ -342,7 +342,7 @@ uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
 ```
 
 Every module carries an assert-based `demo()` self-check runnable via
-`python -m clickllm.<mod>`. The Rust core denies `unwrap`/`expect`/`panic!`
+`python -m onpar.<mod>`. The Rust core denies `unwrap`/`expect`/`panic!`
 and slice-indexing at the lint level — a sizing or licence bug must not be a
 panic — and sizing arithmetic saturates, so an overflowed requirement reads
 as "too big" and refuses rather than wrapping to a small number and
@@ -364,10 +364,10 @@ the response is buffered.
 | [70 — Naming](docs/70-naming.md) | Why it is called this. |
 | [80 — Plan](docs/80-implementation-plan.md) | M0–M10, acceptance criteria, risk gates. |
 | [90 — CI gating](docs/90-ci-gating.md) | Gate a deploy on a proof that still holds. |
-| [ADRs](docs/adr/) | 17 decisions, including the two later reversed. |
+| [ADRs](docs/adr/) | 18 decisions, including the two later reversed. |
 
 The docs teach the whole inference stack from first principles —
-[start here](https://dshakes.github.io/clickllm/docs/#edu-why) if you have
+[start here](https://dshakes.github.io/onpar/docs/#edu-why) if you have
 never sized a KV cache.
 
 ## License

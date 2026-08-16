@@ -16,8 +16,8 @@ from unittest import mock
 
 import pytest
 
-from clickllm.k8s.controller import Kubectl, reconcile_once
-from clickllm.k8s.nodes import (
+from onpar.k8s.controller import Kubectl, reconcile_once
+from onpar.k8s.nodes import (
     BYTES_THRESHOLD_MIB,
     GPU_MEMORY_LABEL,
     GPU_PRODUCT_LABEL,
@@ -25,7 +25,7 @@ from clickllm.k8s.nodes import (
     TPU_TOPOLOGY_LABEL,
     from_json,
 )
-from clickllm.k8s.reconcile import PHASE_ORDER, reconcile, select_node
+from onpar.k8s.reconcile import PHASE_ORDER, reconcile, select_node
 
 
 def node_json(name, **kw):
@@ -163,7 +163,7 @@ def test_the_engine_is_derived_and_the_deployment_carries_its_reasoning():
     r = reconcile(workload(), CLUSTER)
     assert r.ready and r.status["engine"] == "vllm"
     ann = r.objects[0]["metadata"]["annotations"]
-    assert ann["clickllm.dev/engine"] == "vllm"
+    assert ann["onpar.dev/engine"] == "vllm"
     assert "standalone" in " ".join(ann)
     # Every knob explains itself — the reason the CRD is worth having.
     assert r.status["knobs"] and all(len(k["why"]) > 30 for k in r.status["knobs"])
@@ -386,7 +386,7 @@ def test_the_rollback_path_is_actually_consulted_by_the_loop():
 
 
 def test_the_default_regression_check_reads_the_gates_verdict():
-    from clickllm.k8s.controller import REGRESSION_ANNOTATION, gate_from_annotation
+    from onpar.k8s.controller import REGRESSION_ANNOTATION, gate_from_annotation
 
     assert gate_from_annotation({"metadata": {"annotations": {REGRESSION_ANNOTATION: "true"}}})[0]
     assert gate_from_annotation({})[0] is False
@@ -396,7 +396,7 @@ def test_the_default_regression_check_reads_the_gates_verdict():
 def test_only_a_literal_true_triggers_a_rollback(value):
     # Rolling back on a value we do not understand would make a stray annotation
     # a production incident.
-    from clickllm.k8s.controller import REGRESSION_ANNOTATION, gate_from_annotation
+    from onpar.k8s.controller import REGRESSION_ANNOTATION, gate_from_annotation
 
     ann = {} if value is None else {REGRESSION_ANNOTATION: value}
     assert gate_from_annotation({"metadata": {"annotations": ann}})[0] is False
@@ -475,11 +475,11 @@ def test_one_workload_raising_an_unexpected_error_does_not_stop_the_pass():
 
 
 def test_the_module_entrypoint_runs_the_loop_not_the_self_check():
-    # `deploy/README.md` tells operators to run `python -m clickllm.k8s.controller`.
+    # `deploy/README.md` tells operators to run `python -m onpar.k8s.controller`.
     # It used to run demo() and exit.
     import inspect
 
-    from clickllm.k8s import controller as mod
+    from onpar.k8s import controller as mod
 
     assert hasattr(mod, "main")
     src = inspect.getsource(mod)
@@ -498,9 +498,9 @@ def test_every_engine_is_pointed_at_an_image_that_runs_its_own_argv():
     ImagePullBackOff. Tying the image to the dialect means the next person to
     change one has to look at the other.
     """
-    from clickllm.engines import adapter_for
-    from clickllm.k8s.reconcile import IMAGES
-    from clickllm.plan import Engine
+    from onpar.engines import adapter_for
+    from onpar.k8s.reconcile import IMAGES
+    from onpar.plan import Engine
 
     assert IMAGES[Engine.LLMD] == IMAGES[Engine.VLLM], (
         "llm-d's data plane is vLLM, so it must run vLLM's image; "
@@ -523,8 +523,8 @@ def test_every_catalogue_model_yields_a_name_a_service_will_accept():
     """
     import re
 
-    from clickllm import catalog
-    from clickllm.k8s.reconcile import dns_label
+    from onpar import catalog
+    from onpar.k8s.reconcile import dns_label
 
     dns1035 = re.compile(r"^[a-z]([-a-z0-9]*[a-z0-9])?$")
     for model in catalog.load():
@@ -538,10 +538,10 @@ def test_the_generated_service_and_deployment_agree_on_the_name():
     """The Service selects on the Deployment's labels and shares its name. If the
     sanitiser reached one object and not the other, the Service would resolve to
     no pods — which looks healthy and serves nothing."""
-    from clickllm import catalog
-    from clickllm.hardware import Hardware
-    from clickllm.k8s.reconcile import deployment_for
-    from clickllm.plan import Requirements, Workload, plan
+    from onpar import catalog
+    from onpar.hardware import Hardware
+    from onpar.k8s.reconcile import deployment_for
+    from onpar.plan import Requirements, Workload, plan
 
     hw = Hardware(
         kind="nvidia",
@@ -573,7 +573,7 @@ def test_dry_run_suppresses_every_mutating_verb_not_just_apply(verb):
     defect was an UNLISTED mutation. The guard now allow-lists reads, so a verb
     added later is suppressed until someone says otherwise.
     """
-    from clickllm.k8s.controller import Kubectl
+    from onpar.k8s.controller import Kubectl
 
     seen = {}
 
@@ -595,7 +595,7 @@ def test_dry_run_does_not_cripple_reads():
     A `get` that silently became a server-side dry run would make the loop see
     nothing and report a clean pass over a cluster it never looked at.
     """
-    from clickllm.k8s.controller import Kubectl
+    from onpar.k8s.controller import Kubectl
 
     seen = {}
 
@@ -618,7 +618,7 @@ def test_the_operator_sizes_the_model_against_the_node_it_picked():
     docstring calls reconciling against real node capacity "the feature".
     See ADR-0013.
     """
-    from clickllm.k8s.reconcile import reconcile
+    from onpar.k8s.reconcile import reconcile
 
     def cond(wl):
         return (reconcile(wl, CLUSTER).status.get("conditions") or [{}])[0]
@@ -637,7 +637,7 @@ def test_a_repo_outside_the_catalogue_is_refused_with_the_remedy():
     """Sizing needs a `ModelSpec`; the CRD names a Hugging Face repo. A repo we
     do not carry is a stated unknown, never a pass (ADR-0012), because the
     alternative is applying a Deployment whose flags came from no hardware."""
-    from clickllm.k8s.reconcile import reconcile
+    from onpar.k8s.reconcile import reconcile
 
     r = reconcile(workload(model="acme/not-a-real-model"), CLUSTER)
     c = (r.status.get("conditions") or [{}])[0]
@@ -682,7 +682,7 @@ def test_a_rollback_lowers_the_phase_and_applies_nothing():
     wrong costs less.
     """
     wl = workload(model="meta-llama/Llama-3.1-8B-Instruct", phase="canary")
-    wl["metadata"]["annotations"] = {"clickllm.dev/regressed": "true"}
+    wl["metadata"]["annotations"] = {"onpar.dev/regressed": "true"}
 
     got, calls = run_loop([wl])
     r = got["ml/triage"]
@@ -821,7 +821,7 @@ def test_every_float_parse_in_this_file_goes_through_the_finiteness_check():
     # old code does not count as the old code.
     import ast
 
-    src = pathlib.Path(__file__).resolve().parents[1] / "src/clickllm/k8s/nodes.py"
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/onpar/k8s/nodes.py"
     tree = ast.parse(src.read_text())
 
     def float_calls(node):
@@ -846,9 +846,9 @@ def test_every_float_parse_in_this_file_goes_through_the_finiteness_check():
 
 def _plan_with_gaps():
     """A plan whose engine cannot express everything the planner asked for."""
-    from clickllm import catalog
-    from clickllm.hardware import Hardware
-    from clickllm.plan import Engine, Requirements, Workload, plan
+    from onpar import catalog
+    from onpar.hardware import Hardware
+    from onpar.plan import Engine, Requirements, Workload, plan
 
     hw = Hardware(
         kind="nvidia",
@@ -874,23 +874,23 @@ def test_the_deployment_records_settings_the_engine_could_not_express():
     # `not_expressed`, the box README, the JSON manifest. This file is the one
     # a GitOps pipeline applies directly, without ever reading a README, and it
     # was the only one carrying no record that anything had been dropped.
-    from clickllm.k8s.reconcile import deployment_for
+    from onpar.k8s.reconcile import deployment_for
 
     dep, gaps = deployment_for("demo", "default", "meta-llama/Llama-3.1-8B", _plan_with_gaps())
     assert gaps, "fixture must actually produce gaps or this proves nothing"
     ann = dep["metadata"]["annotations"]
-    assert "clickllm.dev/not-expressed" in ann
+    assert "onpar.dev/not-expressed" in ann
     for g in gaps:
-        assert g in ann["clickllm.dev/not-expressed"]
+        assert g in ann["onpar.dev/not-expressed"]
 
 
 def test_a_plan_with_nothing_dropped_carries_no_such_annotation():
     # An annotation reading "nothing was dropped" on every manifest is noise,
     # and an empty one would read as a value nobody set.
-    from clickllm import catalog
-    from clickllm.hardware import Hardware
-    from clickllm.k8s.reconcile import deployment_for
-    from clickllm.plan import Requirements, Workload, plan
+    from onpar import catalog
+    from onpar.hardware import Hardware
+    from onpar.k8s.reconcile import deployment_for
+    from onpar.plan import Requirements, Workload, plan
 
     hw = Hardware(
         kind="nvidia",
@@ -903,13 +903,13 @@ def test_a_plan_with_nothing_dropped_carries_no_such_annotation():
     p = plan(hw, Requirements(Workload.BATCH), model=catalog.get("llama-3.1-8b"))
     dep, gaps = deployment_for("demo", "default", "meta-llama/Llama-3.1-8B", p)
     assert not gaps, "fixture must be gap-free or this proves nothing"
-    assert "clickllm.dev/not-expressed" not in dep["metadata"]["annotations"]
+    assert "onpar.dev/not-expressed" not in dep["metadata"]["annotations"]
 
 
 def test_the_provenance_annotations_are_all_still_there():
-    from clickllm.k8s.reconcile import deployment_for
+    from onpar.k8s.reconcile import deployment_for
 
     dep, _ = deployment_for("demo", "default", "meta-llama/Llama-3.1-8B", _plan_with_gaps())
     ann = dep["metadata"]["annotations"]
-    for key in ("clickllm.dev/engine", "clickllm.dev/engine-reason", "clickllm.dev/standalone"):
+    for key in ("onpar.dev/engine", "onpar.dev/engine-reason", "onpar.dev/standalone"):
         assert key in ann

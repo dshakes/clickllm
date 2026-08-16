@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # clickllm must be honest on hardware it does not have: macOS exercises the
+        # onpar must be honest on hardware it does not have: macOS exercises the
         # Apple Silicon path, Linux the CPU/NVIDIA-absent path. Both must pass.
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.13"]
@@ -27,14 +27,14 @@ jobs:
       - run: uv run --with pytest --with pyyaml pytest -q
       - name: module self-checks
         run: |
-          uv run python -c "from clickllm import hardware, catalog, fit; \
+          uv run python -c "from onpar import hardware, catalog, fit; \
             hardware.demo(); catalog.demo(); fit.demo()"
         env:
           PYTHONPATH: src
       - name: cli smoke
         run: |
-          uv run python -m clickllm.cli fit --json > /dev/null
-          uv run python -m clickllm.cli models > /dev/null
+          uv run python -m onpar.cli fit --json > /dev/null
+          uv run python -m onpar.cli models > /dev/null
       - name: mcp stdio round-trip
         run: |
           uv run python - <<'PY'
@@ -43,7 +43,7 @@ jobs:
                   {"jsonrpc":"2.0","id":2,"method":"tools/list"}]
           payload = b"".join(b"Content-Length: %d\r\n\r\n%s" % (len(b), b)
                              for b in (json.dumps(m).encode() for m in msgs))
-          p = subprocess.run([sys.executable, "-m", "clickllm.mcp"],
+          p = subprocess.run([sys.executable, "-m", "onpar.mcp"],
                              input=payload, capture_output=True)
           assert p.stdout.count(b"Content-Length:") == 2, p.stderr[:500]
           print("mcp stdio ok")
@@ -74,7 +74,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
   # The `test` job above runs WITHOUT the compiled extension on purpose — it proves
-  # the zero-dependency path still works, which is the promise `uvx clickllm fit`
+  # the zero-dependency path still works, which is the promise `uvx onpar fit`
   # rests on. This job is the other half: the same suite with the extension present,
   # so the seam is actually exercised rather than skipped into a green tick.
   seam:
@@ -94,7 +94,7 @@ jobs:
         run: |
           uv tool install 'maturin>=1.7,<2'
           uv venv
-          maturin build --release -m clickllm-py/Cargo.toml -o dist
+          maturin build --release -m onpar-py/Cargo.toml -o dist
           uv pip install dist/*.whl pytest
       # --no-sync throughout: a plain `uv run` re-resolves the project and would
       # drop the wheel we just installed by hand, turning this job back into the
@@ -102,7 +102,7 @@ jobs:
       - name: the seam tests must run, not skip
         run: |
           uv run --no-sync python -c "
-          from clickllm import core
+          from onpar import core
           assert core.available(), core.why_unavailable()
           print('extension', core.version())
           "
@@ -114,7 +114,7 @@ jobs:
       # is the only check that runs observe → distill together. Without this it
       # skips everywhere, which is the same as not existing.
       - name: build the gateway binary
-        run: cargo build --release -p clickllm-gateway
+        run: cargo build --release -p onpar-gateway
 
       - name: the chain test must run, not skip
         run: |

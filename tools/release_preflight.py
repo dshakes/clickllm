@@ -222,7 +222,7 @@ def check_homebrew_tap_secret(repo: str) -> tuple[str, str]:
     Up to and including v1.1.1 the workflow read `HOMEBREW_TAP_PAT` while the
     secret in this repo is `HOMEBREW_TAP_TOKEN`. The name never matched, so the
     step took its skip path on every release and still exited 0 — which is why
-    `brew install clickllm` has never resolved. This checks the name that is
+    `brew install onpar` has never resolved. This checks the name that is
     actually configured, so a rename on either side is caught before a tag.
     """
     ok, out = _gh("api", f"repos/{repo}/actions/secrets")
@@ -237,7 +237,7 @@ def check_homebrew_tap_secret(repo: str) -> tuple[str, str]:
     return (
         FAIL,
         "HOMEBREW_TAP_TOKEN is not set — the tap sync will not update "
-        "dshakes/homebrew-tap, so `brew install clickllm` stays broken",
+        "dshakes/homebrew-tap, so `brew install onpar` stays broken",
     )
 
 

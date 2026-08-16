@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.posttrain import (
+from onpar.posttrain import (
     MIN_EXAMPLES_PER_CLUSTER,
     PLAUSIBLE_GAP,
     PROMPT_PAIRS_TO_READ,
@@ -18,10 +18,10 @@ from clickllm.posttrain import (
     Recipe,
     recommend,
 )
-from clickllm.prove.equivalence import CandidateReport, ClusterScore
-from clickllm.prove.judge import Agreement
-from clickllm.prove.receipt import Receipt, issue
-from clickllm.prove.stats import wilson
+from onpar.prove.equivalence import CandidateReport, ClusterScore
+from onpar.prove.judge import Agreement
+from onpar.prove.receipt import Receipt, issue
+from onpar.prove.stats import wilson
 
 
 def cs(name: str, passed: int, total: int, share: float = 1.0) -> ClusterScore:

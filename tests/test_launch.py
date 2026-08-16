@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import catalog, launch
-from clickllm.hardware import Hardware
+from onpar import catalog, launch
+from onpar.hardware import Hardware
 
 GB = 1024**3
 
@@ -190,8 +190,8 @@ def test_a_model_that_does_not_fit_refuses_and_names_the_hosting_next_step(tmp_p
     )
     assert isinstance(out, launch.Refusal)
     assert "short by" in out.reason and "GB" in out.reason
-    assert "clickllm host" in out.next_step
-    assert "clickllm where" in out.next_step
+    assert "onpar host" in out.next_step
+    assert "onpar where" in out.next_step
 
 
 def test_a_flag_the_installed_engine_rejects_is_a_refusal(tmp_path, monkeypatch):
@@ -261,8 +261,8 @@ def test_an_engine_with_no_verified_dialect_refuses_with_a_way_forward():
     changes is that this test asserts the invariant that made the branch
     unreachable, rather than pretending to exercise a path it cannot get to.
     """
-    from clickllm.engines import adapter_for
-    from clickllm.plan import Engine
+    from onpar.engines import adapter_for
+    from onpar.plan import Engine
 
     undialected = [str(e) for e in Engine if adapter_for(str(e)) is None]
     assert not undialected, f"planner can pick these and launch cannot build them: {undialected}"
@@ -481,7 +481,7 @@ def test_a_200_on_the_model_list_is_not_treated_as_ready_threaded():
             assert r.status == 200, "the premise: the model list answers while loading"
         assert not launch._healthy(base, timeout=5.0), (
             "the model list answers 200 while loading; _healthy must not treat "
-            "that as ready, or `clickllm run` prints an endpoint that hangs"
+            "that as ready, or `onpar run` prints an endpoint that hangs"
         )
     finally:
         srv.shutdown()
@@ -499,7 +499,7 @@ def test_an_engine_that_never_answers_is_stopped_not_left_running(tmp_path):
 
 def test_a_missing_engine_says_how_to_install_it(tmp_path):
     port = _free_port()
-    plan = _stub_plan(tmp_path, ("clickllm-no-such-engine",), port)
+    plan = _stub_plan(tmp_path, ("onpar-no-such-engine",), port)
     with pytest.raises(FileNotFoundError, match="pip install mlx-lm"):
         launch.serve(plan, poll=0.05, timeout=5.0)
 
@@ -554,7 +554,7 @@ def test_the_readiness_probe_cannot_outlast_the_deadline_it_serves(monkeypatch, 
     """
     handed: list[float] = []
 
-    def record(base, model="clickllm-probe", timeout=10.0):
+    def record(base, model="onpar-probe", timeout=10.0):
         handed.append(timeout)
         return False  # never ready, so serve() runs its budget out
 
@@ -699,7 +699,7 @@ def test_descendants_degrades_to_empty_rather_than_raising(monkeypatch):
 
 def test_two_concurrent_resolutions_do_not_lose_each_others_cache_entry(tmp_path):
     """From the same review. `_cache_write` did read-modify-write with no lock
-    and a FIXED temp filename, so two `clickllm run` invocations racing lost one
+    and a FIXED temp filename, so two `onpar run` invocations racing lost one
     entry and could publish a half-written file."""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -726,7 +726,7 @@ def test_no_module_writes_json_through_a_shared_scratch_file():
     """
     import re as _re
 
-    root = Path(__file__).resolve().parents[1] / "src" / "clickllm"
+    root = Path(__file__).resolve().parents[1] / "src" / "onpar"
     offenders = []
     for path in sorted(root.rglob("*.py")):
         if path.name == "atomicio.py":
@@ -736,7 +736,7 @@ def test_no_module_writes_json_through_a_shared_scratch_file():
             offenders.append(f"{path.name}: {m.group(0)}")
     assert not offenders, (
         "these build a scratch filename that another process will pick too — "
-        "use clickllm.atomicio instead:\n  " + "\n  ".join(offenders)
+        "use onpar.atomicio instead:\n  " + "\n  ".join(offenders)
     )
 
 
@@ -754,7 +754,7 @@ def test_a_repo_cached_by_older_resolver_logic_is_not_served_by_the_new_one():
     """
     import json
 
-    from clickllm import catalog
+    from onpar import catalog
 
     with tempfile.TemporaryDirectory() as d:
         cache = Path(d) / "w.json"
@@ -783,7 +783,7 @@ def test_a_repo_cached_by_older_resolver_logic_is_not_served_by_the_new_one():
 def test_llamacpp_is_offered_gguf_repos_and_ollama_is_offered_none():
     """llama.cpp does not load a transformers repo; Ollama has its own registry
     and pulls on first use, so there is no Hub repo to confirm at all."""
-    from clickllm import catalog
+    from onpar import catalog
 
     m = catalog.get("llama-3.1-8b")
     gguf = launch.candidates(m, "q4", "llama.cpp")

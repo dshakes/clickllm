@@ -1,6 +1,6 @@
 
 __pycache__/
-.clickllm/
+.onpar/
 .DS_Store
 .pytest_cache/
 .ruff_cache/
@@ -17,7 +17,7 @@ target/
 temp/
 uv.lock
 
-# `clickllm kernel` scaffolds a plugin package into the cwd. Running it from the
+# `onpar kernel` scaffolds a plugin package into the cwd. Running it from the
 # repo root during a check should never commit the output.
 /*-kernel/
 /fused-*/

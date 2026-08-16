@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.prove import run, suite
-from clickllm.prove.graders import EvalItem
-from clickllm.prove.judge import Comparison, Reply
+from onpar.prove import run, suite
+from onpar.prove.graders import EvalItem
+from onpar.prove.judge import Comparison, Reply
 
 
 def item(cluster: str, ok: bool = True, item_id: str | None = None) -> EvalItem:

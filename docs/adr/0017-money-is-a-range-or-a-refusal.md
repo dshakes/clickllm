@@ -4,7 +4,7 @@
 
 ## Context
 
-clickllm's entire proposition is that a team can replace a closed-model API
+onpar's entire proposition is that a team can replace a closed-model API
 with an open-weight one and know what it costs them in quality and saves them
 in money. The quality half was rigorous: Wilson intervals, a bar a whole
 interval must clear, `?` rather than a fabricated score, and invariant 6 —
@@ -62,7 +62,7 @@ honest rather than decorative.
 | Missing | Refusal |
 |---|---|
 | either rate | `pass --incumbent-cost and --candidate-cost` |
-| captured traffic | `run clickllm observe first` |
+| captured traffic | `run onpar observe first` |
 | the window | `pass --traffic-window` |
 | a window under 7 days | `capture at least 7 days so a full week is represented` |
 
@@ -74,7 +74,7 @@ The window is a **flag rather than a derivation** because captures carry no
 timestamps. The tool genuinely does not know how long you watched, and
 inventing a default here would fabricate the exact fact the refusal protects.
 
-**4. `clickllm.receipt/v2`, and v1 stays readable.** A v1 document is digested
+**4. `onpar.receipt/v2`, and v1 stays readable.** A v1 document is digested
 over the fields v1 had; v2 over all of them. Neither is weakened — each covers
 everything its own document contains — and a receipt issued by 1.0.0 verifies
 unchanged. A v1 receipt is **refused at construction** if it carries a cost,
@@ -91,7 +91,7 @@ migration nobody costed.
 function, over the same denominator — rather than two computations that happen
 to agree today.
 
-**`clickllm fit` is untouched.** `cost.py` imports only `stats`, so the
+**`onpar fit` is untouched.** `cost.py` imports only `stats`, so the
 zero-runtime-dependency promise for `fit` under `uvx` still holds.
 
 **The capture denominator can understate confidence, never overstate it.**

@@ -26,12 +26,12 @@ from pathlib import Path
 
 import pytest
 
-from clickllm.distill.shape import Capture, extract_shape, from_capture_row
+from onpar.distill.shape import Capture, extract_shape, from_capture_row
 
 ROOT = Path(__file__).resolve().parents[1]
-BRIDGE = ROOT / "clickllm-py" / "src" / "lib.rs"
-STORE = ROOT / "clickllm-gateway" / "src" / "capture" / "store.rs"
-PROXY = ROOT / "clickllm-gateway" / "src" / "proxy.rs"
+BRIDGE = ROOT / "onpar-py" / "src" / "lib.rs"
+STORE = ROOT / "onpar-gateway" / "src" / "capture" / "store.rs"
+PROXY = ROOT / "onpar-gateway" / "src" / "proxy.rs"
 
 #: Keys the bridge emits for provenance that `Capture` has no field for. Listed
 #: rather than tolerated silently: a new one appearing should be a decision.

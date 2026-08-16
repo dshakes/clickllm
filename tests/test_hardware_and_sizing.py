@@ -13,10 +13,10 @@ from unittest.mock import patch
 
 import pytest
 
-from clickllm import fit as F
-from clickllm import hardware as H
-from clickllm.catalog import load
-from clickllm.hardware import Hardware
+from onpar import fit as F
+from onpar import hardware as H
+from onpar.catalog import load
+from onpar.hardware import Hardware
 
 GB = 1024**3
 _CARD = {"VRAM Total Memory (B)": "68702699520", "Card Series": "MI300X"}
@@ -88,7 +88,7 @@ def test_the_v5e_bandwidth_is_the_primary_source_converted_not_a_secondary_quote
     figure is what secondary sources quote, and 819 GB/s is 763 GiB/s, which
     contradicts the primary table.
     """
-    from clickllm.hardware_catalog import PROFILES
+    from onpar.hardware_catalog import PROFILES
 
     v5e = next(p for p in PROFILES if p.id == "tpu-v5e-8")
     assert v5e.bandwidth_gbps == 859
@@ -98,7 +98,7 @@ def test_the_v5e_bandwidth_is_the_primary_source_converted_not_a_secondary_quote
 def test_the_other_tpu_rows_were_left_alone():
     """The negative control: these match their published figures directly and a
     sweeping "fix" of the conversion would have moved them too."""
-    from clickllm.hardware_catalog import PROFILES
+    from onpar.hardware_catalog import PROFILES
 
     by_id = {p.id: p for p in PROFILES}
     assert by_id["tpu-v5p-4"].bandwidth_gbps == 2765
@@ -111,7 +111,7 @@ def test_every_multi_device_profile_prices_the_whole_shape():
     carried the whole-shape price, and `Placement` divides by aggregate
     throughput — so a 1-chip numerator over an 8-chip denominator understated
     $/Mtok eightfold."""
-    from clickllm.hardware_catalog import PROFILES
+    from onpar.hardware_catalog import PROFILES
 
     for p in PROFILES:
         if p.devices > 1 and p.hourly_usd is not None:

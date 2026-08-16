@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import desktop, watch
-from clickllm.advise import Observed, Plan, Requirements, Workload, reconcile
-from clickllm.plan import Engine
+from onpar import desktop, watch
+from onpar.advise import Observed, Plan, Requirements, Workload, reconcile
+from onpar.plan import Engine
 
 _ARCH = {
     "num_hidden_layers": 32,
@@ -174,16 +174,16 @@ def test_a_linux_install_writes_nothing_outside_the_directories_it_was_given(tmp
     launcher = desktop._linux(tmp_path / "apps", "python3", 8009, bin_dir=tmp_path / "bin")
 
     written = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
-    assert written == ["apps/clickllm.desktop", "bin/clickllm-ui"], written
+    assert written == ["apps/onpar.desktop", "bin/onpar-ui"], written
     assert str(tmp_path) in launcher.uninstall
-    assert "clickllm-ui" in launcher.uninstall, "uninstall must remove both halves"
+    assert "onpar-ui" in launcher.uninstall, "uninstall must remove both halves"
 
 
 def test_the_entry_points_at_the_script_that_was_actually_written(tmp_path):
     """The two halves have to agree — an entry pointing at a path nothing wrote
     is a launcher that installs cleanly and does nothing."""
     desktop._linux(tmp_path / "apps", "python3", 8009, bin_dir=tmp_path / "bin")
-    entry = (tmp_path / "apps" / "clickllm.desktop").read_text()
+    entry = (tmp_path / "apps" / "onpar.desktop").read_text()
     exec_line = next(x for x in entry.splitlines() if x.startswith("Exec="))
     assert Path(exec_line.removeprefix("Exec=")).is_file()
 
@@ -198,8 +198,8 @@ def test_the_uninstall_command_survives_a_space_in_the_path(tmp_path):
     launcher = desktop._linux(spaced / "apps", "python3", 8009, bin_dir=spaced / "bin")
 
     words = _shlex.split(launcher.uninstall)
-    assert str(spaced / "apps" / "clickllm.desktop") in words
-    assert str(spaced / "bin" / "clickllm-ui") in words
+    assert str(spaced / "apps" / "onpar.desktop") in words
+    assert str(spaced / "bin" / "onpar-ui") in words
 
 
 def test_the_default_is_still_the_freedesktop_location(monkeypatch, tmp_path):
@@ -207,7 +207,7 @@ def test_the_default_is_still_the_freedesktop_location(monkeypatch, tmp_path):
     directory a test passes is not."""
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     desktop._linux(tmp_path / "apps", "python3", 8009)
-    assert (tmp_path / ".local" / "bin" / "clickllm-ui").is_file()
+    assert (tmp_path / ".local" / "bin" / "onpar-ui").is_file()
 
 
 def test_the_module_self_checks_still_pass():

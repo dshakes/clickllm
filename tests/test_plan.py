@@ -13,9 +13,9 @@ from enum import StrEnum
 
 import pytest
 
-from clickllm.engines import Setting
-from clickllm.hardware import Hardware
-from clickllm.plan import (
+from onpar.engines import Setting
+from onpar.hardware import Hardware
+from onpar.plan import (
     MAX_SPEC_DECODE_CONCURRENCY,
     PREFIX_CACHING_FLOOR,
     PREFIX_SHARING_FOR_RADIX,
@@ -243,7 +243,7 @@ def test_an_engine_with_no_verified_dialect_refuses_rather_than_improvising():
     reach it before its adapter exists; a test that could only fire through the
     enum would have gone quietly dead instead.
     """
-    from clickllm.engines import adapter_for
+    from onpar.engines import adapter_for
 
     class Unknown(StrEnum):
         MADE_UP = "not-an-engine"
@@ -311,7 +311,7 @@ TPU_V6E = Hardware(
 def test_a_tpu_never_gets_an_engine_that_cannot_run_there():
     # SGLang and llm-d are CUDA-only; llama.cpp has no TPU path. Offering any of
     # them produces a command that cannot start.
-    from clickllm.plan import Engine
+    from onpar.plan import Engine
 
     for w in Workload:
         for sharing in (0.0, 0.9):  # 0.9 would pick SGLang on CUDA
@@ -346,7 +346,7 @@ def test_an_experimental_generation_is_flagged_as_a_different_promise():
 
 def test_an_mla_model_on_tpu_is_flagged_rather_than_silently_planned():
     # DeepSeek-family models are MLA, which vLLM lists as still maturing on TPU.
-    from clickllm.catalog import load
+    from onpar.catalog import load
 
     mla = next((m for m in load() if getattr(m, "kv_scheme", "") == "mla"), None)
     assert mla is not None, "catalogue has no MLA model to test with"
@@ -367,7 +367,7 @@ def test_a_cuda_plan_carries_no_tpu_notes():
 
 
 def _with_model(concurrency: int, context: int, hw: Hardware = H100):
-    from clickllm.catalog import load
+    from onpar.catalog import load
 
     m = load()[0]
     return plan(
@@ -419,8 +419,8 @@ def test_every_setting_the_adapter_supports_is_reachable_from_some_plan():
     emits is a feature that exists only in tests."""
     from dataclasses import replace
 
-    from clickllm.catalog import load
-    from clickllm.engines import LoraFleet
+    from onpar.catalog import load
+    from onpar.engines import LoraFleet
 
     m = load()[0]
     fleets = (None, LoraFleet(adapters=(("sql", "org/sql-lora"),), max_rank=16))
@@ -454,7 +454,7 @@ def test_every_setting_the_adapter_supports_is_reachable_from_some_plan():
 def test_every_vllm_plugin_group_documents_what_it_returns():
     # A wrong return is a plugin that loads and silently does nothing, so the
     # contract per group is the thing worth pinning.
-    from clickllm.kernels import ENTRY_POINT_GROUPS, PluginKind
+    from onpar.kernels import ENTRY_POINT_GROUPS, PluginKind
 
     assert set(ENTRY_POINT_GROUPS) == set(PluginKind)
     assert all(len(v) > 20 for v in ENTRY_POINT_GROUPS.values())
@@ -465,7 +465,7 @@ def test_every_vllm_plugin_group_documents_what_it_returns():
 
 
 def test_a_scaffolded_plugin_declares_the_group_vllm_actually_reads():
-    from clickllm.kernels import Plugin, PluginKind, scaffold
+    from onpar.kernels import Plugin, PluginKind, scaffold
 
     p = Plugin("fused-rmsnorm", PluginKind.GENERAL, "fused_rmsnorm:register")
     files = scaffold(p)
@@ -476,14 +476,14 @@ def test_a_scaffolded_plugin_declares_the_group_vllm_actually_reads():
 def test_the_scaffold_warns_about_re_entrancy():
     # register() runs once per worker under tensor parallelism; one that appends
     # to a list breaks the moment TP > 1, far from the cause.
-    from clickllm.kernels import Plugin, PluginKind, scaffold
+    from onpar.kernels import Plugin, PluginKind, scaffold
 
     src = scaffold(Plugin("k", PluginKind.GENERAL, "k:register"))["k/__init__.py"]
     assert "re-entrant" in src and "already registered" in src
 
 
 def test_a_platform_plugin_returns_none_rather_than_raising_when_absent():
-    from clickllm.kernels import Plugin, PluginKind, scaffold
+    from onpar.kernels import Plugin, PluginKind, scaffold
 
     src = scaffold(Plugin("npu", PluginKind.PLATFORM, "npu:register"))["npu/__init__.py"]
     assert "return None" in src
@@ -491,7 +491,7 @@ def test_a_platform_plugin_returns_none_rather_than_raising_when_absent():
 
 
 def test_a_bit_identical_claim_is_falsifiable_and_a_drifting_one_is_statistical():
-    from clickllm.kernels import KernelClaim, verification_plan
+    from onpar.kernels import KernelClaim, verification_plan
 
     exact = " ".join(verification_plan(KernelClaim("e", 1.1, bit_identical=True)))
     fuzzy = " ".join(verification_plan(KernelClaim("f", 1.1, expected_drift="fp16 order")))
@@ -501,7 +501,7 @@ def test_a_bit_identical_claim_is_falsifiable_and_a_drifting_one_is_statistical(
 
 def test_every_verification_plan_measures_at_real_concurrency():
     # Single-stream kernel wins routinely vanish under batching.
-    from clickllm.kernels import KernelClaim, verification_plan
+    from onpar.kernels import KernelClaim, verification_plan
 
     for claim in (
         KernelClaim("a", 1.4, bit_identical=True),
@@ -512,18 +512,18 @@ def test_every_verification_plan_measures_at_real_concurrency():
         assert "receipt" in plan_steps
 
 
-def test_the_launcher_reuses_clickllm_ui_and_stays_on_loopback():
-    from clickllm.desktop import launch_script
+def test_the_launcher_reuses_onpar_ui_and_stays_on_loopback():
+    from onpar.desktop import launch_script
 
     s = launch_script("/usr/bin/python3", 7171)
-    assert "clickllm.cli ui" in s, "must not reimplement serving"
+    assert "onpar.cli ui" in s, "must not reimplement serving"
     assert "127.0.0.1" in s and "0.0.0.0" not in s, "the workbench is loopback-only"
     # Double-clicking twice must open the running instance, not clash on the port.
     assert "exit 0" in s
 
 
 def test_the_launcher_says_how_to_remove_itself(tmp_path):
-    from clickllm.desktop import _macos
+    from onpar.desktop import _macos
 
     lz = _macos(tmp_path, "/usr/bin/python3", 7171)
     assert lz.uninstall.startswith("rm -rf ")
@@ -534,9 +534,9 @@ def test_the_launcher_says_how_to_remove_itself(tmp_path):
 def test_the_bundle_is_not_background_only():
     # A background-only app serving a web page is a process users cannot find
     # to quit.
-    from clickllm.desktop import plist
+    from onpar.desktop import plist
 
-    assert "LSBackgroundOnly" not in plist("clickllm")
+    assert "LSBackgroundOnly" not in plist("onpar")
 
 
 # --- speculative decoding: the flag has to be the shape vLLM parses -----------
@@ -553,9 +553,9 @@ def test_speculative_config_is_json_not_a_bare_method_name():
     """
     import json
 
-    from clickllm import catalog
-    from clickllm.hardware import Hardware
-    from clickllm.plan import Requirements, Workload, plan
+    from onpar import catalog
+    from onpar.hardware import Hardware
+    from onpar.plan import Requirements, Workload, plan
 
     hw = Hardware(
         kind="nvidia",
@@ -605,9 +605,9 @@ def test_eagle_is_never_requested_without_a_draft_checkpoint():
     No argv check can catch this — the flag and its syntax are both correct — so
     it is pinned here instead. It reached `build`, the k8s emitter and `box`.
     """
-    from clickllm import catalog
-    from clickllm.hardware import Hardware
-    from clickllm.plan import Requirements, Workload, plan
+    from onpar import catalog
+    from onpar.hardware import Hardware
+    from onpar.plan import Requirements, Workload, plan
 
     hw = Hardware(
         kind="nvidia",
@@ -651,9 +651,9 @@ def test_a_model_with_its_own_mtp_head_is_not_asked_for_an_eagle_draft():
     a draft model that does not exist for them."""
     import json
 
-    from clickllm import catalog
-    from clickllm.hardware import Hardware
-    from clickllm.plan import Requirements, Workload, plan
+    from onpar import catalog
+    from onpar.hardware import Hardware
+    from onpar.plan import Requirements, Workload, plan
 
     hw = Hardware(
         kind="nvidia",
@@ -680,7 +680,7 @@ def test_a_model_with_its_own_mtp_head_is_not_asked_for_an_eagle_draft():
 def test_the_two_engines_spell_multi_lora_differently():
     """Same intent, genuinely different dialects. Emitting vLLM's flags to SGLang
     produces a server that will not start."""
-    from clickllm.engines import LoraFleet, Setting, adapter_for
+    from onpar.engines import LoraFleet, Setting, adapter_for
 
     fleet = LoraFleet(
         adapters=(("sql", "org/sql"), ("sum", "org/sum")), max_rank=16, max_concurrent=2
@@ -697,7 +697,7 @@ def test_the_two_engines_spell_multi_lora_differently():
 def test_sglang_leaves_a_batch_slot_for_the_base_model():
     """--max-loras-per-batch counts the base model too, so N adapters needs N+1.
     Setting it to N silently starves one adapter."""
-    from clickllm.engines import LoraFleet, Setting, adapter_for
+    from onpar.engines import LoraFleet, Setting, adapter_for
 
     fleet = LoraFleet(adapters=(("a", "p"), ("b", "q")), max_concurrent=2)
     argv = adapter_for("sglang").translate(Setting.LORA_FLEET, fleet).argv
@@ -707,7 +707,7 @@ def test_sglang_leaves_a_batch_slot_for_the_base_model():
 def test_a_lora_rank_is_rounded_up_to_one_vllm_accepts():
     """--max-lora-rank is a choice list, not a free integer. Rounding DOWN would
     refuse to load an adapter; rounding up merely wastes a little memory."""
-    from clickllm.engines import LoraFleet
+    from onpar.engines import LoraFleet
 
     assert LoraFleet(max_rank=48).vllm_rank() == 64
     assert LoraFleet(max_rank=16).vllm_rank() == 16
@@ -715,7 +715,7 @@ def test_a_lora_rank_is_rounded_up_to_one_vllm_accepts():
 
 
 def test_a_rank_beyond_the_ceiling_is_refused_not_clamped():
-    from clickllm.engines import LoraFleet
+    from onpar.engines import LoraFleet
 
     with pytest.raises(ValueError, match="exceeds the largest rank"):
         LoraFleet(max_rank=1024).vllm_rank()
@@ -723,7 +723,7 @@ def test_a_rank_beyond_the_ceiling_is_refused_not_clamped():
 
 def test_no_adapters_is_a_successful_no_op_not_a_gap():
     """Empty means 'plain base-model deployment', which every engine supports."""
-    from clickllm.engines import LoraFleet, Setting, Translated, adapter_for
+    from onpar.engines import LoraFleet, Setting, Translated, adapter_for
 
     for engine in ("vllm", "sglang"):
         t = adapter_for(engine).translate(Setting.LORA_FLEET, LoraFleet())
@@ -733,8 +733,8 @@ def test_no_adapters_is_a_successful_no_op_not_a_gap():
 def test_the_per_batch_cap_cannot_exceed_the_concurrency():
     """A batch cannot hold more distinct adapters than it holds requests, and
     every extra slot costs memory for nothing."""
-    from clickllm.engines import LoraFleet, Setting
-    from clickllm.plan import Requirements, Workload, plan
+    from onpar.engines import LoraFleet, Setting
+    from onpar.plan import Requirements, Workload, plan
 
     fleet = LoraFleet(adapters=tuple((f"a{i}", f"p{i}") for i in range(8)), max_rank=16)
     p = plan(H100, Requirements(Workload.INTERACTIVE, concurrency=2, context=8192, lora=fleet))
@@ -746,7 +746,7 @@ def test_a_cuda_only_engine_is_never_chosen_for_amd_hardware():
 
     `_pick_engine`'s docstring says SGLang and llm-d are CUDA-only, but only
     "apple" and "tpu" were checked — an AMD host fell through to both branches.
-    `clickllm box` would then bake a CUDA image into a linux-rocm artifact with
+    `onpar box` would then bake a CUDA image into a linux-rocm artifact with
     /dev/kfd mounted: a container that starts, finds no GPU, and dies under a
     header saying it was tuned for that hardware. Invariants 2 and 3 at once.
     """
@@ -777,13 +777,13 @@ def test_a_cuda_only_engine_is_never_chosen_for_amd_hardware():
 
 def test_every_engine_the_planner_can_pick_has_a_dialect():
     """The planner chose engines this codebase could not configure, and the two
-    halves drifted for eighteen releases: `clickllm fit` recommended llama.cpp
-    on the default Mac path and `clickllm run` refused it; `deployment_for`
+    halves drifted for eighteen releases: `onpar fit` recommended llama.cpp
+    on the default Mac path and `onpar run` refused it; `deployment_for`
     returned an empty Deployment for llm-d and the k8s target was skipped.
 
     A planner that selects what nothing can build is not planning.
     """
-    from clickllm.engines import adapter_for
+    from onpar.engines import adapter_for
 
     missing = [str(e) for e in Engine if adapter_for(str(e)) is None]
     assert not missing, f"the planner can pick these and nothing can configure them: {missing}"
@@ -792,10 +792,10 @@ def test_every_engine_the_planner_can_pick_has_a_dialect():
 def test_llmd_emits_a_real_deployment_rather_than_an_empty_one():
     """llm-d is a Kubernetes control plane, not a server: its pods run `vllm
     serve`. Treating it as an engine without a dialect meant `deployment_for`
-    returned `{}` and `clickllm box` skipped the target entirely — for the
+    returned `{}` and `onpar box` skipped the target entirely — for the
     deployment shape a cluster user most wants.
     """
-    from clickllm.k8s.reconcile import deployment_for
+    from onpar.k8s.reconcile import deployment_for
 
     hw = replace(H100, name="H100 x8", devices=8, usable_bytes=608 * 2**30)
     p = plan(hw, Requirements(Workload.BATCH, concurrency=256, context=8192))
@@ -813,10 +813,10 @@ def test_llmd_emits_a_real_deployment_rather_than_an_empty_one():
 
 
 def test_llmd_inherits_vllms_dialect_rather_than_copying_it():
-    """Two independent tables for one flag vocabulary is how `clickllm fit` came
+    """Two independent tables for one flag vocabulary is how `onpar fit` came
     to recommend an engine that does not exist. Inheriting means a vLLM flag
     correction reaches llm-d on the same commit."""
-    from clickllm.engines import LlmdAdapter, Setting, VllmAdapter, adapter_for
+    from onpar.engines import LlmdAdapter, Setting, VllmAdapter, adapter_for
 
     a = adapter_for("llm-d")
     assert isinstance(a, LlmdAdapter) and isinstance(a, VllmAdapter)
@@ -851,7 +851,7 @@ def test_a_budget_that_could_not_be_checked_is_not_a_budget_that_was_met():
     "Could not check" must not be reported as "checked and met" — the same rule
     as `?` rather than a fabricated score.
     """
-    from clickllm import catalog
+    from onpar import catalog
 
     model = catalog.get("llama-3.1-8b")
 

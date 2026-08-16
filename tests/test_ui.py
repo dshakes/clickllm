@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from clickllm import ui
+from onpar import ui
 
 CATALOGUE_ROUTES = ("/api/catalog", "/api/fit", "/api/where?model=qwen3-32b")
 
@@ -44,9 +44,9 @@ def workbench():
 
 @pytest.mark.parametrize("path", CATALOGUE_ROUTES)
 def test_a_missing_catalogue_file_answers_rather_than_hanging_up(workbench, monkeypatch, path):
-    # A one-character typo in $CLICKLLM_CATALOG made every catalogue-backed
+    # A one-character typo in $ONPAR_CATALOG made every catalogue-backed
     # route close the socket with no HTTP response, for the life of the process.
-    monkeypatch.setenv("CLICKLLM_CATALOG", "/tmp/clickllm-does-not-exist.json")
+    monkeypatch.setenv("ONPAR_CATALOG", "/tmp/onpar-does-not-exist.json")
     status, body = workbench(path)
     assert status == 500
     assert b"catalogue file not found" in body

@@ -5,7 +5,7 @@ the next surface has to re-earn. These cover the cases where a surface was wider
 than the thing behind it — a value it accepted and could not use, a filter that
 failed open, and a threshold that made the verdict trivially true.
 
-The fourth case from the same review — `clickllm_prove` reading any path an
+The fourth case from the same review — `onpar_prove` reading any path an
 agent names — is deliberately not here. Confining it is a new trust boundary,
 and `tests/test_suite.py` drives that tool with a path outside the working
 directory on purpose, to show the agent and the CLI reach the same verdict. That
@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm import mcp, sdk
-from clickllm.mcp import handle
-from clickllm.plan import Workload
-from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
-from clickllm.prove.stats import wilson
-from clickllm.session import Session
+from onpar import mcp, sdk
+from onpar.mcp import handle
+from onpar.plan import Workload
+from onpar.prove.equivalence import CandidateReport, ClusterScore, Matrix
+from onpar.prove.stats import wilson
+from onpar.session import Session
 
 
 def call(tool: str, **arguments):
@@ -63,7 +63,7 @@ def test_a_workload_that_is_not_one_refuses_by_name():
 
 
 def test_the_mcp_build_tool_takes_the_workload_it_documents():
-    res, _ = call("clickllm_build", description="a nightly job", workload="batch")
+    res, _ = call("onpar_build", description="a nightly job", workload="batch")
     assert not res.get("isError"), res.get("content")
 
 
@@ -129,7 +129,7 @@ def test_the_receipt_cannot_be_issued_with_a_degenerate_bar():
     # thing designed to be handed to someone who does not trust us — issuable
     # at bar=0.0, rendering "Proven at or above the 0% bar" over a 41/80
     # regression with movable_share 1.0.
-    from clickllm.prove import issue
+    from onpar.prove import issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
     for bar in (0.0, -1.0, 1.0, 2.0):
@@ -138,7 +138,7 @@ def test_the_receipt_cannot_be_issued_with_a_degenerate_bar():
 
 
 def test_a_real_bar_still_issues_a_receipt_that_names_the_regression():
-    from clickllm.prove import issue
+    from onpar.prove import issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
     r = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -150,9 +150,9 @@ def test_the_mcp_schema_advertises_the_bounds_the_code_enforces():
     # A schema-valid call that the runtime refuses is worse than one the client
     # could have rejected itself. The schema said minimum/maximum 0 and 1 while
     # the guard rejects both endpoints.
-    from clickllm.mcp import TOOLS
+    from onpar.mcp import TOOLS
 
-    _, schema = TOOLS["clickllm_prove"]
+    _, schema = TOOLS["onpar_prove"]
     bar = schema["inputSchema"]["properties"]["bar"]
     assert bar.get("exclusiveMinimum") == 0
     assert bar.get("exclusiveMaximum") == 1
@@ -161,7 +161,7 @@ def test_the_mcp_schema_advertises_the_bounds_the_code_enforces():
 
 def test_a_receipt_read_from_disk_with_a_degenerate_bar_is_refused():
     # `issue()` covers the receipts this tool writes. `from_json` is what it
-    # *reads* — the ingest path behind `clickllm receipt`, `clickllm guard` and
+    # *reads* — the ingest path behind `onpar receipt`, `onpar guard` and
     # the box — and a file with `bar: 0.0` and a perfectly valid digest parsed
     # and rendered "Proven at or above the 0% bar" with movable_share 1.0.
     #
@@ -170,7 +170,7 @@ def test_a_receipt_read_from_disk_with_a_degenerate_bar_is_refused():
     # altered", not "was this ever true".
     import json as _json
 
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
     good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -181,7 +181,7 @@ def test_a_receipt_read_from_disk_with_a_degenerate_bar_is_refused():
 
 
 def test_an_honest_receipt_still_round_trips():
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
     good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -192,11 +192,11 @@ def test_the_build_schema_advertises_the_workload_it_now_accepts():
     # It was accepted by the code and absent from the schema, so a schema-driven
     # agent could only discover it from the error message that lists the known
     # fields — which is exactly how the broken call was being made.
-    from clickllm.mcp import TOOLS
+    from onpar.mcp import TOOLS
 
-    _, schema = TOOLS["clickllm_build"]
+    _, schema = TOOLS["onpar_build"]
     workload = schema["inputSchema"]["properties"].get("workload")
-    assert workload, "clickllm_build must advertise workload"
+    assert workload, "onpar_build must advertise workload"
     assert set(workload["enum"]) == {"interactive", "realtime", "batch"}
 
 
@@ -204,7 +204,7 @@ def test_the_build_schema_advertises_the_workload_it_now_accepts():
 
 
 def _good_receipt():
-    from clickllm.prove import issue
+    from onpar.prove import issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(41, 80), 0),))
     return issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -222,7 +222,7 @@ def test_a_digest_that_is_not_a_string_is_a_sentence_not_a_traceback(digest):
     """
     import json as _json
 
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     blob = _json.loads(_good_receipt().to_json())
     blob["digest"] = digest
@@ -238,7 +238,7 @@ def test_a_receipt_envelope_that_is_not_an_object_is_refused_the_same_way(body):
     before the digest was ever reached."""
     import json as _json
 
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     blob = _json.loads(_good_receipt().to_json())
     blob["receipt"] = body
@@ -248,7 +248,7 @@ def test_a_receipt_envelope_that_is_not_an_object_is_refused_the_same_way(body):
 
 @pytest.mark.parametrize("doc", ["null", "[]", '"text"', "7", "true"])
 def test_a_document_that_is_not_an_object_at_all_is_refused(doc):
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     with pytest.raises(ValueError, match="JSON object"):
         Receipt.from_json(doc)
@@ -260,7 +260,7 @@ def test_an_honest_receipt_is_unaffected_and_tampering_is_still_named():
     """
     import json as _json
 
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     good = _good_receipt()
     assert Receipt.from_json(good.to_json()) == good
@@ -287,7 +287,7 @@ def test_a_claim_group_that_is_not_claims_is_refused_as_a_value_error(proven):
     """
     import json as _json
 
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     blob = _json.loads(_good_receipt().to_json())
     blob["receipt"]["proven"] = proven
@@ -301,7 +301,7 @@ def test_a_key_the_receipt_does_not_have_is_refused_the_same_way(key):
     same family and was equally uncaught."""
     import json as _json
 
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     blob = _json.loads(_good_receipt().to_json())
     blob["receipt"][key] = "x"
@@ -320,7 +320,7 @@ def test_a_fields_own_validator_keeps_its_better_sentence():
     """
     import json as _json
 
-    from clickllm.prove import Receipt
+    from onpar.prove import Receipt
 
     blob = _json.loads(_good_receipt().to_json())
     blob["receipt"]["bar"] = 0.0
@@ -348,8 +348,8 @@ def test_no_field_of_a_receipt_survives_being_the_wrong_type(tmp_path):
     import json as _json
     from dataclasses import fields
 
-    from clickllm.prove import Receipt, issue
-    from clickllm.prove.receipt import Claim
+    from onpar.prove import Receipt, issue
+    from onpar.prove.receipt import Claim
 
     report = CandidateReport(
         "m",
@@ -407,7 +407,7 @@ def test_an_honest_receipt_is_unchanged_by_the_type_sweep():
     """The negative control, and it is load-bearing: `float` must admit `int`,
     because JSON writes `1` for `1.0` and a receipt this tool issued has to
     survive its own round trip."""
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(80, 80), 0),))
     good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -421,8 +421,8 @@ def test_a_whole_number_share_written_as_an_integer_still_parses():
     written or re-serialised receipt carrying `"share": 1` rather than `1.0`."""
     import json as _json
 
-    from clickllm.prove import Receipt, issue
-    from clickllm.prove.receipt import Claim
+    from onpar.prove import Receipt, issue
+    from onpar.prove.receipt import Claim
 
     report = CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(80, 80), 0),))
     good = issue(report, incumbent="i", issued="2026-08-07", eval_set="a" * 64, bar=0.90)
@@ -450,8 +450,8 @@ def _refuses_forgery(good, mutate) -> str:
     """
     import json as _json
 
-    from clickllm.prove import Receipt
-    from clickllm.prove.receipt import Claim
+    from onpar.prove import Receipt
+    from onpar.prove.receipt import Claim
 
     blob = _json.loads(good.to_json())
     mutate(blob["receipt"])
@@ -467,7 +467,7 @@ def _refuses_forgery(good, mutate) -> str:
 
 
 def _two_cluster_receipt():
-    from clickllm.prove import issue
+    from onpar.prove import issue
 
     report = CandidateReport(
         "m",
@@ -546,7 +546,7 @@ def test_a_container_field_that_is_not_a_container_is_refused(key, value):
 def test_the_honest_receipt_survives_all_of_it():
     """The negative control for this whole block, including the one case these
     guards must not break: an exact traffic split summing to 1.0."""
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     good = _two_cluster_receipt()
     assert Receipt.from_json(good.to_json()) == good
@@ -570,7 +570,7 @@ def test_the_honest_receipt_survives_all_of_it():
 
 
 def _three_cluster_receipt(bar: float = 0.90):
-    from clickllm.prove import issue
+    from onpar.prove import issue
 
     report = CandidateReport(
         "m",
@@ -621,7 +621,7 @@ def test_the_guard_never_fires_on_a_receipt_this_tool_issued():
     the fields the receipt carries. If the two ever drift, every honest receipt
     stops parsing — so the agreement is swept rather than sampled.
     """
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     checked, broken = 0, []
     for bar in (0.05, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999):
@@ -675,8 +675,8 @@ def test_a_mapping_whose_contents_are_wrong_is_refused_not_just_its_shape(key, v
 
 def test_well_formed_mappings_still_round_trip_and_verify():
     """The negative control for the descent."""
-    from clickllm.prove import Receipt, issue
-    from clickllm.prove.receipt import verify
+    from onpar.prove import Receipt, issue
+    from onpar.prove.receipt import verify
 
     good = issue(
         CandidateReport("m", (ClusterScore("x", "x", 1.0, wilson(118, 120), 0),)),
@@ -735,7 +735,7 @@ def test_the_same_cluster_in_two_different_groups_is_refused():
 def test_distinct_clusters_that_merely_share_a_display_name_are_fine():
     """The negative control, and the line the guard must not cross: `name` is a
     label and may repeat; `cluster` is the identity and may not."""
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     good = issue(
         CandidateReport(
@@ -795,7 +795,7 @@ def test_every_receipt_this_tool_issues_survives_its_own_derivation():
     """The control, and the one that decides whether this guard is safe: it
     recomputes `wilson` over the counts, so any disagreement with how `issue()`
     built the interval rejects every honest receipt."""
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     checked, broken = 0, []
     for total in (0, 1, 2, 3, 5, 12, 40, 80, 120, 400, 997):
@@ -820,7 +820,7 @@ def test_a_cluster_with_nothing_graded_is_not_asked_to_derive_an_interval():
     """`total == 0` has no Wilson interval, and `issue()` writes 0/0 for a
     cluster that was never graded. The guard must skip it rather than demand
     numbers that do not exist."""
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     r = issue(
         CandidateReport("m", (ClusterScore("silent", "silent", 1.0, wilson(0, 0), 0),)),
@@ -862,7 +862,7 @@ def test_every_receipt_this_tool_issues_still_carries_a_derivable_price():
     """The control that decides whether this guard is safe: it recomputes
     `samples_needed` over the counts, so any disagreement with how `issue()`
     wrote it rejects every honest receipt."""
-    from clickllm.prove import Receipt, issue
+    from onpar.prove import Receipt, issue
 
     checked, broken = 0, []
     for bar in (0.05, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999):
@@ -923,7 +923,7 @@ def test_where_refuses_a_model_it_does_not_know_rather_than_inventing_one():
 
 def _a_receipt(tmp_path):
     """A real receipt, produced the way a user produces one."""
-    from clickllm.prove import EvalItem, suite
+    from onpar.prove import EvalItem, suite
 
     items = [
         EvalItem(item_id=str(i), cluster="c", prompt="p", baseline="x", candidate="x")
@@ -946,7 +946,7 @@ def test_receipt_leads_with_what_must_stay_on_the_incumbent(tmp_path, monkeypatc
     summarising this to a human should meet the bad news before it has a chance
     to lead with a headline number."""
     path = _a_receipt(tmp_path)
-    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("ONPAR_EVAL_ROOT", str(tmp_path))
     out = mcp._receipt(path.name)
     keys = list(out)
     assert keys.index("keep_on_incumbent") < keys.index("proven_above_bar")
@@ -959,7 +959,7 @@ def test_receipt_and_guard_are_confined_to_the_eval_root(tmp_path, monkeypatch):
     """Both take a caller-named path whose contents land in agent context, and
     the caller may itself have been steered by captured traffic (invariant 7).
     ADR-0014."""
-    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("ONPAR_EVAL_ROOT", str(tmp_path))
     for tool in (mcp._receipt, mcp._guard):
         for outside in ("/etc/hosts", "../../../../etc/hosts"):
             with pytest.raises(ValueError, match="outside the eval root"):
@@ -970,7 +970,7 @@ def test_guard_separates_the_three_ways_a_proof_stops_being_true(tmp_path, monke
     """The distinction every other tool collapses into one "stale" flag. Only
     two of the three mean you no longer know whether production is adequate."""
     path = _a_receipt(tmp_path)
-    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("ONPAR_EVAL_ROOT", str(tmp_path))
 
     fresh = mcp._guard(path.name, today="2026-08-12")
     assert fresh["still_holds"] is True
@@ -999,7 +999,7 @@ def test_the_three_new_tools_clear_the_read_only_boundary():
     """The boundary is checked over the live registry elsewhere; this asserts
     the new arrivals are in it and none of them took a verb that moves
     traffic."""
-    for name in ("clickllm_where", "clickllm_receipt", "clickllm_guard"):
+    for name in ("onpar_where", "onpar_receipt", "onpar_guard"):
         assert name in mcp.TOOLS
         func, schema = mcp.TOOLS[name]
         assert schema["description"] and schema["inputSchema"]["properties"]

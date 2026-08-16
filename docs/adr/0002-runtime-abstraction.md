@@ -18,7 +18,7 @@ A `Runtime` Protocol with three methods — `supports`, `plan`, `render` — and
 
 > **`render` emits native engine configuration. We never wrap an engine at runtime.**
 
-Output is a real `vllm serve` invocation, a real `InferencePool`, a real `mlx_lm.server` command — readable, forkable, and runnable with clickllm uninstalled (NFR-4).
+Output is a real `vllm serve` invocation, a real `InferencePool`, a real `mlx_lm.server` command — readable, forkable, and runnable with onpar uninstalled (NFR-4).
 
 No engine-specific type crosses above the Protocol boundary. The moment `prove` imports `vllm`, portability is gone.
 
@@ -32,7 +32,7 @@ No engine-specific type crosses above the Protocol boundary. The moment `prove` 
 
 **Bad**
 - We must track config schemas across seven engines and their releases. Mitigation: version templates per engine release; CI runs generated configs against real engines.
-- We can't offer a uniform runtime API (no `clickllm serve` that abstracts everything). Accepted — that's what Ollama is for, and pretending otherwise recreates BentoML's problem.
+- We can't offer a uniform runtime API (no `onpar serve` that abstracts everything). Accepted — that's what Ollama is for, and pretending otherwise recreates BentoML's problem.
 - `supports()` must be honest across hardware we may not own. Mitigation: "yes, degraded" is a valid return; a runtime error on a customer cluster is not.
 
 ## Notes

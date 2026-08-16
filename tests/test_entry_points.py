@@ -8,7 +8,7 @@ checked by dict membership rather than by a request.
 `[project.scripts]` is the same shape and the last one left. Every test in this
 suite calls `cli.main()` in-process, so a typo in the entry-point target —
 a renamed module, a renamed function, a package that stops being included —
-would leave the suite green and `clickllm` failing at the shell with
+would leave the suite green and `onpar` failing at the shell with
 `ModuleNotFoundError` for everyone who installed it.
 
 These resolve the targets the way a console script does, from the packaging
@@ -37,7 +37,7 @@ def test_there_are_entry_points_to_check():
     moves, they would all pass by having nothing to iterate over."""
     scripts = _scripts()
     assert scripts, "no [project.scripts] found — these tests would be vacuous"
-    assert "clickllm" in scripts, scripts
+    assert "onpar" in scripts, scripts
 
 
 @pytest.mark.parametrize("name", sorted(_scripts()))
@@ -80,7 +80,7 @@ def test_the_two_shipped_names_are_the_ones_documented():
     broken MCP client config all at once — and none of those live in this repo's
     test suite."""
     scripts = _scripts()
-    assert set(scripts) == {"clickllm", "clickllm-mcp"}, (
+    assert set(scripts) == {"onpar", "onpar-mcp"}, (
         f"the shipped command names changed to {sorted(scripts)}; the README, the "
         "Homebrew formula and every MCP client config name the old ones"
     )
@@ -105,7 +105,7 @@ def test_the_package_ships_a_description():
     assert readme, "no readme in [project] — the PyPI page will be blank"
     body = (ROOT / readme).read_text()
     assert len(body) > 1500, f"{readme} is {len(body)} bytes; that is not a shopfront"
-    assert "clickllm-cli" in body, "it must name the install target, not just the command"
+    assert "onpar" in body, "it must name the install target, not just the command"
 
 
 def test_the_pypi_page_has_no_links_that_only_work_on_github():

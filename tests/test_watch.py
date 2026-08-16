@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from clickllm import catalog, watch
+from onpar import catalog, watch
 
 INDEX = json.dumps(
     [
@@ -150,7 +150,7 @@ def test_a_corrupt_staging_file_does_not_break_the_listing(tmp_path):
 def test_nothing_is_scheduled_without_being_asked():
     """Installing a recurring networked job is the user's decision."""
     fragment, where = watch.install_schedule(interval_hours=12)
-    assert "clickllm.cli" in fragment and "watch" in fragment
+    assert "onpar.cli" in fragment and "watch" in fragment
     assert where
     # 12 hours, expressed in whatever this platform's units are.
     assert "43200" in fragment or "12h" in fragment
@@ -167,7 +167,7 @@ def test_offline_means_offline_and_not_three_other_things():
     """
     import json as _json
 
-    from clickllm import catalog_update as cu
+    from onpar import catalog_update as cu
 
     rows = [{"modelId": "acme/new", "downloads": 5, "likes": 1, "trendingScore": 9.0}]
 
@@ -191,7 +191,7 @@ def test_the_licence_the_index_reported_is_the_licence_that_is_staged():
     """
     import json as _json
 
-    from clickllm import catalog_update as cu
+    from onpar import catalog_update as cu
 
     rows = [
         {

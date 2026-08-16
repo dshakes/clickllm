@@ -4,7 +4,7 @@ Sequenced so each phase ships something **independently useful** — no phase is
 
 ---
 
-## Phase 0 — `clickllm fit` (weeks 1–3) ← *in progress*
+## Phase 0 — `onpar fit` (weeks 1–3) ← *in progress*
 
 **Ships:** a free, zero-config CLI that answers *"what can I actually run on this machine?"*
 
@@ -62,7 +62,7 @@ Sequenced so each phase ships something **independently useful** — no phase is
 
 ## Phase 4 — Deploy / "inference in a box" (weeks 19–25)
 
-**Ships:** `clickllm pack` + `clickllm run` — a portable box that serves an OpenAI-compatible endpoint on any hardware, plus native config generation for every target.
+**Ships:** `onpar pack` + `onpar run` — a portable box that serves an OpenAI-compatible endpoint on any hardware, plus native config generation for every target.
 
 - Local: mlx, llama.cpp Metal, mlx-lm, Ollama
 - GPU: vLLM + EAGLE-3/P-EAGLE, SGLang + RadixAttention
@@ -75,7 +75,7 @@ Sequenced so each phase ships something **independently useful** — no phase is
 - **The box** — one command, one endpoint, two delivery mechanisms: container on Linux/CUDA/ROCm/k8s, supervised native on macOS/Metal ([ADR-0005](adr/0005-inference-in-a-box.md))
 - **Re-tune on arrival** — a box tuned on an A100 must re-solve when it lands on an L40S or a Mac, not apply stale settings
 
-**Constraint:** generated artifacts must run with clickllm uninstalled (NFR-4). Test that explicitly.
+**Constraint:** generated artifacts must run with onpar uninstalled (NFR-4). Test that explicitly.
 
 **Risk:** a wrong auto-tune is worse than no auto-tune — an untuned `num_speculative_tokens` at high concurrency makes users *slower* and they never learn why. Roofline estimates pick candidate settings; **measurement ratifies them**. Never ship a computed optimization unmeasured.
 

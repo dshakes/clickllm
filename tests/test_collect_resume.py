@@ -16,9 +16,9 @@ import json
 
 import pytest
 
-from clickllm.prove import collect as C
-from clickllm.prove.collect import Collected, collect
-from clickllm.prove.graders import EvalItem
+from onpar.prove import collect as C
+from onpar.prove.collect import Collected, collect
+from onpar.prove.graders import EvalItem
 
 
 def _items(n: int = 6) -> list[EvalItem]:

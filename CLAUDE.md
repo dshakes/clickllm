@@ -1,11 +1,11 @@
-# CLAUDE.md — working in the clickllm repo
+# CLAUDE.md — working in the onpar repo
 
 Auto-loaded by Claude Code (and AGENTS.md-aware tools) on entry. This is the
 **single source of truth for repo conventions, invariants, and what NOT to do.**
 Read it top-to-bottom before the first edit.
 
 ## What this is (one sentence)
-clickllm proves which open-weight LLM can replace a team's closed-model API — on
+onpar proves which open-weight LLM can replace a team's closed-model API — on
 their own traffic, hardware, and budget — then migrates them across with a
 quality gate and a rollback button.
 
@@ -14,8 +14,8 @@ Full picture: [README](README.md) · [PRD](docs/20-prd.md) · [architecture](doc
 ## Languages & commands
 | Layer | Language | Notes |
 |---|---|---|
-| datapath, weights, runtimes | **Rust** (`clickllm-core/`) | no GC against the <15ms p95 budget; explicit fleet-memory accounting ([ADR-0007](docs/adr/0007-tech-stack.md)) |
-| control plane, solver, evals | **Python 3.11+** (`src/clickllm/`) | the ML ecosystem is Python; zero runtime deps today |
+| datapath, weights, runtimes | **Rust** (`onpar-core/`) | no GC against the <15ms p95 budget; explicit fleet-memory accounting ([ADR-0007](docs/adr/0007-tech-stack.md)) |
+| control plane, solver, evals | **Python 3.11+** (`src/onpar/`) | the ML ecosystem is Python; zero runtime deps today |
 
 ```bash
 cargo test && cargo clippy --all-targets && cargo fmt --check   # Rust gate (249 tests)
@@ -23,14 +23,14 @@ uv run --with pytest --with pyyaml --python 3.13 pytest -q   # Python gate (1976
 uv run --with ruff   --python 3.13 ruff check src tests
 uv run --with ruff   --python 3.13 ruff format src tests
 python3 tools/release_preflight.py                     # before tagging a release
-PYTHONPATH=src python3 -m clickllm.cli fit            # run
-PYTHONPATH=src python3 -m clickllm.fit                # module self-check
+PYTHONPATH=src python3 -m onpar.cli fit            # run
+PYTHONPATH=src python3 -m onpar.fit                # module self-check
 ```
 
 ## Repo layout
-- `clickllm-core/src/` — Rust: `error` · `model_ref` · `licence` · `spec` · `runtime/{vllm,llmd}`
-- `src/clickllm/` — Python: hardware detection, model catalog, fit solver, CLI
-- `src/clickllm/models.json` — model catalog; `verified` flags confirmed architecture
+- `onpar-core/src/` — Rust: `error` · `model_ref` · `licence` · `spec` · `runtime/{vllm,llmd}`
+- `src/onpar/` — Python: hardware detection, model catalog, fit solver, CLI
+- `src/onpar/models.json` — model catalog; `verified` flags confirmed architecture
 - `docs/` — numbered specs (00 verdict → 70 naming); `docs/adr/` for decisions; `docs/assets/` SVGs
 - `tests/` — pytest; also runs each module's `demo()` self-check
 
@@ -40,11 +40,11 @@ PYTHONPATH=src python3 -m clickllm.fit                # module self-check
 1. **Never build an inference engine, production load balancer, chat UI, RAG
    framework, or hosted inference.** Those have incumbents and none is the gap.
    Everything else in our path we own outright ([ADR-0008](docs/adr/0008-build-from-scratch.md)).
-2. **No engine-specific type escapes the `Runtime` trait** (`clickllm-core/src/runtime/`).
+2. **No engine-specific type escapes the `Runtime` trait** (`onpar-core/src/runtime/`).
    The moment one does, portability is gone and dev-on-Metal stops working, because
    vLLM/SGLang/llm-d are CUDA-only. ([ADR-0002](docs/adr/0002-runtime-abstraction.md))
 3. **Generated config is native and standalone.** Emit a real `vllm serve` or a real
-   `InferencePool` that runs with clickllm uninstalled. Never a wrapper. (NFR-4)
+   `InferencePool` that runs with onpar uninstalled. Never a wrapper. (NFR-4)
 4. **Redaction happens before persistence, and fails closed.** Unredacted prompt
    text must never touch disk. A redaction failure drops the capture. (NFR-3)
 5. **Zero telemetry, zero egress by default.** Captured traffic is the most sensitive
@@ -86,13 +86,13 @@ trades a defect for its mirror image.
   the invocation itself was wrong (fix it, do not retry). Everything used to be `2`,
   so an agent could not tell those apart.
 - **Tests:** every module carries an assert-based `demo()` self-check runnable via
-  `python -m clickllm.<mod>`; `tests/` runs those plus cases needing a synthetic machine.
+  `python -m onpar.<mod>`; `tests/` runs those plus cases needing a synthetic machine.
   Prefer one runnable check over a fixture pyramid.
 - **Estimates are labelled as estimates.** `explain()` returns the arithmetic for every
   number. Roofline projections say "roofline estimate, not measured."
 - **Hardware constants are calibration knobs**, not truths — `APPLE_BANDWIDTH`,
   `BANDWIDTH_EFFICIENCY`, `OVERHEAD_FRACTION`. Comment the ceiling and the upgrade path.
-- Zero runtime dependencies in `clickllm fit`; it must work under `uvx` with no install.
+- Zero runtime dependencies in `onpar fit`; it must work under `uvx` with no install.
 
 ## Rust conventions
 - `unwrap`/`expect`/`panic!`/slice-indexing are **denied at the lint level** in production
@@ -101,4 +101,4 @@ trades a defect for its mirror image.
   refuse — never wrap to a small number and appear to fit.
 - Every fallible operation runs inside a `tracing` span carrying model/runtime/path.
 - Generated artifacts stamp a provenance header: what was chosen, why, and that they
-  run without clickllm installed.
+  run without onpar installed.

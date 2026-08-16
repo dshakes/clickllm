@@ -6,7 +6,7 @@
 
 Stated requirement: use hardware — CPU, threads, memory — efficiently. That is the key concern.
 
-It is also a requirement that must be aimed, not applied uniformly. Most of clickllm is not compute-bound, and rewriting an I/O-bound eval loop in a systems language buys nothing while giving up the ML ecosystem. So: where is the work actually?
+It is also a requirement that must be aimed, not applied uniformly. Most of onpar is not compute-bound, and rewriting an I/O-bound eval loop in a systems language buys nothing while giving up the ML ecosystem. So: where is the work actually?
 
 | Component | Nature of the work | Efficiency actually matter? |
 |---|---|---|
@@ -26,9 +26,9 @@ The efficiency-critical set is exactly the datapath and the weights path. Everyt
 **Rust for the datapath and everything that touches bytes or memory budgets. Python for the control plane, where the ML ecosystem lives.**
 
 ```
-clickllm-core   (Rust)     gateway · router · fleet · weights · runtime supervision · box run
+onpar-core   (Rust)     gateway · router · fleet · weights · runtime supervision · box run
       │ PyO3
-clickllm        (Python)   distill · prove · guard · CLI orchestration
+onpar        (Python)   distill · prove · guard · CLI orchestration
 ```
 
 ### Why Rust, not Go, for the datapath
@@ -59,7 +59,7 @@ Rewriting `distill`/`prove` in Rust would cost the embedding, clustering, tokeni
 
 ### The existing Python fit solver
 
-Stays as a control-plane mirror of `spec.rs`: it runs in microseconds, drives `clickllm fit`, and keeps the CLI dependency-free. The authoritative sizing logic is the Rust one, and `tests/` checks the two agree.
+Stays as a control-plane mirror of `spec.rs`: it runs in microseconds, drives `onpar fit`, and keeps the CLI dependency-free. The authoritative sizing logic is the Rust one, and `tests/` checks the two agree.
 
 ## Consequences
 

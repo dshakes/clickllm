@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "onpar-core"
+description = "Compiled datapath bindings for onpar — the capture format and the redactor."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/dshakes/onpar"
+
+[tool.maturin]
+# abi3: one wheel per platform covers every supported interpreter, instead of one
+# per platform per minor version. Matches requires-python above.
+features = ["pyo3/extension-module"]
+module-name = "_onpar_core"
+manifest-path = "Cargo.toml"

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import mcp
-from clickllm.prove import (
+from onpar import mcp
+from onpar.prove import (
     Agreement,
     Comparison,
     EvalItem,
@@ -101,8 +101,8 @@ def test_a_cluster_carried_by_the_judge_alone_still_cannot_advance():
     """
     from dataclasses import replace as dc_replace
 
-    from clickllm.prove import Action, Stage, decide, grade, judge_item, read_cluster
-    from clickllm.prove.graders import ExactMatch
+    from onpar.prove import Action, Stage, decide, grade, judge_item, read_cluster
+    from onpar.prove.graders import ExactMatch
 
     # `ExactMatch` alone: a prose baseline leaves it N/A, so nothing deterministic
     # applies and the judge is the only voice in the room. This is `run`'s own
@@ -364,17 +364,17 @@ def test_no_mcp_tool_can_move_traffic():
 
 @pytest.fixture
 def eval_root(tmp_path: Path, monkeypatch) -> Path:
-    """Point `CLICKLLM_EVAL_ROOT` at `tmp_path`, which is what an operator whose
+    """Point `ONPAR_EVAL_ROOT` at `tmp_path`, which is what an operator whose
     eval sets live on a mounted volume does.
 
-    ADR-0014 confined `clickllm_prove` to a root, because it is the one MCP tool
+    ADR-0014 confined `onpar_prove` to a root, because it is the one MCP tool
     where an agent names a path and the contents land in its context. These
     tests drive it with a path outside the working directory *deliberately* —
     the claim is "four surfaces, one implementation" — so they set the root
     rather than being rewritten to give the guard an easier target. The contract
     they prove is untouched; only the operator's declaration is new.
     """
-    monkeypatch.setenv("CLICKLLM_EVAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("ONPAR_EVAL_ROOT", str(tmp_path))
     return tmp_path
 
 
@@ -408,7 +408,7 @@ def test_the_agent_gets_the_same_verdict_as_the_cli(tmp_path: Path, eval_root: P
         [
             sys.executable,
             "-m",
-            "clickllm.cli",
+            "onpar.cli",
             "prove",
             str(path),
             "--candidate",
@@ -486,7 +486,7 @@ def test_the_cli_exits_nonzero_when_nothing_can_move(tmp_path: Path):
     path = tmp_path / "allbad.json"
     path.write_text(json.dumps({"items": rows, "shares": {"rare-json": 1.0}}))
     r = subprocess.run(
-        [sys.executable, "-m", "clickllm.cli", "prove", str(path)],
+        [sys.executable, "-m", "onpar.cli", "prove", str(path)],
         capture_output=True,
         text=True,
         env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"},
@@ -499,7 +499,7 @@ def test_the_cli_reports_an_error_rather_than_a_traceback(tmp_path: Path):
     path = tmp_path / "empty.json"
     path.write_text(json.dumps({"items": []}))
     r = subprocess.run(
-        [sys.executable, "-m", "clickllm.cli", "prove", str(path)],
+        [sys.executable, "-m", "onpar.cli", "prove", str(path)],
         capture_output=True,
         text=True,
         env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"},
@@ -517,8 +517,8 @@ def test_a_trailing_full_stop_is_not_a_wrong_answer():
     answered every question correctly. It fails in the safe direction, but a
     user shown 0% for a perfect run stops trusting the tool.
     """
-    from clickllm.prove import EvalItem, Outcome
-    from clickllm.prove.graders import ExactMatch
+    from onpar.prove import EvalItem, Outcome
+    from onpar.prove.graders import ExactMatch
 
     g = ExactMatch()
     for got in ("Paris.", " Paris ", '"Paris"', "`Paris`", "Paris!", "paris"):
@@ -529,8 +529,8 @@ def test_a_trailing_full_stop_is_not_a_wrong_answer():
 def test_normalisation_does_not_erase_a_real_difference():
     """The negative control. Stripping punctuation until everything matches
     would turn the grader into a rubber stamp, which is worse than brittle."""
-    from clickllm.prove import EvalItem, Outcome
-    from clickllm.prove.graders import ExactMatch
+    from onpar.prove import EvalItem, Outcome
+    from onpar.prove.graders import ExactMatch
 
     g = ExactMatch()
     for base, got in (("3.14", "314"), ("yes", "no"), ("Paris", "Lyon")):
@@ -541,14 +541,14 @@ def test_normalisation_does_not_erase_a_real_difference():
 def test_the_openai_response_format_shape_does_not_kill_the_run():
     """Found by running the loop end to end, not by a test.
 
-    `response_format` is documented in `clickllm prove --help` as the OpenAI
+    `response_format` is documented in `onpar prove --help` as the OpenAI
     request shape, and the CLI reads it straight out of an eval-set file with no
     validation. As a dict it reached `x in {"enum", "json_schema"}` and raised
     `TypeError: unhashable type: 'dict'` — killing the whole suite AFTER all 40
     replies had been collected and paid for. A malformed or merely
     differently-spelled field must cost one grader's opinion, never the run.
     """
-    from clickllm.prove.graders import ExactMatch, Outcome, _format_name
+    from onpar.prove.graders import ExactMatch, Outcome, _format_name
 
     # Both spellings of the same intent resolve identically.
     assert _format_name("enum") == "enum"
@@ -600,18 +600,18 @@ def test_a_receipt_stamps_the_version_that_actually_wrote_it():
 
     `SERVER_INFO["version"]` was the literal "0.1.0" and never moved, so every
     receipt written by 0.1.1 through 0.1.4 claimed 0.1.0 wrote it. That is the
-    one artifact whose entire purpose is provenance, and the one `clickllm
+    one artifact whose entire purpose is provenance, and the one `onpar
     receipt --against` exists to audit — a receipt that misreports its own tool
     cannot be checked against anything.
     """
-    from clickllm import __version__
-    from clickllm.mcp import SERVER_INFO
+    from onpar import __version__
+    from onpar.mcp import SERVER_INFO
 
     assert SERVER_INFO["version"] == __version__, (
         f"receipts would be stamped {SERVER_INFO['version']}, but this is {__version__}"
     )
     # And it is derived, not a copy that happens to agree today.
-    src = (Path(__file__).resolve().parents[1] / "src/clickllm/mcp.py").read_text()
+    src = (Path(__file__).resolve().parents[1] / "src/onpar/mcp.py").read_text()
     assert '"version": __version__' in src, "re-typing the version is how it drifted"
 
 
@@ -625,7 +625,7 @@ def test_a_repeated_prompt_is_one_observation_not_two():
     observations; a prompt asked twice is one observation, and counting it twice
     narrows the interval on evidence nobody collected.
     """
-    from clickllm.prove import run
+    from onpar.prove import run
 
     # Ten distinct prompts, nine passing — then the failing one repeated twice
     # more. Uncollapsed that reads 9/12; collapsed it is 9/10.
@@ -652,7 +652,7 @@ def test_a_repeated_prompt_is_one_observation_not_two():
 def test_collapsing_duplicates_is_disclosed_rather_than_silent():
     """A denominator smaller than the file the reader wrote, with no explanation,
     is its own defect — and leaves the eval set wrong because nothing said so."""
-    from clickllm.prove import run
+    from onpar.prove import run
 
     items = [EvalItem(f"d{i}", "c", "same", "x", "x") for i in range(3)]
     items += [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(9)]
@@ -671,7 +671,7 @@ def test_the_same_prompt_in_different_clusters_is_not_a_duplicate():
     """Clusters are separate populations. "Summarise this" appearing in both a
     summarisation and a routing cluster is two genuine observations, and merging
     across them would silently shrink an unrelated denominator."""
-    from clickllm.prove import run
+    from onpar.prove import run
 
     items = [EvalItem("a", "c1", "shared prompt", "x", "x")]
     items += [EvalItem("b", "c2", "shared prompt", "x", "x")]
@@ -684,9 +684,9 @@ def test_the_same_prompt_in_different_clusters_is_not_a_duplicate():
 def test_the_receipt_records_a_collapse_so_its_denominator_is_explainable():
     """A receipt reading `9/10` against an eval-set file holding 20 items looks
     like lost data. An auditor cannot tell a deliberate collapse from a bug, and
-    the receipt is the artifact `clickllm receipt --against` exists to audit."""
-    from clickllm.prove import run
-    from clickllm.prove.receipt import Claim
+    the receipt is the artifact `onpar receipt --against` exists to audit."""
+    from onpar.prove import run
+    from onpar.prove.receipt import Claim
 
     items = [EvalItem(f"d{i}", "c", "same", "x", "x") for i in range(3)]
     items += [EvalItem(f"u{i}", "c", f"u{i}", "x", "x") for i in range(9)]
@@ -745,7 +745,7 @@ def test_a_grouped_number_is_one_number_not_three(baseline, candidate, expected,
     exactly what money figures carry, so the hole sat on the numbers most worth
     checking. Found by the deep-review audit (#90).
     """
-    from clickllm.prove.graders import EvalItem, NumericAgreement
+    from onpar.prove.graders import EvalItem, NumericAgreement
 
     item = EvalItem(item_id="x", cluster="c", prompt="p", baseline=baseline, candidate=candidate)
     assert NumericAgreement().grade(item).outcome.value == expected, why
@@ -762,8 +762,8 @@ def test_the_headline_weighted_figure_never_renders_without_its_interval():
     """
     import re
 
-    from clickllm.prove.equivalence import CandidateReport, ClusterScore, Matrix
-    from clickllm.prove.stats import wilson
+    from onpar.prove.equivalence import CandidateReport, ClusterScore, Matrix
+    from onpar.prove.stats import wilson
 
     cand = CandidateReport(
         model="qwen3-30b-a3b",
@@ -784,13 +784,13 @@ def test_a_bad_tool_argument_does_not_end_the_mcp_session():
     nothing, so any other exception unwound the loop and killed the process.
 
     Reachable without contrivance, because this server does no schema
-    validation: `clickllm_advise(workload="chat")` raises ValueError from
+    validation: `onpar_advise(workload="chat")` raises ValueError from
     `Workload("chat")`. An agent exploring the tool surface — which is what
     agents do — took the whole session down with it, every queued and later
     call included, on a surface the module's docstring calls safe to hand an
     agent.
     """
-    from clickllm import mcp
+    from onpar import mcp
 
     def call(tool, **args):
         return mcp.handle(
@@ -803,8 +803,8 @@ def test_a_bad_tool_argument_does_not_end_the_mcp_session():
         )
 
     for tool, args in (
-        ("clickllm_advise", {"workload": "chat"}),
-        ("clickllm_fit", {"context": "a few thousand"}),
+        ("onpar_advise", {"workload": "chat"}),
+        ("onpar_fit", {"context": "a few thousand"}),
     ):
         r = call(tool, **args)
         assert "error" not in r, f"{tool} killed the transport instead of reporting"
@@ -812,7 +812,7 @@ def test_a_bad_tool_argument_does_not_end_the_mcp_session():
         assert "error:" in r["result"]["content"][0]["text"]
 
     # Control: a valid call still succeeds after the bad ones.
-    good = call("clickllm_fit", context="8k")
+    good = call("onpar_fit", context="8k")
     assert not good["result"].get("isError"), good
 
 
@@ -826,7 +826,7 @@ def test_requirement_values_are_coerced_at_the_funnel_not_at_the_surface():
     constraint belongs to the thing it protects, not to whichever surface
     reached it. `_apply_fields` is the one funnel both paths pass through.
     """
-    from clickllm.session import Session
+    from onpar.session import Session
 
     s = Session()
     s._apply_fields(concurrency="8", context="4096", prefix_sharing="0.5")
@@ -850,7 +850,7 @@ def test_a_bool_requirement_refuses_a_string_rather_than_reading_it_as_yes():
     string is truthy: `plan.py:287` and `plan.py:618` both read `"false"` as
     yes. The omission removed the coercion and never added the refusal.
     """
-    from clickllm.session import Session
+    from onpar.session import Session
 
     for value in ("false", "true", "yes", "0", 1, 0, None):
         with pytest.raises(ValueError, match="structured_output must be a bool"):
@@ -867,7 +867,7 @@ def test_a_bool_requirement_refuses_a_string_rather_than_reading_it_as_yes():
 def test_the_refusal_reaches_the_agent_surface_that_would_send_a_string():
     """JSON-RPC clients send whatever they serialise. The guard is at the funnel
     both the CLI and MCP converge on, so this asserts the far end sees it."""
-    from clickllm import mcp
+    from onpar import mcp
 
     reply = mcp.handle(
         {
@@ -875,7 +875,7 @@ def test_the_refusal_reaches_the_agent_surface_that_would_send_a_string():
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "clickllm_build",
+                "name": "onpar_build",
                 "arguments": {"description": "x", "structured_output": "false"},
             },
         }

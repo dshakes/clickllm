@@ -6,12 +6,12 @@
 
 The README's *What it is not* table says:
 
-> **Not a router or a proxy.** Nothing sits in your request path. clickllm sizes,
+> **Not a router or a proxy.** Nothing sits in your request path. onpar sizes,
 > configures, launches and measures; where the traffic goes afterwards is your
 > call and your infrastructure. A proxy that must be up for your app to work is
 > a liability you did not have before.
 
-`clickllm-gateway` is 3,461 lines of Rust that sits in the request path. It has
+`onpar-gateway` is 3,461 lines of Rust that sits in the request path. It has
 a proxy, a router, a token meter, an SSE inspector and a capture store, with 26
 tests including real-TCP streaming ones. Roadmap Phase 1 ships it as "a drop-in
 proxy". The crate's own docstring argues the distinction:
@@ -21,7 +21,7 @@ proxy". The crate's own docstring argues the distinction:
 
 So the code has already reconciled this and the customer-facing promise has not.
 Today that is survivable, because nothing runs the gateway — there is no
-`[[bin]]` and no CLI command. The moment `clickllm observe` ships, the README is
+`[[bin]]` and no CLI command. The moment `onpar observe` ships, the README is
 false.
 
 This ADR exists because the honest fix is not to soften the README until it
@@ -30,7 +30,7 @@ and to say what would prove it wrong.
 
 ## Decision
 
-**clickllm sits in the request path only while a migration is in flight, and its
+**onpar sits in the request path only while a migration is in flight, and its
 exit is a feature rather than an afterthought.**
 
 Three things follow, and they are what separate this from the load balancer
@@ -48,7 +48,7 @@ CLAUDE.md's invariant 1 forbids:
    Balancing is handed to GAIE/llm-d. A migration router that never reaches
    `Cut` has failed at its job, not succeeded at being infrastructure.
 
-3. **It is opt-in and removable.** `clickllm fit`, `prove`, `where` and the
+3. **It is opt-in and removable.** `onpar fit`, `prove`, `where` and the
    receipt path never touch the datapath. A user who only wants to know what
    fits never starts it, and one who finishes a migration stops it.
 

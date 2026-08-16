@@ -11,7 +11,7 @@ correctly on GitHub, and they do not try; they assert the wiring whose absence
 already caused a specific failure, so re-introducing it costs a red test rather
 than a wasted run.
 
-`pyyaml` is a test-time dependency only — `clickllm fit` still has none.
+`pyyaml` is a test-time dependency only — `onpar fit` still has none.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover — depends on how the suite was invoked
 
 # A silent skip is the exact defect these tests exist to catch: the file looks
 # present, the run looks green, and nothing was checked. So it is a skip on a
-# laptop and a hard stop in CI, the same way CLICKLLM_REQUIRE_ENGINES makes
+# laptop and a hard stop in CI, the same way ONPAR_REQUIRE_ENGINES makes
 # "could not ask the engine" fail rather than pass quietly. Raised at import so
 # it reads as one clear cause, not as every test below failing on a NoneType.
 if yaml is None and os.environ.get("CI"):

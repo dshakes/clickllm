@@ -54,7 +54,7 @@
 <text class="t cap"  x="62" y="209">stream: true</text>
 
 <g filter="url(#lift)"><rect x="300" y="140" width="330" height="88" rx="10" fill="url(#hot)" stroke="#a855f7" stroke-width="1.6"/></g>
-<text class="t ttl"  x="318" y="166" fill="#fff">clickllm gateway</text>
+<text class="t ttl"  x="318" y="166" fill="#fff">onpar gateway</text>
 <text class="t cap"  x="318" y="184">① authn → ② route by policy → ③ mirror to shadow</text>
 <text class="t cap"  x="318" y="200">④ stream through → ⑤ meter tokens → ⑥ redact + persist</text>
 <text class="t ok"   x="318" y="218">zero-copy passthrough · backpressure sheds, never buffers</text>
@@ -162,7 +162,7 @@
 <text class="t cap" x="62"  y="655">converted once, mmap'd, page cache shared across models</text>
 <text class="t ttl" x="442" y="620">Runtimes</text>
 <text class="t cap" x="442" y="638">vLLM · SGLang · llm-d · MLX · llama.cpp · Ollama</text>
-<text class="t cap" x="442" y="655">one trait, native config out — runs without clickllm installed</text>
+<text class="t cap" x="442" y="655">one trait, native config out — runs without onpar installed</text>
 <text class="t ttl" x="822" y="620">Local store</text>
 <text class="t cap" x="822" y="638">traffic · eval sets · runs · scores · benchmarks</text>
 <text class="t ok"  x="822" y="655">zero telemetry · encrypted at rest · fully air-gappable</text>

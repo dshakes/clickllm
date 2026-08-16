@@ -1,4 +1,4 @@
-# clickllm
+# onpar
 
 **Prove which open model can replace your closed one — on your traffic, your hardware, your budget.**
 
@@ -8,7 +8,7 @@ open model is actually good enough for *your* traffic, and hands you a receipt
 that says so.
 
 ```bash
-uvx --from clickllm-cli clickllm fit --context 32k --concurrency 8
+uvx --from onpar onpar fit --context 32k --concurrency 8
 ```
 
 ```
@@ -29,7 +29,7 @@ so wherever it appears.
 
 ## Or just say what you're building
 
-`clickllm` with no arguments opens a conversation — one question at a time, asked
+`onpar` with no arguments opens a conversation — one question at a time, asked
 only when the answer would change the plan. Stop whenever you like and you still
 leave with the best answer so far. In a script or a CI step it stays a usage
 error rather than waiting on input.
@@ -40,11 +40,11 @@ Sizing tells you what fits. It cannot tell you whether the model is good enough,
 and no public benchmark can either, because it has never seen your traffic.
 
 ```bash
-clickllm observe --upstream https://api.openai.com/v1   # record, redacted before storage
-clickllm distill                                        # cluster it into an eval set
-clickllm prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
+onpar observe --upstream https://api.openai.com/v1   # record, redacted before storage
+onpar distill                                        # cluster it into an eval set
+onpar prove evalset.json --incumbent-cost 2847 --candidate-cost 317 \
     --traffic-window '14 days' --resume run
-clickllm brief receipt.json --out brief.html            # one page for whoever signs off
+onpar brief receipt.json --out brief.html            # one page for whoever signs off
 ```
 
 The verdict is per task shape, never an average — a candidate can pass
@@ -59,7 +59,7 @@ would fix it.
 
 ## For agents
 
-`clickllm-mcp` speaks MCP over stdio with zero dependencies: nine read-only
+`onpar-mcp` speaks MCP over stdio with zero dependencies: nine read-only
 tools, receipts and eval sets as resources confined to one root, and three
 pre-built workflows. An agent can size, prove and guard a migration. It cannot
 cut over — not by policy, but because no such tool exists to call.
@@ -67,12 +67,12 @@ cut over — not by policy, but because no such tool exists to call.
 ## Install
 
 ```bash
-uv tool install clickllm-cli
-pipx install clickllm-cli
+uv tool install onpar
+pipx install onpar
 ```
 
-The PyPI name is `clickllm-cli`; the command is `clickllm`. `pip install
-clickllm` installs an unrelated package.
+The PyPI name is `onpar`; the command is `onpar`. `pip install
+onpar` installs an unrelated package.
 
 ## Sizing, and the three ways it goes wrong
 
@@ -85,6 +85,6 @@ clickllm` installs an unrelated package.
 Pre-alpha, and honest about it: every number that is a projection says so, and a
 cell shows `?` rather than a fabricated score.
 
-- **Source, docs and the full README:** https://github.com/dshakes/clickllm
-- **Site:** https://dshakes.github.io/clickllm/
+- **Source, docs and the full README:** https://github.com/dshakes/onpar
+- **Site:** https://dshakes.github.io/onpar/
 - **Licence:** Apache-2.0

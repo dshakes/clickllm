@@ -3,7 +3,7 @@
 Two audiences here, and both matter:
 
 - **Without the extension** — the common case for someone who ran
-  `uvx clickllm fit`. Nothing may explode at import time, and asking for a Rust
+  `uvx onpar fit`. Nothing may explode at import time, and asking for a Rust
   feature must produce one readable sentence naming what to install.
 - **With the extension** — skipped when it is absent, so CI without a compiled
   wheel still runs green rather than silently not testing this.
@@ -21,17 +21,17 @@ from pathlib import Path
 
 import pytest
 
-from clickllm import core
+from onpar import core
 
 HAS_EXT = core.available()
-needs_ext = pytest.mark.skipif(not HAS_EXT, reason="_clickllm_core is not installed")
+needs_ext = pytest.mark.skipif(not HAS_EXT, reason="_onpar_core is not installed")
 
 
 # --- the no-extension contract -------------------------------------------------
 
 
 def test_importing_core_never_fails_even_without_the_extension():
-    # `uvx clickllm fit` imports the package. If this module raised on import,
+    # `uvx onpar fit` imports the package. If this module raised on import,
     # the zero-dependency promise would be broken by a feature nobody used.
     assert core.available() in (True, False)
 
@@ -49,8 +49,8 @@ def test_a_missing_extension_names_what_to_install():
     with pytest.raises(core.SeamError) as e:
         core.redact("anything")
     msg = str(e.value)
-    assert "pip install clickllm-core" in msg
-    assert "clickllm fit" in msg, "must say what still works without it"
+    assert "pip install onpar-core" in msg
+    assert "onpar fit" in msg, "must say what still works without it"
 
 
 def test_version_is_none_or_a_known_one():
@@ -153,7 +153,7 @@ def _written_by_rust(tmp_path: Path) -> Path:
     gateway.
     """
     root = Path(__file__).resolve().parents[1]
-    example = root / "clickllm-gateway" / "examples" / "write_captures.rs"
+    example = root / "onpar-gateway" / "examples" / "write_captures.rs"
     if not example.exists():  # pragma: no cover - repo layout guard
         pytest.skip("writer example missing")
     log = tmp_path / "captures"
@@ -163,7 +163,7 @@ def _written_by_rust(tmp_path: Path) -> Path:
             "run",
             "-q",
             "-p",
-            "clickllm-gateway",
+            "onpar-gateway",
             "--example",
             "write_captures",
             "--",
@@ -191,7 +191,7 @@ def test_the_extension_version_the_package_accepts_is_the_one_it_builds():
     import re
     from pathlib import Path
 
-    from clickllm import __version__
+    from onpar import __version__
 
     root = Path(__file__).resolve().parents[1]
     crate = re.search(r'^version = "([^"]+)"', (root / "Cargo.toml").read_text(), re.M)
@@ -227,7 +227,7 @@ def test_a_matched_extension_is_accepted_and_a_skewed_one_is_refused(monkeypatch
     This drives `_skew()` with a stand-in extension instead, so a change to how
     compatibility is decided has to keep both answers true.
     """
-    from clickllm import __version__, core
+    from onpar import __version__, core
 
     class Ext:
         def __init__(self, version):
@@ -249,7 +249,7 @@ def test_a_matched_extension_is_accepted_and_a_skewed_one_is_refused(monkeypatch
 def test_an_extension_with_no_version_is_refused_rather_than_assumed(monkeypatch):
     """A build without `__version__` is not a matched build; `getattr` defaults
     to "unknown", and "unknown" must not satisfy the check."""
-    from clickllm import core
+    from onpar import core
 
     monkeypatch.setattr(core, "_ext", object())
     reason = core._skew()

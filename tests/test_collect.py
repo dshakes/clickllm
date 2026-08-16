@@ -23,9 +23,9 @@ from typing import Any
 
 import pytest
 
-from clickllm.prove import Agreement, EvalItem, Verdict, judge_item, run
-from clickllm.prove.collect import Collection, chat_url, collect, endpoint_judge
-from clickllm.prove.judge import Comparison
+from onpar.prove import Agreement, EvalItem, Verdict, judge_item, run
+from onpar.prove.collect import Collection, chat_url, collect, endpoint_judge
+from onpar.prove.judge import Comparison
 
 Reply = tuple[int, dict[str, Any]]
 
@@ -255,7 +255,7 @@ def test_nothing_that_looks_like_a_credential_is_ever_read(monkeypatch: pytest.M
     nothing resembling them left this process — which fails if anyone adds an
     `os.environ.get("OPENAI_API_KEY")` fallback, whatever it is named.
     """
-    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HF_TOKEN", "CLICKLLM_TOKEN"):
+    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HF_TOKEN", "ONPAR_TOKEN"):
         monkeypatch.setenv(name, f"sk-live-{name}")
 
     with stub(lambda p, n: ok("x")) as (base, log):
@@ -356,7 +356,7 @@ def test_a_base_that_is_not_an_http_url_is_refused(bad: str):
 
 
 def test_both_spellings_of_the_base_url_reach_the_same_place():
-    """`clickllm run` prints `.../v1`; `Endpoint.base` does not carry it."""
+    """`onpar run` prints `.../v1`; `Endpoint.base` does not carry it."""
     want = "http://127.0.0.1:8000/v1/chat/completions"
     assert chat_url("http://127.0.0.1:8000") == want
     assert chat_url("http://127.0.0.1:8000/") == want
@@ -379,7 +379,7 @@ def _evalset(path, n: int) -> str:
 
 def test_the_cli_scores_a_live_endpoint_end_to_end(tmp_path, capsys: pytest.CaptureFixture):
     """The whole seam: a file of prompts, a live endpoint, a receipt."""
-    from clickllm import cli
+    from onpar import cli
 
     def reply(prompt: str, nth: int) -> Reply:
         return (400, {"error": "context length exceeded"}) if prompt == "p7" else ok('{"a": 1}')
@@ -428,7 +428,7 @@ def test_the_cli_collects_both_sides_and_funnels_the_failures(
     counts read as a funnel — 49 of 50, then 48 of 49 — rather than as two
     unrelated fractions the reader has to reconcile.
     """
-    from clickllm import cli
+    from onpar import cli
 
     def reply(prompt: str, nth: int) -> Reply:
         # Sides are collected in sequence, so the first sighting of a prompt is
@@ -469,7 +469,7 @@ def test_the_cli_collects_both_sides_and_funnels_the_failures(
 
 def test_the_cli_still_scores_a_file_with_no_endpoint(tmp_path, capsys: pytest.CaptureFixture):
     """The original path is untouched: no endpoint, no collection, no egress."""
-    from clickllm import cli
+    from onpar import cli
 
     path = tmp_path / "e.json"
     rows = [
@@ -495,7 +495,7 @@ def test_the_cli_refuses_rather_than_scoring_a_run_where_nothing_answered(
     tmp_path, capsys: pytest.CaptureFixture
 ):
     """Nothing answered is not a verdict, and must not render as one."""
-    from clickllm import cli
+    from onpar import cli
 
     with stub(lambda p, n: (400, {"error": "dead"})) as (base, _):
         code = cli.main(["prove", _evalset(tmp_path / "e.json", 4), "--candidate-endpoint", base])
@@ -507,7 +507,7 @@ def test_the_cli_refuses_rather_than_scoring_a_run_where_nothing_answered(
 
 def test_the_cli_exit_is_a_sentence_not_a_traceback(tmp_path, capsys: pytest.CaptureFixture):
     """Repo convention, on the new path too."""
-    from clickllm import cli
+    from onpar import cli
 
     code = cli.main(
         ["prove", _evalset(tmp_path / "e.json", 2), "--candidate-endpoint", "not-a-url"]
@@ -524,7 +524,7 @@ def test_a_bad_fingerprints_file_fails_before_collection_spends_anything(
     """`--fingerprints` used to be parsed after `_collect_replies()`, so a
     malformed file burned the whole live collection before failing on the
     input error. It must fail first, before a single request goes out."""
-    from clickllm import cli
+    from onpar import cli
 
     bad = tmp_path / "fp.json"
     bad.write_text("not json")
@@ -699,7 +699,7 @@ def test_the_cli_runs_the_judge_and_the_receipt_names_it(tmp_path, capsys: pytes
     judge nobody has checked against a human is not a trusted judge, and the
     receipt must not imply otherwise.
     """
-    from clickllm import cli
+    from onpar import cli
 
     with stub(lambda p, n: ok("TIE") if is_judging(p) else ok('{"a": 1}')) as (base, log):
         code = cli.main(
@@ -735,7 +735,7 @@ def test_the_cli_runs_the_judge_and_the_receipt_names_it(tmp_path, capsys: pytes
 
 
 def test_the_cli_records_a_measured_agreement_rate(tmp_path, capsys: pytest.CaptureFixture):
-    from clickllm import cli
+    from onpar import cli
 
     with stub(lambda p, n: ok("TIE") if is_judging(p) else ok('{"a": 1}')) as (base, _):
         code = cli.main(
@@ -789,7 +789,7 @@ def test_the_cli_refuses_a_judge_it_could_not_disclose(
 ):
     """An undisclosed judge, or one that only looked disclosed, is refused up
     front — before any endpoint is contacted, so a usage error costs nothing."""
-    from clickllm import cli
+    from onpar import cli
 
     code = cli.main(["prove", _evalset(tmp_path / "e.json", 4), *flags])
     err = capsys.readouterr().err
@@ -807,7 +807,7 @@ def test_the_cli_reports_the_incumbent_that_died_when_the_candidate_answered(
     scoreable, and the explanation has to come from the *second* collection —
     the first has no failures to report at all.
     """
-    from clickllm import cli
+    from onpar import cli
 
     with (
         stub(lambda p, n: ok('{"a": 1}')) as (good, _),
@@ -838,7 +838,7 @@ def test_the_cli_reports_the_incumbent_that_died_when_the_candidate_answered(
 
 
 def test_demo_self_check():
-    from clickllm.prove import collect as mod
+    from onpar.prove import collect as mod
 
     mod.demo()
 
@@ -851,7 +851,7 @@ def test_a_collection_with_no_failures_does_not_crash_the_error_path():
     which has no failures, so the explanation raised an IndexError over the top
     of itself and the user learned nothing about the incumbent that died.
     """
-    from clickllm.prove import collect as C
+    from onpar.prove import collect as C
 
     clean = C.Collection(
         base="http://a/v1",
@@ -893,7 +893,7 @@ def test_a_hostile_retry_after_does_not_kill_the_whole_collection():
     that a per-item failure is data. One buggy server answering `Retry-After: -1`
     destroyed a collection that had already paid for every other item.
     """
-    from clickllm.prove import collect as C
+    from onpar.prove import collect as C
 
     for bad in ("-1", "-0.5", "nan", "-inf"):
         assert C._retry_after({"Retry-After": bad}) is None, bad
@@ -914,7 +914,7 @@ def test_a_hostile_retry_after_does_not_kill_the_whole_collection():
 
 
 def _items(n: int):
-    from clickllm.prove import EvalItem
+    from onpar.prove import EvalItem
 
     return [
         EvalItem(item_id=f"i{k}", cluster="c", prompt=f"p{k}", baseline="", candidate="")
@@ -931,7 +931,7 @@ def test_replies_come_back_in_the_order_they_were_asked(monkeypatch):
     diff against each other for no reason, which is the one thing a reproducible
     proof cannot do.
     """
-    from clickllm.prove import collect as C
+    from onpar.prove import collect as C
 
     # Finish in reverse: the last item asked returns first.
     order = {f"i{k}": (len(_items(6)) - k) * 0.01 for k in range(6)}
@@ -948,7 +948,7 @@ def test_replies_come_back_in_the_order_they_were_asked(monkeypatch):
 def test_progress_is_reported_as_replies_land(monkeypatch):
     """The point: a `prove` run printed nothing until it finished, and silence
     is indistinguishable from a hang."""
-    from clickllm.prove import collect as C
+    from onpar.prove import collect as C
 
     monkeypatch.setattr(
         C, "_ask", lambda item_id, prompt, **kw: C.Collected(item_id=item_id, text="a")
@@ -970,7 +970,7 @@ def test_a_broken_progress_callback_does_not_discard_paid_for_replies(monkeypatc
     away replies already bought — so the callback is decoration and its failure
     is swallowed, once.
     """
-    from clickllm.prove import collect as C
+    from onpar.prove import collect as C
 
     monkeypatch.setattr(
         C, "_ask", lambda item_id, prompt, **kw: C.Collected(item_id=item_id, text="a")
@@ -984,7 +984,7 @@ def test_a_broken_progress_callback_does_not_discard_paid_for_replies(monkeypatc
 
 
 def test_progress_counts_failures_without_hiding_them(monkeypatch):
-    from clickllm.prove import collect as C
+    from onpar.prove import collect as C
 
     def half_fail(item_id, prompt, **kw):
         ok = item_id in {"i0", "i2"}
@@ -1000,7 +1000,7 @@ def test_progress_counts_failures_without_hiding_them(monkeypatch):
 
 def test_the_eta_says_nothing_when_it_would_be_a_guess():
     """A running average over one sample is not an estimate."""
-    from clickllm.prove.collect import Progress
+    from onpar.prove.collect import Progress
 
     assert Progress(done=0, total=10, failed=0, seconds=0.0).eta_seconds is None
     assert Progress(done=10, total=10, failed=0, seconds=5.0).eta_seconds is None

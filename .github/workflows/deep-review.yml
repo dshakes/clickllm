@@ -29,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       path:
-        description: "File to review, e.g. src/clickllm/host.py"
+        description: "File to review, e.g. src/onpar/host.py"
         required: true
       focus:
         description: "Optional: what to weight (money, data loss, concurrency…)"
@@ -133,7 +133,7 @@ jobs:
 
       # The review step reports success whether or not it filed anything. Five
       # dispatches produced four issues — host.py and collect.py read their files
-      # (the log shows "reviewing src/clickllm/host.py — 1457 lines") and then
+      # (the log shows "reviewing src/onpar/host.py — 1457 lines") and then
       # filed nothing, while cache.py was written twice. Both runs were green.
       #
       # A reviewer that produces no finding and no issue is indistinguishable

@@ -1,4 +1,4 @@
-# clickllm — Product Requirements Document
+# onpar — Product Requirements Document
 
 **Version:** 0.1 · **Date:** 2026-07-27 · **Status:** draft for review
 **Format:** BMAD (Goals → Requirements → UX → Technical Assumptions → Epics → Stories)
@@ -7,7 +7,7 @@
 
 ## 1. One-liner
 
-> **clickllm proves which open model can replace your closed one — on your traffic, your hardware, your budget — then moves you there without a risky cutover.**
+> **onpar proves which open model can replace your closed one — on your traffic, your hardware, your budget — then moves you there without a risky cutover.**
 
 Working name. Superseded by [70-naming.md](70-naming.md), which recommends renaming to **Parity** — motto *"Prove it, then move it."*
 
@@ -25,9 +25,9 @@ Working name. Superseded by [70-naming.md](70-naming.md), which recommends renam
 
 **G5.** Staying current is automatic: when a new open model ships, your eval set re-runs and you get a *proposal*, not a newsletter.
 
-**G6a.** **Inference in a box.** `clickllm run ./model.box` serves an OpenAI-compatible endpoint on any hardware — container on Linux/NVIDIA/AMD/k8s, supervised native runtime on macOS/Metal, same command and same endpoint either way. The box re-profiles and re-tunes on the host it lands on. ([ADR-0005](adr/0005-inference-in-a-box.md))
+**G6a.** **Inference in a box.** `onpar run ./model.box` serves an OpenAI-compatible endpoint on any hardware — container on Linux/NVIDIA/AMD/k8s, supervised native runtime on macOS/Metal, same command and same endpoint either way. The box re-profiles and re-tunes on the host it lands on. ([ADR-0005](adr/0005-inference-in-a-box.md))
 
-**G6.** **Deploying is zero-config.** Name a model and a target; clickllm chooses quantization, speculative decoding, caching, parallelism, and batch limits from your hardware and your observed traffic. No LLM-infra expertise required, and no tuning flag is ever mandatory. ([ADR-0004](adr/0004-zero-config-deployment.md))
+**G6.** **Deploying is zero-config.** Name a model and a target; onpar chooses quantization, speculative decoding, caching, parallelism, and batch limits from your hardware and your observed traffic. No LLM-infra expertise required, and no tuning flag is ever mandatory. ([ADR-0004](adr/0004-zero-config-deployment.md))
 
 ### Non-goals (v1)
 
@@ -40,7 +40,7 @@ Working name. Superseded by [70-naming.md](70-naming.md), which recommends renam
 | Persona | Pain | Success |
 |---|---|---|
 | **Ravi — staff eng at a Series B** ($18K/mo Anthropic bill, CFO asking) | Believes open models are "probably fine now" but can't prove it and won't risk the product. | Ships a memo with an equivalence matrix; 70% of traffic on GLM-5.2 in 3 weeks. |
-| **Mei — solo founder** (M4 Max, $400/mo OpenAI) | Wants to run local, drowns in Ollama/vLLM/quant/context choices, doesn't know what fits 128 GB. | `clickllm switch` → running locally the same day, knows the 3 task types that still need the API. |
+| **Mei — solo founder** (M4 Max, $400/mo OpenAI) | Wants to run local, drowns in Ollama/vLLM/quant/context choices, doesn't know what fits 128 GB. | `onpar switch` → running locally the same day, knows the 3 task types that still need the API. |
 | **Dana — platform lead, regulated enterprise** | Mandated to get data off third-party APIs. Has GPUs. Needs an audit trail for the decision. | Signed-off equivalence report + llm-d manifests + continuous drift evidence. |
 
 **Wedge = Ravi.** Has budget pain, technical ability, and a decision to justify. Mei is the volume/community on-ramp. Dana is the revenue.
@@ -119,8 +119,8 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 | FR-13a | Auto-tune quantization, prefix/radix caching, tensor+pipeline parallelism, `max_model_len`, `max_num_seqs`, chunked prefill, KV dtype, and memory utilization — none of them prompted | 5 |
 | FR-13b | **Measure, don't just compute:** benchmark each generated config against the observed workload and automatically revert any optimization that fails to help on this hardware | 5 |
 | FR-13c | `--explain` every auto-tuned knob; emit the choices and the ratifying measurement as a header comment in the artifact | 5 |
-| FR-20 | `clickllm pack` produces a portable **box**: manifest, weights lock, per-target bindings, bench evidence, human-readable README | 5 |
-| FR-21 | `clickllm run <box>` serves an OpenAI-compatible endpoint on Linux (container), macOS (supervised native — Docker cannot reach the Apple GPU), and CPU | 5 |
+| FR-20 | `onpar pack` produces a portable **box**: manifest, weights lock, per-target bindings, bench evidence, human-readable README | 5 |
+| FR-21 | `onpar run <box>` serves an OpenAI-compatible endpoint on Linux (container), macOS (supervised native — Docker cannot reach the Apple GPU), and CPU | 5 |
 | FR-22 | On arrival, re-profile the host, re-solve if it differs from the pack-time class, re-benchmark, revert unhelpful optimizations, and report every change | 5 |
 | FR-23 | Published, CI-tested support matrix (architecture × runtime × platform); unsupported architectures fail with a clear message, never a crash | 5 |
 | FR-14 | Shadow mode: mirror traffic, score, never serve | 6 |
@@ -134,10 +134,10 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 
 | ID | Requirement |
 |---|---|
-| NFR-1 | Proxy overhead **< 15 ms p95** added latency (LiteLLM's baseline is 10–20 ms; we must not double it). **Measured: +0.07 ms p95** with capture on, release build, 200 interleaved requests per arm — `clickllm-gateway/tests/latency.rs`. Loopback, so a lower bound. |
+| NFR-1 | Proxy overhead **< 15 ms p95** added latency (LiteLLM's baseline is 10–20 ms; we must not double it). **Measured: +0.07 ms p95** with capture on, release build, 200 interleaved requests per arm — `onpar-gateway/tests/latency.rs`. Loopback, so a lower bound. |
 | NFR-2 | **Local-first.** No traffic, prompt, or eval leaves the machine unless explicitly exported. Default: zero telemetry. |
 | NFR-3 | Captured traffic encrypted at rest; redaction runs before persistence, never after |
-| NFR-4 | Generated artifacts are readable, idiomatic, and runnable **without clickllm installed** — a receipt, not an interface. Reading or editing it is never a prerequisite. |
+| NFR-4 | Generated artifacts are readable, idiomatic, and runnable **without onpar installed** — a receipt, not an interface. Reading or editing it is never a prerequisite. |
 | NFR-5 | Cutover rollback completes in **< 10 s** |
 | NFR-6 | Loop is resumable — kill it at any stage, resume from disk state |
 | NFR-7 | Runs fully offline after model download (air-gapped enterprise) |
@@ -169,7 +169,7 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 | **7** | **Guard** — drift watch + promotion proposals | Retention | Turns a one-shot tool into a subscription |
 | **8** | **Surfaces** — CLI, TUI, local console, MCP | Reach | Parallel to 1–7, not after |
 
-**Ship order for a demo that sells: 3 → 1 → 2 → 4.** Epic 3 alone (`clickllm fit`) is a shareable free tool that builds audience while 1/2/4 are built.
+**Ship order for a demo that sells: 3 → 1 → 2 → 4.** Epic 3 alone (`onpar fit`) is a shareable free tool that builds audience while 1/2/4 are built.
 
 ---
 
@@ -178,7 +178,7 @@ Open models ship weekly (Kimi K3 landed 2026-07-16). Watch releases → auto-run
 ### Epic 3 — Fit
 
 **3.1 Hardware profiler**
-*As a builder, I want clickllm to know my machine so I stop guessing what fits.*
+*As a builder, I want onpar to know my machine so I stop guessing what fits.*
 AC: detects Apple Silicon unified memory / NVIDIA / AMD VRAM / CPU+RAM; reports usable-vs-total headroom; k8s mode enumerates node GPU inventory; JSON output; degrades gracefully with no accelerator.
 
 **3.2 Model catalog**

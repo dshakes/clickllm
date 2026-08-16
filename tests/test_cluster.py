@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from clickllm.distill.cluster import MIN_CLUSTER_SIZE, cluster, sample
-from clickllm.distill.shape import Capture
+from onpar.distill.cluster import MIN_CLUSTER_SIZE, cluster, sample
+from onpar.distill.shape import Capture
 
 
 def cap(i: int, system: str, resp: str = "x") -> Capture:
