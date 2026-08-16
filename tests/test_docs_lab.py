@@ -622,12 +622,16 @@ PUBLISHED_PACKAGE_NAMES: frozenset[str] = frozenset({"onpar"})
 #: this whole check exists to forbid.
 PUBLISHED_BY_REGISTRY: dict[str, frozenset[str]] = {
     "pypi": frozenset({"onpar"}),
-    # Published 2026-07-30, verified by running `npx onpar@0.1.5 version`.
-    "npm": frozenset({"onpar"}),
+    # Published 2026-08-16, verified by running `npx onpar-cli@1.3.0 version`,
+    # which printed `onpar 1.3.0` / `distribution onpar`. The npm name carries
+    # the `-cli` suffix and PyPI does not: npm refused the bare `onpar` as too
+    # similar to the existing `unhar`, which is the constraint PyPI used to
+    # apply and no longer does. Bare `onpar` is NOT in here and cannot be.
+    "npm": frozenset({"onpar-cli"}),
 }
-#: Published 2026-07-30 and verified by installing it: `uvx --from onpar
-#: onpar fit` ran. `onpar` itself is NOT in here and cannot be — PyPI
-#: refused it as too similar to the existing `click-llm`. The distribution is
+#: Published 2026-08-16 and verified by installing it: `uvx onpar fit` ran.
+#: PyPI accepted the bare name, so the distribution, the console script and
+#: the import are all `onpar`.
 #: `onpar`; the console script is `onpar`.
 
 #: Surfaces that tell a reader how to install. install.sh is included because it
