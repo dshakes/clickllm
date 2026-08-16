@@ -1805,9 +1805,10 @@ def cmd_kernel(args: argparse.Namespace) -> int:
 def cmd_version(args: argparse.Namespace) -> int:
     """`onpar version`. Prints what is installed, and where it came from.
 
-    The distribution and the command differ — PyPI refused `onpar` as too
-    similar to the existing `click-llm` — and someone reading a bug report needs
-    to know which package to ask about, so both names are printed.
+    On PyPI the distribution, the command and the import are all `onpar`. On
+    npm the distribution is `onpar-cli`, because npm refused the bare name as
+    too similar to the existing `unhar`. Someone reading a bug report needs to
+    know which package to ask about, so the distribution is printed too.
     """
     from . import __version__
 
@@ -1846,7 +1847,7 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     """
     from . import __version__
 
-    print(f"onpar {__version__} (onpar)")
+    print(f"onpar {__version__}")
     print()
     print("  Upgrade with whichever installed it:")
     print("    uv tool upgrade onpar")
