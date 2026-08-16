@@ -794,12 +794,12 @@ def test_the_served_installer_is_the_repo_installer():
 
 
 def test_the_npm_wrapper_pins_the_python_version_it_runs():
-    """`npx onpar@X` must run exactly onpar X.
+    """`npx onpar-cli@X` must run exactly onpar X.
 
     The npm package is a shim over the PyPI distribution. Two published surfaces
     that can drift is the defect that already produced `install.sh` vs
     `site/install.sh`, where the served installer kept broken commands after the
-    reviewed one was fixed. Here the cost would be worse: `npx onpar@0.1.1`
+    reviewed one was fixed. Here the cost would be worse: `npx onpar-cli@0.1.1`
     silently executing a different version of the tool.
 
     So the npm version tracks pyproject, and the shim pins `==` rather than a
@@ -811,7 +811,7 @@ def test_the_npm_wrapper_pins_the_python_version_it_runs():
     assert m, "no version in pyproject.toml"
     assert pkg["version"] == m.group(1), (
         f"npm says {pkg['version']}, pyproject says {m.group(1)} — "
-        "`npx onpar@X` would not run onpar X"
+        "`npx onpar-cli@X` would not run onpar X"
     )
 
     shim = (root / "npm" / "bin" / "onpar.js").read_text()
