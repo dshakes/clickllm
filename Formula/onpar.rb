@@ -6,10 +6,10 @@ class Onpar < Formula
 
   desc "Prove which open model can replace your closed one, then migrate safely"
   homepage "https://dshakes.github.io/onpar/"
-  url "https://github.com/dshakes/onpar/archive/refs/tags/v1.2.2.tar.gz"
+  url "https://github.com/dshakes/onpar/archive/refs/tags/v1.3.0.tar.gz"
   # Filled in by the release workflow from the tarball GitHub actually published,
   # never from one built locally — the point of the checksum is that they match.
-  sha256 "14278674786dc5326ef0e660665fbd2d27acbee2d2f306b3f5c4be9356771f46"
+  sha256 "30053a7b1382057ad8a3f85c3c851a510e1625bdee612b62ad6468143fe8b224"
   license "Apache-2.0"
   head "https://github.com/dshakes/onpar.git", branch: "main"
 
