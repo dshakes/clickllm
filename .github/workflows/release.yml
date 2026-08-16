@@ -314,7 +314,7 @@ jobs:
           # or v1.3.0 — `runner=NEVER ASSIGNED` all three times, while its two
           # siblings got one and passed. `timeout-minutes` cannot save it, for the
           # reason recorded above: the clock starts at assignment, so a job waiting
-          # on capacity waits forever. And because `publish-compiled` needs the
+          # on capacity waits forever. And because the publish jobs need the
           # whole matrix, one permanently-queued leg published ZERO compiled wheels
           # for ANY platform — 1.3.0 shipped a pure-Python wheel only, which is the
           # exact "install a Rust toolchain" gap this job exists to close.
@@ -399,7 +399,23 @@ jobs:
   # `release.yml`, environment `pypi`) before this can succeed. It fails loudly
   # until then rather than silently skipping, because a release that quietly
   # ships one of three distributions is what this whole job exists to end.
-  publish-compiled:
+  # `onpar-core` and `onpar-gateway` are separate PyPI projects from `onpar`, and
+  # PyPI keys a trusted publisher on the quad (owner, repo, workflow, environment).
+  # Registering a second publisher with an IDENTICAL quad is refused outright:
+  # "a pending trusted publisher matching this configuration has already been
+  # registered for a different project name."
+  #
+  # The quick way out is to register the others with the environment field left
+  # blank, which makes the quad differ. Do not. A publisher with no environment
+  # constraint authorises *any* job in this workflow to publish under that name —
+  # including a job a future PR adds without ever touching this file. The
+  # environment is what scopes an OIDC credential to the one job entitled to hold
+  # it, and it is where an approval gate can be hung later.
+  #
+  # Split per project for the same reason: one upload step covering both would mint
+  # a credential valid for both, so a compromised build of one could publish the
+  # other.
+  publish-core:
     needs: [build, build-compiled]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -407,7 +423,8 @@ jobs:
       group: release
       cancel-in-progress: false
     environment:
-      name: pypi
+      name: pypi-core
+      url: https://pypi.org/p/onpar-core
     permissions:
       id-token: write
     steps:
@@ -415,15 +432,59 @@ jobs:
         with:
           pattern: compiled-*
           merge-multiple: true
-          path: dist
-      - name: What is about to be published
-        run: ls -la dist
+          path: staged
+      # Publish ONLY this project's artifacts. The download pattern collects both
+      # projects' wheels, so uploading `staged` wholesale would hand this job's
+      # credential a package it is not scoped for and 403 the whole run.
+      - name: Select the onpar-core wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp staged/onpar_core-*.whl dist/
+          ls -la dist
+          # A publish job that uploads nothing must fail rather than report success:
+          # "released" and "installable" reading the same green tick is the defect
+          # this release pipeline keeps relearning.
+          test -n "$(ls -A dist)" || { echo "::error::no onpar-core wheels staged"; exit 1; }
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist
           attestations: true
           # Same reasoning as the wheel job: a re-run of an already-published
           # version is a no-op, not a failure.
+          skip-existing: true
+
+  publish-gateway:
+    needs: [build, build-compiled]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    environment:
+      name: pypi-gateway
+      url: https://pypi.org/p/onpar-gateway
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: compiled-*
+          merge-multiple: true
+          path: staged
+      - name: Select the onpar-gateway wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp staged/onpar_gateway-*.whl dist/
+          ls -la dist
+          test -n "$(ls -A dist)" || { echo "::error::no onpar-gateway wheels staged"; exit 1; }
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+          attestations: true
           skip-existing: true
 
   publish-npm:

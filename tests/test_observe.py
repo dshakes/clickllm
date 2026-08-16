@@ -469,4 +469,29 @@ def test_the_release_publishes_every_distribution_the_code_tells_users_to_instal
         ("onpar-gateway", "onpar-gateway/Cargo.toml"),
     ):
         assert where in wf, f"the release never builds {dist} (expected -m {where})"
-    assert "publish-compiled" in wf, "nothing publishes the compiled distributions"
+    # Assert the PROPERTY, not a job name. This read `"publish-compiled" in wf`
+    # and broke the moment that job was split into publish-core and
+    # publish-gateway — which is the good outcome, but it would have been just as
+    # happy with a job named publish-compiled that published nothing. Each
+    # distribution now has to have a step that actually selects its own wheels.
+    # Deliberately plain-text, with no yaml import. The first version of this used
+    # `pytest.importorskip("yaml")`, which made the check SKIP on the seam job —
+    # where pyyaml is absent — so the assertion silently stopped running in the one
+    # environment that gates the release. That is the same defect this test exists
+    # to catch, reintroduced by the fix for it. `tests/test_workflows.py` raises
+    # rather than skips for exactly this reason; here it is cheaper not to need the
+    # dependency at all.
+    for dist in ("onpar-core", "onpar-gateway"):
+        underscored = dist.replace("-", "_")
+        # Must be the step that STAGES the wheels for upload, not any mention of the
+        # filename. `onpar_gateway-*.whl` also appears in build-compiled's smoke
+        # test, which installs the wheel locally and publishes nothing — a looser
+        # substring check passes on that alone and proves nothing.
+        assert re.search(rf"cp\s+staged/{underscored}-\*\.whl\s+dist/", wf), (
+            f"no release step stages {underscored}-*.whl for upload, so nothing publishes {dist}"
+        )
+    # ...and the selections must be uploaded, not just staged.
+    assert wf.count("gh-action-pypi-publish") >= 3, (
+        "each PyPI project (onpar, onpar-core, onpar-gateway) needs its own upload "
+        "step: they are separate projects with separately scoped trusted publishers"
+    )
