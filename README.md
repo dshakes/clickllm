@@ -18,7 +18,7 @@ an editor. When you need to know it is good enough — not on someone's
 leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
-[![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
+[![status](https://img.shields.io/badge/status-beta-22d3ee?style=flat-square)](docs/50-roadmap.md)
 [![tests](https://img.shields.io/badge/tests-2258-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/onpar/docs/)
