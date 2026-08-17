@@ -4,7 +4,14 @@ Sequenced so each phase ships something **independently useful** — no phase is
 
 ---
 
-## Phase 0 — `onpar fit` (weeks 1–3) ← *in progress*
+## Phase 0 — `onpar fit` (weeks 1–3) ← *shipped*
+
+> **Phase markers, 2026-08-17.** Every phase below has shipping commands as of
+> 1.3.2 — `observe`, `distill`, `prove`, `migrate`, `guard` and `measure` all run.
+> Phase 0 read "in progress" long after that, which made this document describe
+> an earlier repo than the one it sits in. What is *not* finished is the install
+> story and a real end-to-end run against live traffic; both are ranked in
+> [GA readiness](95-ga-readiness.md), which is the honest status page.
 
 **Ships:** a free, zero-config CLI that answers *"what can I actually run on this machine?"*
 

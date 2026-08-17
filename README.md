@@ -299,6 +299,19 @@ npx onpar-cli@1.3.2 fit                        # same build, via npm
 onpar version                              # what you have, and where it came from
 ```
 
+**`fit` is one package. The evidence half is three.** `onpar` alone sizes models
+and needs nothing else — that is deliberate, so `uvx onpar fit` works on a machine
+with no install. Capturing and scoring your own traffic needs two more:
+
+```bash
+pip install onpar onpar-gateway onpar-core   # observe, distill, prove
+```
+
+`onpar-gateway` is the capture proxy; `onpar-core` is the compiled extension that
+reads captures back. Without them `onpar observe` refuses to start and `onpar
+distill` cannot read what was captured — both say so, and name the package, rather
+than failing later or quietly writing something unreadable.
+
 The commands above are unpinned and fetch the newest release — currently **1.3.2**.
 
 The `==` is exact on purpose: `npx onpar-cli@1.3.2` runs `onpar` 1.3.2 and nothing else.
@@ -364,6 +377,7 @@ the response is buffered.
 | [70 — Naming](docs/70-naming.md) | Why it is called this. |
 | [80 — Plan](docs/80-implementation-plan.md) | M0–M10, acceptance criteria, risk gates. |
 | [90 — CI gating](docs/90-ci-gating.md) | Gate a deploy on a proof that still holds. |
+| [95 — GA readiness](docs/95-ga-readiness.md) | What is ready, what blocks GA, ranked — assessed by running the published packages. |
 | [ADRs](docs/adr/) | 19 decisions, including the two later reversed. |
 
 The docs teach the whole inference stack from first principles —
