@@ -19,7 +19,7 @@ leaderboard, on your own captured requests — that is one more command, and it
 answers per cluster with confidence intervals instead of a shrug.**
 
 [![status](https://img.shields.io/badge/status-pre--alpha-22d3ee?style=flat-square)](docs/50-roadmap.md)
-[![tests](https://img.shields.io/badge/tests-2225-34d399?style=flat-square)](#verification)
+[![tests](https://img.shields.io/badge/tests-2254-34d399?style=flat-square)](#verification)
 [![license](https://img.shields.io/badge/license-Apache--2.0-a78bfa?style=flat-square)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-read-fbbf24?style=flat-square)](https://dshakes.github.io/onpar/docs/)
 
@@ -321,14 +321,14 @@ nothing installed; a test fails if anything networked is even imported.
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 2005 Python
 ```
 
-**2225 tests.** 1976 Python, 249 Rust. Eighteen of the Python tests skip on a
-bare machine. Ten are environmental: eight exercise the PyO3 bridge (`maturin
+**2254 tests.** 2005 Python, 249 Rust. Twenty-three of the Python tests skip on a
+bare machine. Eleven are environmental: nine need the compiled extension (`maturin
 develop` in `onpar-py/` turns them on), and two ask vLLM and SGLang for their
 own flags, which needs those engines installed. CI runs both inside the engines'
-published images, so neither skip reaches a green tick unasked. The other eight
+published images, so neither skip reaches a green tick unasked. The other twelve
 are the mutation harness reporting honestly that it had nothing to do: those
 modules declare no numeric constant to perturb, so there is nothing to mutate.
 Every module's `demo()` is *run* by a separate test, because that harness used
@@ -338,7 +338,7 @@ tick. The Rust core denies `unwrap`/`expect`/`panic!`/slice-indexing at the lint
 ```bash
 cargo test --all                                   # 249 Rust
 cargo clippy --all-targets -- -D warnings
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 1976 Python
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # 2005 Python
 ```
 
 Every module carries an assert-based `demo()` self-check runnable via
