@@ -273,9 +273,26 @@ fn describe(p: &Phase) -> String {
 
 /// Logging to stderr, off by default so the datapath is quiet unless asked.
 fn tracing_subscriber_init() {
-    // Deliberately minimal: no subscriber crate, no config file, no exporter.
-    // Zero telemetry and zero egress by default (NFR-2) is easier to guarantee
-    // when there is nothing here that could send anything anywhere.
+    // Local stderr only. No exporter, no collector, no network: NFR-2 is about
+    // data leaving the machine, and an operator reading their own stderr is not
+    // egress. This function used to be empty on that reasoning, which silenced
+    // every warn!/error! in the gateway — including `capture not stored`,
+    // `capture task failed`, and `redaction pattern failed to compile`. The last
+    // is an NFR-3 event: the fail-closed guarantee reporting that it fired, to
+    // nobody. See ADR-0019.
+    //
+    // Default WARN, so a normal run is quiet and only trouble prints. ONPAR_LOG
+    // raises or lowers it (`ONPAR_LOG=debug`, `ONPAR_LOG=onpar_gateway=trace`).
+    //
+    // try_init, not init: a second call must not panic. The binary calls this
+    // once, but tests and embedders may install their own subscriber first, and
+    // a logging setup that can abort the process is worse than no logging.
+    let filter = tracing_subscriber::EnvFilter::try_from_env("ONPAR_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 #[cfg(test)]
@@ -287,6 +304,28 @@ fn tracing_subscriber_init() {
 )]
 mod tests {
     use super::*;
+
+    // The subscriber is what makes every warn!/error! in this crate reach a
+    // human. It was an empty function for a long time, so the assertion that
+    // matters is not "init does not panic" — an empty body passes that — but
+    // that a dispatcher is actually installed afterwards.
+    #[test]
+    fn tracing_init_installs_a_dispatcher() {
+        tracing_subscriber_init();
+        assert!(
+            tracing::dispatcher::has_been_set(),
+            "no tracing dispatcher after init: every warn!/error! in this crate \
+             is discarded, including the capture and redaction failures"
+        );
+    }
+
+    // try_init, not init: a second call must be a no-op rather than a panic, so
+    // an embedder that installs its own subscriber first does not abort us.
+    #[test]
+    fn tracing_init_is_idempotent() {
+        tracing_subscriber_init();
+        tracing_subscriber_init();
+    }
 
     fn parse(args: &[&str]) -> Result<Args, String> {
         parse_from(args.iter().map(|s| (*s).to_owned()))

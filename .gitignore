@@ -9,7 +9,13 @@ __pycache__/
 *.egg-info/
 *.py[cod]
 *.sqlite
-# local state — captured traffic and eval sets never get committed
+# local state — captured traffic and eval sets never get committed.
+# `onpar observe` defaults its capture log to ./onpar-captures.log, so a user
+# who runs it inside a repo would otherwise be one `git add -A` from committing
+# their own traffic. Redaction happens before persistence (NFR-3), but redacted
+# is not the same as publishable.
+onpar-captures.log
+*-captures.log
 # Rust
 build/
 dist/
