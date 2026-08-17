@@ -295,7 +295,7 @@ then moves you across with a rollback button.
 ```bash
 uvx --from onpar onpar fit           # no install, no deps
 pip install onpar                       # or install it
-npx onpar-cli@1.3.3 fit                        # same build, via npm
+npx onpar-cli@1.3.4 fit                        # same build, via npm
 onpar version                              # what you have, and where it came from
 ```
 
@@ -312,13 +312,13 @@ reads captures back. Without them `onpar observe` refuses to start and `onpar
 distill` cannot read what was captured — both say so, and name the package, rather
 than failing later or quietly writing something unreadable.
 
-The commands above are unpinned and fetch the newest release — currently **1.3.3**.
+The commands above are unpinned and fetch the newest release — currently **1.3.4**.
 
-The `==` is exact on purpose: `npx onpar-cli@1.3.3` runs `onpar` 1.3.3 and nothing else.
+The `==` is exact on purpose: `npx onpar-cli@1.3.4` runs `onpar` 1.3.4 and nothing else.
 Pin it when you need a build to stay put:
 
 ```bash
-uvx --from onpar==1.3.3 onpar fit   # exactly this build
+uvx --from onpar==1.3.4 onpar fit   # exactly this build
 ```
 
 `onpar version` reads the installed metadata rather than a string someone typed —
