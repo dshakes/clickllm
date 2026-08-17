@@ -174,6 +174,40 @@ class ClusterScore:
     def render_cell(self) -> str:
         return "?" if not self.known else self.interval.render()
 
+    #: The verdict in the words the product is named for. `band()` returns the
+    #: internal label — `equivalent`, `regressed`, `unproven`, `unknown` — which
+    #: twenty-one call sites branch on and which must not change. This is the
+    #: display form of the same judgement, and only the display form: nothing
+    #: decides anything by reading it.
+    #:
+    #: "off par" rather than "below par" on purpose. Below par is a quantity, and
+    #: the reader has the interval for that. Off par is a verdict: this cluster
+    #: does not clear the bar, so this traffic does not move.
+    _VERDICT_WORDS = {
+        "equivalent": "on par",
+        "regressed": "off par",
+        "unproven": "not proven",
+        "unknown": "no evidence",
+    }
+
+    def verdict(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> str:
+        """`on par` / `off par` / `not proven` / `no evidence`.
+
+        A cluster is on par when its whole confidence interval clears the bar —
+        not when its point estimate does. That is the same rule `band()` applies;
+        this only says it in the vocabulary a reader can act on.
+        """
+        return self._VERDICT_WORDS[self.band(bar)]
+
+    def render_verdict(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> str:
+        """The cell with its verdict, e.g. `96% [91-99] on par`.
+
+        `?` keeps its own word. A cell with too little evidence must not read as
+        a soft pass — "no evidence" is a different statement from "off par", and
+        collapsing them is the failure this tool exists to refuse.
+        """
+        return f"{self.render_cell()} {self.verdict(bar)}"
+
     def needed(self, bar: float = DEFAULT_EQUIVALENCE_BAR) -> int | None:
         """Graded items this cluster would need to clear ``bar``, at its own rate.
 
@@ -473,7 +507,10 @@ class Matrix:
             if regret:
                 out.append("REGRET — keep the incumbent for these:")
                 for c in regret:
-                    out.append(f"  {c.name}  ({c.share * 100:.0f}% of traffic)  {c.render_cell()}")
+                    out.append(
+                        f"  {c.name}  ({c.share * 100:.0f}% of traffic)  "
+                        f"{c.render_verdict(self.bar)}"
+                    )
                 out.append("")
 
         # The header only needs cluster names and traffic shares, which every

@@ -876,3 +876,32 @@ def test_an_unknown_cost_is_still_refused_rather_than_guessed():
     r = suite(items, shares={"c": 1.0}, issued="2026-08-12")
     saving = next(line for line in r.policy.render().splitlines() if "Saving" in line)
     assert "unknown" in saving and "no cost rate" in saving, saving
+
+
+def test_the_verdict_says_on_par_and_off_par():
+    """The product is named for a verdict it never spoke.
+
+    `band()` has always computed this — `equivalent`, `regressed`, `unproven` —
+    but those are internal labels that twenty-one call sites branch on. A reader
+    got a percentage and an interval and had to supply the judgement themselves.
+    """
+    from onpar.prove.stats import wilson
+
+    def score(passed: int, total: int) -> ClusterScore:
+        return ClusterScore(
+            name="c", cluster="c", share=1.0, ungraded=0, interval=wilson(passed, total)
+        )
+
+    assert score(96, 100).verdict() == "on par"
+    assert score(71, 100).verdict() == "off par"
+    # A perfect score on too few items is NOT a pass. Twelve items cannot clear a
+    # 90% bar however clean they look, and "not proven" must not read as a soft
+    # yes — collapsing it into "on par" is the exact failure this tool refuses.
+    assert score(12, 12).verdict() == "not proven"
+    assert score(0, 0).verdict() == "no evidence"
+
+    # The rendered cell carries both the arithmetic and the word.
+    rendered = score(96, 100).render_verdict()
+    assert "on par" in rendered and "%" in rendered, rendered
+    # `?` keeps its own word rather than borrowing a verdict.
+    assert score(0, 0).render_verdict().startswith("?")
