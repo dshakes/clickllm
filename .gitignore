@@ -17,6 +17,11 @@ __pycache__/
 onpar-captures.log
 *-captures.log
 # ...and no key/credential material derived from a capture session either.
+# ...and the key that decrypts them. `onpar observe` writes this beside the log
+# on first run. It was committed once, by a `git add -A` after the gateway was
+# started by accident — caught in review, never on main. A capture log without
+# its key is ciphertext; with it, it is the customer's traffic.
+onpar-captures.key
 *-captures.key
 *.key
 # Rust
