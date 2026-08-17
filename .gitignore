@@ -16,6 +16,9 @@ __pycache__/
 # is not the same as publishable.
 onpar-captures.log
 *-captures.log
+# ...and no key/credential material derived from a capture session either.
+*-captures.key
+*.key
 # Rust
 build/
 dist/
