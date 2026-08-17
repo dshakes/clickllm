@@ -521,13 +521,18 @@ def test_published_test_count_is_not_stale(request):
     # the identical command and commit — so an exact match turns a documentation
     # check into a gate that goes red for reasons no reader would care about.
     #
-    # The tolerance is small on purpose. What this exists to catch is the README
-    # advertising 478 against a real 727, or CLAUDE.md's 61 against 227; a drift
-    # of two is invisible to a reader and a drift of hundreds is a lie. Anything
-    # past 2% fails, and the message still prints both numbers.
+    # FIXED, not a percentage. This was `max(5, actual // 50)` — 2% — which grows
+    # with the suite, so the check got weaker exactly as the published number got
+    # bigger: at 2211 tests it tolerated a drift of 44, and a real drift of 14
+    # (badge 2225 against a true 2211) sat inside it unnoticed for weeks. A
+    # tolerance that scales with the thing it is measuring is not a tolerance, it
+    # is a widening blind spot.
+    #
+    # 10 covers the documented cross-environment variance (this machine collects
+    # two fewer than CI on the identical commit) with margin, and does not grow.
     actual = rust + python_collected
     drift = abs(published - actual)
-    assert drift <= max(5, actual // 50), (
+    assert drift <= 10, (
         f"published {published} but the suite is {rust} Rust + "
         f"{python_collected} Python = {actual} (drift {drift})"
     )
