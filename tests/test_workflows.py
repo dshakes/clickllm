@@ -159,3 +159,43 @@ def test_the_release_workflow_still_fires_on_a_version_tag():
     assert trigger, "no trigger block"
     tags = trigger.get("push", {}).get("tags", [])
     assert any("[0-9]" in t for t in tags), f"a version tag will not release: {tags}"
+
+
+def test_no_secret_material_is_tracked_in_git():
+    """A capture key or capture log must never be committed.
+
+    `onpar observe` writes `onpar-captures.key` beside its log on first run, in
+    whatever directory it was started from. That is the key the capture log is
+    encrypted with: the log alone is ciphertext, the pair is the customer's
+    traffic in the clear.
+
+    One was committed during this repo's own development — a `git add -A` after
+    the gateway had been started by accident. It was caught in review and never
+    reached main, but review is a person paying attention, and this is a class of
+    mistake that should fail a gate instead. .gitignore covers it now; this
+    asserts the outcome rather than the rule, so renaming the pattern without
+    renaming the file cannot quietly reopen it.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert tracked.returncode == 0, f"git ls-files failed: {tracked.stderr[-200:]}"
+
+    offenders = [
+        line
+        for line in tracked.stdout.splitlines()
+        if line.endswith(".key")
+        or line.endswith("-captures.log")
+        or line.endswith("onpar-captures.log")
+    ]
+    assert not offenders, (
+        "secret material is tracked in git — a capture key or capture log. "
+        f"Remove it with `git rm --cached`: {offenders}"
+    )

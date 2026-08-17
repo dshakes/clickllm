@@ -18,8 +18,8 @@ Full picture: [README](README.md) · [PRD](docs/20-prd.md) · [architecture](doc
 | control plane, solver, evals | **Python 3.11+** (`src/onpar/`) | the ML ecosystem is Python; zero runtime deps today |
 
 ```bash
-cargo test && cargo clippy --all-targets && cargo fmt --check   # Rust gate (249 tests)
-uv run --with pytest --with pyyaml --python 3.13 pytest -q   # Python gate (2005 tests)
+cargo test && cargo clippy --all-targets && cargo fmt --check   # Rust gate (251 tests)
+uv run --with pytest --with pyyaml --python 3.13 pytest -q   # Python gate (2006 tests)
 uv run --with ruff   --python 3.13 ruff check src tests
 uv run --with ruff   --python 3.13 ruff format src tests
 python3 tools/release_preflight.py                     # before tagging a release
