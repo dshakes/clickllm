@@ -1,10 +1,17 @@
 # GA readiness
 
-**Assessed 2026-08-17 against 1.3.2.** Written by running the product as a
+**Assessed 2026-08-17 against 1.3.3.** Written by running the product as a
 consumer would, from the published packages — not by reading the source.
 
-The badge says `pre-alpha`. This document is the case for what would have to be
-true before it comes off, and what is already true.
+The badge moved from `pre-alpha` to `beta` at 1.3.3. That is a claim about the
+**install**, not the code: every stage command ships, all four registries carry
+matching artifacts, and the three-package install is documented and verified.
+
+It is deliberately not `stable`. Blocker #2 below — `observe` has never been
+pointed at real traffic — is the one that would have to close first, because it
+is the invariant with the highest cost of being wrong. A badge is a published
+claim like any other number here, and it gets the same rule: say what is true,
+and say the confidence.
 
 ---
 
@@ -72,7 +79,7 @@ is describing an earlier repo.
   #259 says **"not proven"** rather than borrowing a verdict. A perfect score on
   twelve items does not clear a 90% bar and the tool says so.
 - **The four publish channels.** PyPI, npm, Homebrew and GitHub Releases all carry
-  1.3.2, verified against the registries rather than a workflow's green tick.
+  1.3.3, verified against the registries rather than a workflow's green tick.
 - **Provenance.** Generated config carries a header saying what was chosen and
   that it runs with onpar uninstalled; a test asserts the generated artifact never
   shells back into the tool (NFR-4).
@@ -81,17 +88,20 @@ is describing an earlier repo.
 
 ## Blockers, ranked
 
-### 1. Three distributions, one documented install
+### 1. ~~Three distributions, one documented install~~ — CLOSED in 1.3.3
 
-The README's quickstart is `uvx --from onpar onpar fit`, which is honest for the
-sizing half and silent about the rest. A user reaching `observe` or `distill`
-discovers the other two packages by hitting the error.
+The README's quickstart was `uvx --from onpar onpar fit`, honest for the sizing
+half and silent about the rest, so a user reaching `observe` or `distill`
+discovered the other two packages by hitting the error.
 
-**What would make it GA:** either the install docs state all three up front, or
-`onpar` depends on `onpar-gateway` and `onpar-core` so one command is enough. The
-second conflicts with the zero-dependency guarantee for `fit` — which is a real
-constraint, not an oversight — so this is a genuine design decision, probably an
-extras marker (`pip install onpar[all]`) rather than a default dependency.
+The install section now names all three up front. Deliberately **not** solved by
+making `onpar` depend on the other two: `uvx onpar fit` working on a machine with
+nothing installed is a real guarantee, and a default dependency would spend it to
+save a line of documentation.
+
+Verified from the published 1.3.3 packages — all three install, and `onpar
+observe` starts with zero warnings.
+
 
 ### 2. `observe` has never been pointed at real traffic
 
@@ -102,10 +112,12 @@ NFR-3 lives; it is the least exercised code with the most sensitive job.
 **What would make it GA:** one recorded end-to-end run against a real upstream,
 with the capture log inspected to confirm no readable prompt text on disk.
 
-### 3. Phase markings in the roadmap are stale
+### 3. ~~Phase markings in the roadmap are stale~~ — CLOSED in 1.3.3
 
-Phase 0 reads "in progress" while all seven stages ship. A reader cannot tell
-what is finished from the document that exists to tell them.
+Phase 0 read "in progress" while all seven stages shipped, so the document whose
+job is to say what is finished described an earlier repo. Corrected, with a dated
+note explaining what is and is not done.
+
 
 ### 4. The Intel-macOS wheel is built but never run on Intel
 
@@ -143,12 +155,17 @@ nobody has tested.
 
 ## The honest summary
 
-**onpar 1.3.2 is a working tool with a pre-alpha install story.** The sizing half
-is genuinely good and genuinely dependency-free. The evidence half is built and
-runs, but has not been exercised against real traffic, and reaching it takes three
-installs the docs do not announce.
+**onpar 1.3.3 is a working tool that is honest about what it has not proven.**
+The sizing half is genuinely good and genuinely dependency-free. The evidence half
+is built, runs, and now installs in one documented command — but it has not been
+exercised against real traffic.
 
-Nothing in the ranked list requires new architecture. Items 1 and 3 are
-half a day. Item 2 is the one that needs a real customer, a real upstream, and a
-willingness to look at what lands on disk — and it is the one that matters most,
-because it is the invariant with the highest cost of being wrong.
+That last clause is why the badge says `beta` and not `stable`. Blockers 1 and 3
+closed in 1.3.3. Blocker 2 is the one that matters, and it cannot be closed from
+inside the repo: it needs a real customer, a real upstream, and a willingness to
+look at what lands on disk. Blockers 4 and 5 are known, bounded, and written down
+where a reader will find them.
+
+The rule this document holds itself to is the one the product holds its own output
+to: **say what is true, and say the confidence.** A status badge is a published
+claim like any other number here.
